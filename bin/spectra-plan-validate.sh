@@ -268,7 +268,9 @@ if [[ -n "${seq_deps_line}" ]]; then
         prev=""
         for node in ${chain}; do
             [[ "${node}" == "->" ]] && continue
-            node=$(printf '%03d' "$((10#${node}))" 2>/dev/null || true)
+            # Skip non-numeric tokens (e.g., "none", empty strings, punctuation)
+            [[ ! "${node}" =~ ^[0-9]+$ ]] && continue
+            node=$(printf '%03d' "$((10#${node}))")
             if [[ -n "${prev}" ]] && [[ -n "${node}" ]]; then
                 SEQ_DEPS["${prev}->${node}"]=1
                 SEQ_DEPS["${node}->${prev}"]=1
