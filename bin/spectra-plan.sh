@@ -195,6 +195,16 @@ $(cat "${story}")
 "
     done <<< "${BMAD_STORY_FILES}"
 
+    # Validate story content has meaningful structure (catches case-901/902 malformed artifacts)
+    STORY_MARKERS=$(echo "${STORIES_CONTENT}" | grep -cE '^## (Summary|Acceptance Criteria|Acceptance)' 2>/dev/null | tr -dc '0-9' || echo "0")
+    STORY_MARKERS=${STORY_MARKERS:-0}
+    if [[ "${STORY_MARKERS}" -eq 0 ]]; then
+        echo "Error: Story files found but contain no valid story entries."
+        echo "  Expected: '# Story' or '## Story' headings with acceptance criteria."
+        echo "  Check: ${BMAD_DIR}/stories/*.md or ${BMAD_DIR}/*.md"
+        exit 1
+    fi
+
 else
     # ── Standard mode: read from .spectra/stories/ ──
     if [[ ! -d .spectra/stories ]]; then
