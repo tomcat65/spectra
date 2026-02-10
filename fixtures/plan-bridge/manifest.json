@@ -60,8 +60,8 @@
       "file": "invalid-ac-format.md",
       "projectLevel": 1,
       "expected": "fail",
-      "errorCode": "INVALID_AC_FORMAT",
-      "errorDetail": "AC must be multiline bullet list"
+      "errorCode": "MISSING_REQUIRED_FIELD",
+      "errorDetail": "AC section missing entirely"
     }
   ]
 }

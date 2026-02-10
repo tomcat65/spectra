@@ -255,6 +255,48 @@ for i in "${!TASK_HEADERS[@]}"; do
 done
 
 # ══════════════════════════════════════════
+# DEPENDENCY-AWARE TOUCHES SUPPRESSION
+# ══════════════════════════════════════════
+
+# Parse Sequential dependencies section for dependency chains (e.g., "001 -> 002")
+declare -A SEQ_DEPS=()
+seq_deps_line=$(grep -oP 'Sequential dependencies:\s*\K.*' "${PLAN_FILE}" 2>/dev/null || true)
+if [[ -n "${seq_deps_line}" ]]; then
+    # Extract all "NNN -> NNN" pairs (supports chains like "001 -> 002 -> 005")
+    while read -r chain; do
+        chain=$(echo "${chain}" | tr -d '[]' | sed 's/,//g')
+        prev=""
+        for node in ${chain}; do
+            [[ "${node}" == "->" ]] && continue
+            node=$(printf '%03d' "$((10#${node}))" 2>/dev/null || true)
+            if [[ -n "${prev}" ]] && [[ -n "${node}" ]]; then
+                SEQ_DEPS["${prev}->${node}"]=1
+                SEQ_DEPS["${node}->${prev}"]=1
+            fi
+            prev="${node}"
+        done
+    done <<< "$(echo "${seq_deps_line}" | tr ',' '\n')"
+fi
+
+# Filter WARNINGS: suppress SIGN-005 touches WARN when sequential dependency covers the overlap
+if [[ ${#WARNINGS[@]} -gt 0 ]] && [[ ${#SEQ_DEPS[@]} -gt 0 ]]; then
+    declare -a FILTERED_WARNINGS=()
+    for warn in "${WARNINGS[@]}"; do
+        if echo "${warn}" | grep -q 'SIGN-005 WARN'; then
+            # Extract the two task IDs from the warning
+            task_a=$(echo "${warn}" | grep -oP 'Task \K[0-9]{3}' | head -1 || true)
+            task_b=$(echo "${warn}" | grep -oP 'Task \K[0-9]{3}' | tail -1 || true)
+            if [[ -n "${task_a}" ]] && [[ -n "${task_b}" ]] && [[ -n "${SEQ_DEPS["${task_a}->${task_b}"]:-}" ]]; then
+                # Suppress — sequential dependency covers this overlap
+                continue
+            fi
+        fi
+        FILTERED_WARNINGS+=("${warn}")
+    done
+    WARNINGS=("${FILTERED_WARNINGS[@]+"${FILTERED_WARNINGS[@]}"}")
+fi
+
+# ══════════════════════════════════════════
 # PLAN-LEVEL CHECKS
 # ══════════════════════════════════════════
 

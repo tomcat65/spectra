@@ -15,7 +15,7 @@
 - Verify: `npm test -- config.loader`
 - Risk: medium
 - Max-iterations: 8
-- Scope: code,config
+- Scope: code
 - File-ownership:
   - owns: [src/config/loader.ts]
   - touches: []
@@ -32,7 +32,7 @@
 - Verify: `npm test -- config.encrypt`
 - Risk: high
 - Max-iterations: 10
-- Scope: code,config
+- Scope: code
 - File-ownership:
   - owns: [src/config/loader.ts, src/config/encrypt.ts]
   - touches: []

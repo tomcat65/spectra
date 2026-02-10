@@ -173,10 +173,19 @@ write_signal() {
 write_progress() {
     local total done stuck
     if [[ -f "${SPECTRA_DIR}/plan.md" ]]; then
-        total=$(grep -cE '^\- \[[ xX!]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
-        done=$(grep -cE '^\- \[[xX]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
-        stuck=$(grep -cE '^\- \[!\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
-        [[ "$total" -eq 0 ]] && total=$(grep -c '^\- \[.\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0") && done=$(grep -c '^\- \[[xX]\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0") && stuck=0
+        total=$(grep -cE '^\- \[[ xX!]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
+        total=${total:-0}
+        done=$(grep -cE '^\- \[[xX]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
+        done=${done:-0}
+        stuck=$(grep -cE '^\- \[!\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
+        stuck=${stuck:-0}
+        if [[ "$total" -eq 0 ]]; then
+            total=$(grep -c '^\- \[.\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
+            total=${total:-0}
+            done=$(grep -c '^\- \[[xX]\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
+            done=${done:-0}
+            stuck=0
+        fi
         write_signal "PROGRESS" "${done}/${total} tasks (${stuck} stuck)"
     fi
 }
@@ -390,13 +399,17 @@ generate_task_summary() {
 # Count tasks (supports [ ] pending, [x] complete, [!] stuck)
 count_tasks() {
     local total done stuck remaining
-    total=$(grep -cE '^\- \[[ xX!]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
-    done=$(grep -cE '^\- \[[xX]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
-    stuck=$(grep -cE '^\- \[!\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+    total=$(grep -cE '^\- \[[ xX!]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
+    total=${total:-0}
+    done=$(grep -cE '^\- \[[xX]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
+    done=${done:-0}
+    stuck=$(grep -cE '^\- \[!\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
+    stuck=${stuck:-0}
     if [[ "$total" -eq 0 ]]; then
-        # Compatibility fallback for older plans.
-        total=$(grep -c '^\- \[.\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
-        done=$(grep -c '^\- \[[xX]\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+        total=$(grep -c '^\- \[.\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
+        total=${total:-0}
+        done=$(grep -c '^\- \[[xX]\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
+        done=${done:-0}
         stuck=0
     fi
     remaining=$((total - done - stuck))
