@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "assessment-v1-draft-2026-02-10",
+  "description": "Phase C assessment.yaml verification fixtures",
+  "fixtures": [
+    {
+      "id": "assessment-level0-quickflow",
+      "file": "assessment-level0-quickflow.yaml",
+      "expected": "pass",
+      "checks": [
+        "source.mode=bmad-detected",
+        "bmad.track=quick_flow",
+        "spectra.level=0",
+        "tuning.verification_intensity=low",
+        "tuning.wiring_depth=none",
+        "tuning.retry_budget=2"
+      ]
+    },
+    {
+      "id": "assessment-level3-bmad-method",
+      "file": "assessment-level3-bmad-method.yaml",
+      "expected": "pass",
+      "checks": [
+        "source.mode=bmad-detected",
+        "bmad.track=bmad_method",
+        "spectra.level=3",
+        "tuning.verification_intensity=high",
+        "tuning.wiring_depth=full",
+        "tuning.retry_budget=4"
+      ]
+    },
+    {
+      "id": "assessment-level4-enterprise",
+      "file": "assessment-level4-enterprise.yaml",
+      "expected": "pass",
+      "checks": [
+        "source.mode=bmad-detected",
+        "bmad.track=enterprise",
+        "spectra.level=4",
+        "tuning.verification_intensity=exhaustive",
+        "tuning.wiring_depth=full",
+        "tuning.retry_budget=5"
+      ]
+    },
+    {
+      "id": "assessment-manual-no-bmad",
+      "file": "assessment-manual-no-bmad.yaml",
+      "expected": "pass",
+      "checks": [
+        "source.mode=manual",
+        "source.producer=interactive-fallback",
+        "warnings contains BMAD unavailable",
+        "spectra.level=1"
+      ]
+    },
+    {
+      "id": "assessment-malformed-missing-level",
+      "file": "assessment-malformed-missing-level.yaml",
+      "expected": "fail",
+      "errorCode": "MISSING_REQUIRED_FIELD",
+      "errorDetail": "spectra.level is required"
+    }
+  ]
+}

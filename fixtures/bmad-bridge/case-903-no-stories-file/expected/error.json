@@ -1,0 +1,8 @@
+{
+  "status": "error",
+  "code": "BMAD_STORIES_NOT_FOUND",
+  "message": "Required stories artifact not found",
+  "details": {
+    "requiredFile": "bmad/stories.md"
+  }
+}

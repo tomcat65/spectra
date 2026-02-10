@@ -1,0 +1,9 @@
+{
+  "status": "error",
+  "code": "BMAD_STORIES_EMPTY",
+  "message": "Stories artifact has no valid story entries",
+  "details": {
+    "artifact": "bmad/stories.md",
+    "requiredPattern": "## Story ST-<id>: <title>"
+  }
+}

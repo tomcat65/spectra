@@ -1,0 +1,29 @@
+version: 1
+generated_at: "2026-02-10T19:23:00Z"
+source:
+  mode: manual
+  producer: interactive-fallback
+bmad:
+  track: quick_flow
+  confidence: 0.5
+  rationale: "Fallback answers collected because BMAD was unavailable."
+  context:
+    language: python
+    framework: fastapi
+    domain: general
+    team_size: 2
+    integration_count: 1
+    risk_factors:
+      - external-api
+    compliance: []
+    blast_radius: medium
+spectra:
+  level: 1
+  execution_mode: sequential
+  mapping_reason: "quick_flow but not level-0-safe because blast_radius is medium"
+tuning:
+  verification_intensity: low
+  wiring_depth: basic
+  retry_budget: 2
+warnings:
+  - "BMAD unavailable; assessment derived from manual answers"

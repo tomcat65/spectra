@@ -1,0 +1,25 @@
+version: 1
+generated_at: "2026-02-10T19:24:00Z"
+source:
+  mode: bmad
+  producer: workflow-init
+bmad:
+  track: bmad_method
+  confidence: 0.82
+  rationale: "Malformed fixture to test required field validation."
+  context:
+    language: typescript
+    framework: express
+    domain: general
+    team_size: 3
+    integration_count: 2
+    risk_factors: []
+    compliance: []
+    blast_radius: medium
+spectra:
+  execution_mode: sequential
+  mapping_reason: "Intentionally missing spectra.level"
+tuning:
+  verification_intensity: medium
+  wiring_depth: basic
+  retry_budget: 3

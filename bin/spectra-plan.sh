@@ -2,21 +2,51 @@
 set -euo pipefail
 
 # SPECTRA Plan Generator (BMAD → Ralph Bridge)
-# Scans .spectra/stories/*.md and generates .spectra/plan.md in Ralph-compatible format
+# Scans .spectra/stories/*.md OR BMAD artifacts and generates .spectra/plan.md
 # Model and tools defined in ~/.claude/agents/spectra-planner.md
-# Usage: spectra-plan
+# Usage: spectra-plan [--from-bmad] [--bmad-dir PATH] [--dry-run]
 
 SPECTRA_HOME="${HOME}/.spectra"
 PLAN_VALIDATOR="${SPECTRA_HOME}/bin/spectra-plan-validate.sh"
 
+# Defaults
+FROM_BMAD=false
+BMAD_DIR=""
+DRY_RUN=false
+LEVEL_OVERRIDE=""
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --from-bmad)    FROM_BMAD=true; shift ;;
+        --bmad-dir)     BMAD_DIR="$2"; FROM_BMAD=true; shift 2 ;;
+        --dry-run)      DRY_RUN=true; shift ;;
+        --level)        LEVEL_OVERRIDE="$2"; shift 2 ;;
         -h|--help)
-            echo "Usage: spectra-plan"
-            echo ""
-            echo "Generates .spectra/plan.md from story files in .spectra/stories/"
-            echo "Model and tools governed by spectra-planner agent definition."
+            cat <<EOF
+SPECTRA v1.2 Plan Generator
+
+Usage: spectra-plan [OPTIONS]
+
+Generates .spectra/plan.md from story files or BMAD artifacts.
+Model and tools governed by spectra-planner agent definition.
+
+Options:
+  --from-bmad       Generate plan from BMAD artifacts (PRD + Architecture + Stories)
+  --bmad-dir PATH   Explicit BMAD directory path (implies --from-bmad)
+  --dry-run         Print generated plan to stdout, don't write file
+  --level N         Override project level (0-4)
+  -h, --help        Show this help
+
+Modes:
+  Default:      Reads .spectra/stories/*.md
+  --from-bmad:  Reads bmad/ or .bmad/ (PRD, architecture, stories)
+
+BMAD artifact discovery (checked in order):
+  1. --bmad-dir PATH (explicit)
+  2. bmad/ directory
+  3. .bmad/ directory
+EOF
             exit 0
             ;;
         *)
@@ -33,67 +63,199 @@ if [[ -f "${SPECTRA_HOME}/.env" ]]; then
     set -u
 fi
 
-# Verify we're in a SPECTRA project
-if [[ ! -d .spectra/stories ]]; then
-    echo "Error: No .spectra/stories/ directory found. Run 'spectra-init' first."
-    exit 1
+# ══════════════════════════════════════════
+# LEVEL + TUNING RESOLUTION
+# ══════════════════════════════════════════
+
+PROJECT_LEVEL=1
+if [[ -f .spectra/project.yaml ]]; then
+    PROJECT_LEVEL=$(grep -oP '^level:\s*\K\d+' .spectra/project.yaml 2>/dev/null | head -1 || echo "1")
 fi
 
-# Count stories
-STORY_COUNT=$(find .spectra/stories -name "*.md" -not -name ".gitkeep" 2>/dev/null | wc -l)
+RETRY_BUDGET=5
+SCOPE_DEFAULT="code"
+WIRING_DEPTH="basic"
+HAS_ASSESSMENT=false
 
-if [[ "$STORY_COUNT" -eq 0 ]]; then
-    echo "Error: No story files found in .spectra/stories/"
-    echo "Create story files like: .spectra/stories/001-feature-name.md"
-    exit 1
+if [[ -f .spectra/assessment.yaml ]]; then
+    HAS_ASSESSMENT=true
+    RETRY_BUDGET=$(grep -oP '^\s*retry_budget:\s*\K\d+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "5")
+    SCOPE_DEFAULT=$(grep -oP '^\s*scope_default:\s*\K\w+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "code")
+    WIRING_DEPTH=$(grep -oP '^\s*wiring_depth:\s*\K\w+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "basic")
+    ASSESSED_LEVEL=$(grep -oP '^\s*level:\s*\K\d+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "")
+    if [[ -n "${ASSESSED_LEVEL}" ]] && [[ "${PROJECT_LEVEL}" -eq 1 ]]; then
+        PROJECT_LEVEL="${ASSESSED_LEVEL}"
+    fi
+elif [[ "${FROM_BMAD}" == true ]]; then
+    echo "  WARN: No .spectra/assessment.yaml found. Defaulting to Level 2 (bmad_method)."
+    PROJECT_LEVEL=2
 fi
+
+# --level flag overrides everything
+if [[ -n "${LEVEL_OVERRIDE}" ]]; then
+    PROJECT_LEVEL="${LEVEL_OVERRIDE}"
+fi
+
+# ══════════════════════════════════════════
+# BMAD ARTIFACT COLLECTION (--from-bmad mode)
+# ══════════════════════════════════════════
+
+PRD_CONTENT=""
+ARCH_CONTENT=""
+STORIES_CONTENT=""
+STORY_COUNT=0
+PLAN_SOURCE=".spectra/stories/"
+BMAD_WARNINGS=()
+
+if [[ "${FROM_BMAD}" == true ]]; then
+    # Auto-discover BMAD directory if not explicit
+    if [[ -z "${BMAD_DIR}" ]]; then
+        if [[ -d "bmad" ]]; then
+            BMAD_DIR="bmad"
+        elif [[ -d ".bmad" ]]; then
+            BMAD_DIR=".bmad"
+        else
+            echo "Error: --from-bmad specified but no bmad/ or .bmad/ directory found."
+            echo "  Use --bmad-dir PATH to specify the BMAD artifact location."
+            exit 1
+        fi
+    elif [[ ! -d "${BMAD_DIR}" ]]; then
+        echo "Error: BMAD directory '${BMAD_DIR}' does not exist."
+        exit 1
+    fi
+
+    PLAN_SOURCE="BMAD (${BMAD_DIR}/)"
+
+    # Collect PRD
+    PRD_FILE=$(find "${BMAD_DIR}" -maxdepth 2 -iname "*prd*" -name "*.md" 2>/dev/null | head -1 || true)
+    if [[ -n "${PRD_FILE}" ]]; then
+        PRD_CONTENT=$(cat "${PRD_FILE}")
+        echo "  PRD: ${PRD_FILE}"
+    else
+        BMAD_WARNINGS+=("No PRD found in ${BMAD_DIR}. Acceptance criteria derived from stories only.")
+        echo "  WARN: No PRD found in ${BMAD_DIR}."
+    fi
+
+    # Collect Architecture
+    ARCH_FILE=$(find "${BMAD_DIR}" -maxdepth 2 -iname "*arch*" -name "*.md" 2>/dev/null | head -1 || true)
+    if [[ -n "${ARCH_FILE}" ]]; then
+        ARCH_CONTENT=$(cat "${ARCH_FILE}")
+        echo "  Architecture: ${ARCH_FILE}"
+    else
+        BMAD_WARNINGS+=("No architecture doc in ${BMAD_DIR}. File ownership will be best-effort.")
+        echo "  WARN: No architecture doc in ${BMAD_DIR}."
+    fi
+
+    # Collect Stories — look in stories/ subdir first, then top-level .story.md, then remaining .md
+    BMAD_STORY_FILES=""
+    if [[ -d "${BMAD_DIR}/stories" ]]; then
+        BMAD_STORY_FILES=$(find "${BMAD_DIR}/stories" -name "*.md" -not -name ".gitkeep" 2>/dev/null | sort || true)
+    fi
+    if [[ -z "${BMAD_STORY_FILES}" ]]; then
+        BMAD_STORY_FILES=$(find "${BMAD_DIR}" -maxdepth 1 -name "*.story.md" 2>/dev/null | sort || true)
+    fi
+    if [[ -z "${BMAD_STORY_FILES}" ]]; then
+        # Remaining .md files excluding PRD and architecture
+        BMAD_STORY_FILES=$(find "${BMAD_DIR}" -maxdepth 1 -name "*.md" \
+            ! -iname "*prd*" ! -iname "*arch*" ! -iname "README.md" 2>/dev/null | sort || true)
+    fi
+
+    # Count BMAD stories
+    if [[ -n "${BMAD_STORY_FILES}" ]]; then
+        STORY_COUNT=$(echo "${BMAD_STORY_FILES}" | grep -c . || echo "0")
+    fi
+
+    # Fallback to .spectra/stories/ if BMAD has no stories
+    if [[ "${STORY_COUNT}" -eq 0 ]] && [[ -d .spectra/stories ]]; then
+        BMAD_STORY_FILES=$(find .spectra/stories -name "*.md" -not -name ".gitkeep" 2>/dev/null | sort || true)
+        if [[ -n "${BMAD_STORY_FILES}" ]]; then
+            STORY_COUNT=$(echo "${BMAD_STORY_FILES}" | grep -c . || echo "0")
+        fi
+        if [[ "${STORY_COUNT}" -gt 0 ]]; then
+            BMAD_WARNINGS+=("No stories in ${BMAD_DIR}. Using .spectra/stories/ fallback.")
+            echo "  WARN: No stories in ${BMAD_DIR}. Falling back to .spectra/stories/"
+            PLAN_SOURCE="BMAD (${BMAD_DIR}/) + .spectra/stories/"
+        fi
+    fi
+
+    # Hard fail if no stories anywhere
+    if [[ "${STORY_COUNT}" -eq 0 ]]; then
+        echo "Error: No stories found in ${BMAD_DIR}/ or .spectra/stories/."
+        echo "  BMAD bridge requires at least one story file to generate a plan."
+        echo "  Expected: ${BMAD_DIR}/stories/*.md or .spectra/stories/*.md"
+        exit 1
+    fi
+
+    # Build stories content
+    while IFS= read -r story; do
+        [[ -z "${story}" ]] && continue
+        STORIES_CONTENT="${STORIES_CONTENT}
+--- $(basename "${story}") ---
+$(cat "${story}")
+"
+    done <<< "${BMAD_STORY_FILES}"
+
+else
+    # ── Standard mode: read from .spectra/stories/ ──
+    if [[ ! -d .spectra/stories ]]; then
+        echo "Error: No .spectra/stories/ directory found. Run 'spectra-init' first."
+        exit 1
+    fi
+
+    STORY_COUNT=$(find .spectra/stories -name "*.md" -not -name ".gitkeep" 2>/dev/null | wc -l | tr -dc '0-9')
+    STORY_COUNT=${STORY_COUNT:-0}
+
+    if [[ "$STORY_COUNT" -eq 0 ]]; then
+        echo "Error: No story files found in .spectra/stories/"
+        echo "Create story files like: .spectra/stories/001-feature-name.md"
+        exit 1
+    fi
+
+    for story in $(find .spectra/stories -name "*.md" -not -name ".gitkeep" | sort); do
+        STORIES_CONTENT="${STORIES_CONTENT}
+--- $(basename "$story") ---
+$(cat "$story")
+"
+    done
+fi
+
+# ══════════════════════════════════════════
+# DISPLAY BANNER
+# ══════════════════════════════════════════
 
 echo "╔══════════════════════════════════════════╗"
 echo "║        SPECTRA Plan Generator             ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
-echo "  Stories found: ${STORY_COUNT}"
-echo "  Agent: spectra-planner"
+echo "  Mode:    $(if [[ "${FROM_BMAD}" == true ]]; then echo "BMAD bridge (--from-bmad)"; else echo "Standard (stories)"; fi)"
+echo "  Source:  ${PLAN_SOURCE}"
+echo "  Stories: ${STORY_COUNT}"
+echo "  Level:   ${PROJECT_LEVEL}"
+echo "  Retry:   ${RETRY_BUDGET} (from assessment)"
+echo "  Agent:   spectra-planner"
+if [[ "${DRY_RUN}" == true ]]; then
+    echo "  Dry-run: YES (no file write)"
+fi
 echo ""
 
-# Build context from all stories
-STORIES_CONTENT=""
-for story in $(find .spectra/stories -name "*.md" -not -name ".gitkeep" | sort); do
-    STORIES_CONTENT="${STORIES_CONTENT}
---- $(basename "$story") ---
-$(cat "$story")
-"
+# Print BMAD warnings
+for w in "${BMAD_WARNINGS[@]+${BMAD_WARNINGS[@]}}"; do
+    echo "  WARN: ${w}"
 done
 
-# Read constitution if it exists
+# ══════════════════════════════════════════
+# READ CONSTITUTION
+# ══════════════════════════════════════════
+
 CONSTITUTION=""
 if [[ -f .spectra/constitution.md ]]; then
     CONSTITUTION=$(cat .spectra/constitution.md)
 fi
 
-# Determine project level
-PROJECT_LEVEL=1
-if [[ -f .spectra/project.yaml ]]; then
-    PROJECT_LEVEL=$(grep -oP '^level:\s*\K\d+' .spectra/project.yaml 2>/dev/null | head -1 || echo "1")
-fi
-# Read assessment tuning defaults (if available)
-RETRY_BUDGET=5
-SCOPE_DEFAULT="code"
-WIRING_DEPTH="basic"
-if [[ -f .spectra/assessment.yaml ]]; then
-    RETRY_BUDGET=$(grep -oP '^\s*retry_budget:\s*\K\d+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "5")
-    SCOPE_DEFAULT=$(grep -oP '^\s*scope_default:\s*\K\w+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "code")
-    WIRING_DEPTH=$(grep -oP '^\s*wiring_depth:\s*\K\w+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "basic")
-    # Also prefer assessment-derived level if available and project.yaml doesn't have one
-    ASSESSED_LEVEL=$(grep -oP '^\s*level:\s*\K\d+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "")
-    if [[ -n "${ASSESSED_LEVEL}" ]] && [[ "${PROJECT_LEVEL}" -eq 1 ]]; then
-        PROJECT_LEVEL="${ASSESSED_LEVEL}"
-    fi
-fi
-echo "  Project Level: ${PROJECT_LEVEL}"
-echo "  Retry Budget:  ${RETRY_BUDGET} (from assessment)"
+# ══════════════════════════════════════════
+# BUILD LEVEL-CONDITIONAL SCHEMA INSTRUCTIONS
+# ══════════════════════════════════════════
 
-# Build level-conditional schema instructions
 LEVEL_FIELDS=""
 if [[ "${PROJECT_LEVEL}" -ge 1 ]]; then
     LEVEL_FIELDS="${LEVEL_FIELDS}
@@ -124,12 +286,42 @@ if [[ "${PROJECT_LEVEL}" -ge 3 ]]; then
 - Recommendation: [TEAM_ELIGIBLE|SEQUENTIAL_ONLY]"
 fi
 
-# Generate the plan using Claude
-PLAN_PROMPT="You are a SPECTRA plan generator. Convert the following stories into a canonical plan.md file.
+# ══════════════════════════════════════════
+# BMAD CONTEXT (augmented prompt for --from-bmad)
+# ══════════════════════════════════════════
+
+BMAD_CONTEXT=""
+if [[ "${FROM_BMAD}" == true ]]; then
+    BMAD_CONTEXT="
+## Product Requirements Document (from BMAD)
+${PRD_CONTENT:-Not available — derive acceptance criteria from stories alone.}
+
+## Architecture Document (from BMAD)
+${ARCH_CONTENT:-Not available — derive file paths from stories and project conventions.}
+
+## BMAD Bridge Instructions
+You are generating a plan from BMAD artifacts. Additional rules:
+1. Extract acceptance criteria from PRD user stories AND from individual story files. Prefer story-level criteria when both exist.
+2. If architecture.md defines component structure (e.g., src/auth/, src/api/), use it for File-ownership derivation (Level 3+).
+3. If architecture.md defines API contracts or data models, reference them in Wiring-proof Integration field.
+4. Map PRD non-functional requirements to Risk assessment (security/performance concerns = high risk).
+5. Each BMAD story may map to 1-3 plan tasks. Split by logical unit of work — one task per independently verifiable deliverable.
+6. Preserve BMAD story IDs in task titles where possible (e.g., 'US-1: ...' becomes 'Task 001: US-1 — ...').
+7. Default Scope to '${SCOPE_DEFAULT}' unless the task clearly targets a different scope.
+"
+fi
+
+# ══════════════════════════════════════════
+# BUILD PLANNER PROMPT
+# ══════════════════════════════════════════
+
+GENERATED_DATE=$(date +%Y-%m-%d)
+
+PLAN_PROMPT="You are a SPECTRA plan generator. Convert the following $(if [[ "${FROM_BMAD}" == true ]]; then echo "BMAD artifacts"; else echo "stories"; fi) into a canonical plan.md file.
 
 ## Constitution
 ${CONSTITUTION}
-
+${BMAD_CONTEXT}
 ## Stories
 ${STORIES_CONTENT}
 
@@ -143,8 +335,8 @@ Generate EXACTLY this schema (no extra text before/after markdown):
 
 ## Project: (extract from constitution or stories)
 ## Level: ${PROJECT_LEVEL}
-## Generated: $(date +%Y-%m-%d)
-## Source: .spectra/stories/
+## Generated: ${GENERATED_DATE}
+## Source: ${PLAN_SOURCE}
 
 ---
 
@@ -181,15 +373,26 @@ Rules:
 
 Output ONLY the markdown content, no code fences wrapping it."
 
-echo "→ Generating plan from stories..."
+echo "→ Generating plan from $(if [[ "${FROM_BMAD}" == true ]]; then echo "BMAD artifacts"; else echo "stories"; fi)..."
 
 claude --agent spectra-planner -p "${PLAN_PROMPT}" > .spectra/plan.md.new
 
-# Validate generated plan against canonical schema
+# ══════════════════════════════════════════
+# VALIDATE GENERATED PLAN
+# ══════════════════════════════════════════
+
 if [[ -x "${PLAN_VALIDATOR}" ]]; then
-    if ! "${PLAN_VALIDATOR}" --file .spectra/plan.md.new --quiet; then
+    VALIDATOR_LEVEL_FLAG=""
+    [[ -n "${LEVEL_OVERRIDE}" ]] && VALIDATOR_LEVEL_FLAG="--level ${LEVEL_OVERRIDE}"
+    if ! "${PLAN_VALIDATOR}" --file .spectra/plan.md.new --quiet ${VALIDATOR_LEVEL_FLAG}; then
         echo "⚠  Generated plan failed schema validation. Review .spectra/plan.md.new"
         echo "  Hint: ensure each task uses canonical '## Task NNN' + '- [ ] NNN:' format."
+        if [[ "${DRY_RUN}" == true ]]; then
+            cat .spectra/plan.md.new
+            rm -f .spectra/plan.md.new
+            echo "" >&2
+            echo "  [dry-run] Plan printed to stdout despite validation failure." >&2
+        fi
         exit 1
     fi
 else
@@ -201,10 +404,50 @@ else
     fi
 fi
 
-mv .spectra/plan.md.new .spectra/plan.md
-TASK_COUNT=$(grep -cE '^## Task [0-9]{3}:' .spectra/plan.md || echo "0")
-echo ""
-echo "  Plan generated: ${TASK_COUNT} tasks"
-echo "  Output: .spectra/plan.md"
-echo ""
-echo "Next: Run 'spectra-loop' to start execution"
+# ══════════════════════════════════════════
+# RECONCILE SIGNAL (Phase 4.5 infrastructure)
+# ══════════════════════════════════════════
+
+if [[ "${HAS_ASSESSMENT}" == true ]] && [[ "${FROM_BMAD}" == true ]]; then
+    # Check for assessment drift: compare assessment retry_budget vs generated Max-iterations
+    PLAN_MAX_ITERS=$(grep -oP '^\- Max-iterations:\s*\K\d+' .spectra/plan.md.new 2>/dev/null | sort -u || true)
+    DRIFT_DETAILS=""
+    while IFS= read -r iter_val; do
+        [[ -z "${iter_val}" ]] && continue
+        if [[ "${iter_val}" -gt "${RETRY_BUDGET}" ]]; then
+            DRIFT_DETAILS="${DRIFT_DETAILS}Max-iterations=${iter_val} exceeds retry_budget=${RETRY_BUDGET}; "
+        fi
+    done <<< "${PLAN_MAX_ITERS}"
+
+    if [[ -n "${DRIFT_DETAILS}" ]]; then
+        mkdir -p .spectra/signals
+        cat > .spectra/signals/RECONCILE <<SIGNAL
+signal: RECONCILE
+timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+reason: assessment_drift
+source: spectra-plan --from-bmad
+details: "${DRIFT_DETAILS%%; }"
+SIGNAL
+        echo "  RECONCILE signal written (assessment drift detected)."
+    fi
+fi
+
+# ══════════════════════════════════════════
+# OUTPUT ROUTING (dry-run vs normal)
+# ══════════════════════════════════════════
+
+if [[ "${DRY_RUN}" == true ]]; then
+    cat .spectra/plan.md.new
+    rm -f .spectra/plan.md.new
+    echo "" >&2
+    echo "  [dry-run] Plan printed to stdout. No files modified." >&2
+else
+    mv .spectra/plan.md.new .spectra/plan.md
+    TASK_COUNT=$(grep -cE '^## Task [0-9]{3}:' .spectra/plan.md 2>/dev/null | tr -dc '0-9' || echo "0")
+    TASK_COUNT=${TASK_COUNT:-0}
+    echo ""
+    echo "  Plan generated: ${TASK_COUNT} tasks"
+    echo "  Output: .spectra/plan.md"
+    echo ""
+    echo "Next: Run 'spectra-loop' to start execution"
+fi

@@ -1,0 +1,12 @@
+{
+  "status": "pass",
+  "effectiveLevel": 3,
+  "splitStories": ["ST-002"],
+  "storyToTaskRatio": {
+    "ST-001": 1,
+    "ST-002": 2,
+    "ST-003": 1,
+    "ST-004": 1
+  },
+  "warnings": []
+}

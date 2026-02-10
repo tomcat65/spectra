@@ -1,0 +1,26 @@
+version: 1
+generated_at: "2026-02-10T19:20:00Z"
+source:
+  mode: bmad-detected
+  producer: workflow-init
+bmad:
+  track: quick_flow
+  confidence: 0.94
+  rationale: "Single-file CLI typo fix with no external integrations."
+  context:
+    language: bash
+    framework: none
+    domain: internal-tooling
+    team_size: 1
+    integration_count: 0
+    risk_factors: []
+    compliance: []
+    blast_radius: low
+spectra:
+  level: 0
+  execution_mode: sequential
+  mapping_reason: "quick_flow + low blast radius + no risk factors + <=1 integration"
+tuning:
+  verification_intensity: low
+  wiring_depth: none
+  retry_budget: 2

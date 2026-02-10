@@ -1,0 +1,33 @@
+version: 1
+generated_at: "2026-02-10T19:22:00Z"
+source:
+  mode: bmad-detected
+  producer: workflow-init
+bmad:
+  track: enterprise
+  confidence: 0.91
+  rationale: "Regulated multi-team platform rollout with security and compliance scope."
+  context:
+    language: java
+    framework: spring-boot
+    domain: fintech
+    team_size: 12
+    integration_count: 8
+    risk_factors:
+      - security
+      - regulatory
+      - payments
+      - data-migration
+      - external-api
+    compliance:
+      - soc2
+      - pci-dss
+    blast_radius: high
+spectra:
+  level: 4
+  execution_mode: teams
+  mapping_reason: "enterprise track always maps to level 4"
+tuning:
+  verification_intensity: exhaustive
+  wiring_depth: full
+  retry_budget: 5

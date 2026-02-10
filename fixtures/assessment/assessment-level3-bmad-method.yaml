@@ -1,0 +1,30 @@
+version: 1
+generated_at: "2026-02-10T19:21:00Z"
+source:
+  mode: bmad-detected
+  producer: workflow-init
+bmad:
+  track: bmad_method
+  confidence: 0.88
+  rationale: "Multi-service feature with auth and external billing integration."
+  context:
+    language: typescript
+    framework: nestjs
+    domain: ecommerce
+    team_size: 5
+    integration_count: 4
+    risk_factors:
+      - external-api
+      - auth
+      - migration
+    compliance:
+      - soc2
+    blast_radius: medium
+spectra:
+  level: 3
+  execution_mode: teams
+  mapping_reason: "bmad_method with complexity triggers (team_size>=5, integrations>=3, compliance set)"
+tuning:
+  verification_intensity: high
+  wiring_depth: full
+  retry_budget: 4

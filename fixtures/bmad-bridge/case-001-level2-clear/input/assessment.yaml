@@ -1,0 +1,27 @@
+version: 1
+generated_at: "2026-02-10T20:30:00Z"
+source:
+  mode: bmad-detected
+  producer: interactive-fallback
+bmad:
+  track: bmad_method
+  confidence: 0.7
+  rationale: "bmad_method without complexity triggers"
+  context:
+    language: typescript
+    framework: express
+    domain: api
+    team_size: 3
+    integration_count: 2
+    risk_factors: [external-api]
+    compliance: []
+    blast_radius: medium
+spectra:
+  level: 2
+  execution_mode: sequential
+  mapping_reason: "bmad_method without complexity triggers"
+tuning:
+  verification_intensity: medium
+  wiring_depth: basic
+  retry_budget: 3
+  scope_default: code

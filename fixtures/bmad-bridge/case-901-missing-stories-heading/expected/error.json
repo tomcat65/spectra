@@ -1,0 +1,9 @@
+{
+  "status": "error",
+  "code": "BMAD_STORIES_HEADING_MISSING",
+  "message": "Stories artifact missing required '# Stories' heading",
+  "details": {
+    "artifact": "bmad/stories.md",
+    "requiredHeading": "# Stories"
+  }
+}

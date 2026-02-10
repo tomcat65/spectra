@@ -1,0 +1,30 @@
+version: 1
+generated_at: "2026-02-10T20:00:00Z"
+source:
+  mode: bmad-detected
+  producer: interactive-fallback
+  bmad_path: "bmad"
+bmad:
+  track: bmad_method
+  confidence: 0.7
+  rationale: "bmad_method with complexity triggers (integrations>=3)"
+  context:
+    language: typescript
+    framework: nestjs
+    domain: api
+    team_size: 3
+    integration_count: 3
+    risk_factors:
+      - auth
+      - external-api
+    compliance: []
+    blast_radius: medium
+spectra:
+  level: 3
+  execution_mode: teams
+  mapping_reason: "bmad_method with complexity triggers (integrations>=3)"
+tuning:
+  verification_intensity: high
+  wiring_depth: full
+  retry_budget: 4
+  scope_default: code

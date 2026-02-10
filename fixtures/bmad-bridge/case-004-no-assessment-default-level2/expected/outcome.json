@@ -1,0 +1,7 @@
+{
+  "status": "warn",
+  "effectiveLevel": 2,
+  "warnings": [
+    "assessment.yaml missing; defaulting to level 2"
+  ]
+}

@@ -1,0 +1,27 @@
+version: 1
+generated_at: "2026-02-10T20:00:00Z"
+source:
+  mode: manual
+  producer: interactive-fallback
+bmad:
+  track: quick_flow
+  confidence: 0.5
+  rationale: "quick_flow + low blast radius + no risk factors + <=1 integration"
+  context:
+    language: typescript
+    framework: express
+    domain: api
+    team_size: 1
+    integration_count: 0
+    risk_factors: []
+    compliance: []
+    blast_radius: low
+spectra:
+  level: 0
+  execution_mode: sequential
+  mapping_reason: "quick_flow + low blast radius + no risk factors + <=1 integration"
+tuning:
+  verification_intensity: low
+  wiring_depth: none
+  retry_budget: 2
+  scope_default: code

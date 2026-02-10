@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "phase-d-approved-2026-02-10",
+  "description": "Golden and malformed fixtures for spectra-plan --from-bmad bridge verification",
+  "fixtures": [
+    {
+      "id": "golden-full",
+      "description": "D1/D3: Full BMAD set (PRD + Architecture + Stories) at Level 3",
+      "gate_tests": ["D1", "D3", "D6", "D8", "D10"],
+      "path": "golden-full/",
+      "expected": "pass",
+      "effectiveLevel": 3,
+      "checks": [
+        "canonical_plan_shape",
+        "validator_pass",
+        "wiring_proof_present",
+        "scope_present",
+        "file_ownership_present",
+        "parallelism_assessment_present",
+        "story_split_1_to_n"
+      ]
+    },
+    {
+      "id": "minimal-stories-only",
+      "description": "D5: Missing PRD — stories only, should warn but produce valid plan",
+      "gate_tests": ["D5"],
+      "path": "minimal-stories-only/",
+      "expected": "pass",
+      "effectiveLevel": 1,
+      "checks": [
+        "canonical_plan_shape",
+        "validator_pass",
+        "prd_warning_emitted",
+        "arch_warning_emitted",
+        "ownership_not_required"
+      ]
+    },
+    {
+      "id": "no-stories",
+      "description": "D4: No stories in BMAD dir or fallback — hard FAIL",
+      "gate_tests": ["D4"],
+      "path": "no-stories/",
+      "expected": "fail",
+      "errorCode": "BMAD_STORIES_NOT_FOUND",
+      "checks": [
+        "exit_code_nonzero",
+        "error_message_contains_no_stories"
+      ]
+    },
+    {
+      "id": "level0-assessment",
+      "description": "D2: Level 0 assessment — minimal fields only",
+      "gate_tests": ["D2"],
+      "path": "level0-assessment/",
+      "expected": "pass",
+      "effectiveLevel": 0,
+      "checks": [
+        "canonical_plan_shape",
+        "validator_pass",
+        "no_risk_field",
+        "no_wiring_proof",
+        "no_file_ownership",
+        "no_parallelism_assessment"
+      ]
+    },
+    {
+      "id": "level3-with-arch",
+      "description": "D3/D6/D10: Level 3 with architecture — full fields + ownership stress",
+      "gate_tests": ["D3", "D6", "D10"],
+      "path": "level3-with-arch/",
+      "expected": "pass",
+      "effectiveLevel": 3,
+      "checks": [
+        "canonical_plan_shape",
+        "validator_pass",
+        "file_ownership_present",
+        "parallelism_assessment_present",
+        "wiring_proof_present",
+        "ownership_no_owns_overlap",
+        "best_effort_ownership_from_arch"
+      ]
+    },
+    {
+      "id": "dry-run",
+      "description": "D7: --dry-run prints plan to stdout, does not write .spectra/plan.md",
+      "gate_tests": ["D7"],
+      "path": "golden-full/",
+      "expected": "pass",
+      "effectiveLevel": 3,
+      "checks": [
+        "stdout_contains_plan",
+        "plan_md_not_written",
+        "exit_code_zero"
+      ]
+    },
+    {
+      "id": "case-004-no-assessment-default-level2",
+      "description": "No assessment.yaml — soft warn, defaults to Level 2",
+      "gate_tests": [],
+      "expected": "warn",
+      "effectiveLevel": 2,
+      "checks": [
+        "assessment_missing_warning",
+        "default_level_2",
+        "validator_pass"
+      ]
+    }
+  ],
+  "gate_test_coverage": {
+    "D1": "golden-full: canonical plan validity + validator PASS",
+    "D2": "level0-assessment: Level 0 minimal fields only",
+    "D3": "golden-full + level3-with-arch: Level 3 full field population",
+    "D4": "no-stories: missing stories hard FAIL (exit 1)",
+    "D5": "minimal-stories-only: missing PRD soft degradation",
+    "D6": "golden-full with arch + level3-with-arch: architecture-dependent behavior",
+    "D7": "dry-run: stdout output, no file write",
+    "D8": "golden-full: fuzzy PRD parsing (LLM handles format variation)",
+    "D9": "golden-full: fuzzy PRD format robustness (same LLM-parsed input)",
+    "D10": "level3-with-arch: ownership overlap stress (3 services + shared contracts)"
+  }
+}

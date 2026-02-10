@@ -1,0 +1,7 @@
+{
+  "status": "warn",
+  "effectiveLevel": 3,
+  "warnings": [
+    "Architecture artifacts did not provide deterministic file ownership hints; emitted empty ownership lists"
+  ]
+}
