@@ -13,7 +13,7 @@ Stories  -->  Plan  -->  Execute  -->  Verify  -->  Ship
  (BMAD)      (BMAD)     (Ralph)      (YCE)      (YCE)
 ```
 
-SPECTRA right-sizes process to project complexity:
+SPECTRA right-sizes process to project complexity. You tell it how big the job is (or let it figure it out), and it adjusts how much planning, verification, and coordination happens:
 
 | Level | Scope | Planning | Execution |
 |-------|-------|----------|-----------|
@@ -44,6 +44,7 @@ SPECTRA is installed globally at `~/.spectra/` and integrates with Claude Code v
   guardrails-global.md              # Cross-project Signs
   bin/                              # Executable scripts
     spectra-init.sh                 #   Project scaffolding
+    spectra-assess.sh               #   BMAD adapter (project assessment)
     spectra-plan.sh                 #   Plan generation (uses spectra-planner agent)
     spectra-plan-validate.sh        #   Canonical plan.md schema validation (v4)
     spectra-loop-v3.sh              #   Main launcher (Level routing)
@@ -52,12 +53,17 @@ SPECTRA is installed globally at `~/.spectra/` and integrates with Claude Code v
     spectra-quick.sh                #   Quick single-task execution
     spectra-verify.sh               #   Standalone verification
     spectra-team-prompt.sh          #   Team prompt generator (Level 3+)
-    spectra-status.sh               #   Observability dashboard (reads signal files)
+    spectra-status.sh               #   Observability dashboard (--json, --watch)
   hooks/                            # Claude Code lifecycle hooks
     spectra-task-completed.sh       #   Gate check on task completion
     spectra-teammate-idle.sh        #   Safety net for idle agents
   templates/                        # Project scaffolding templates
     .spectra/                       #   Per-project template files
+  fixtures/                         # Test fixtures
+    plan-bridge/                    #   Plan schema validation fixtures
+    assessment/                     #   Assessment YAML fixtures
+    bmad-bridge/                    #   BMAD bridge parsing fixtures
+  proposals/                        # Design artifacts and contracts
   agents/                           # Legacy agent copies (canonical at ~/.claude/agents/)
   signals/                          # Signal file definitions
 
@@ -86,62 +92,366 @@ your-project/
       001-feature-name.md
       002-another-feature.md
     plan.md                         # Execution manifest (task checkboxes)
+    project.yaml                    # Runtime config (level, agents, cost)
+    assessment.yaml                 # BMAD assessment (from spectra-assess)
     guardrails.md                   # Project-specific Signs
     lessons-learned.md              # FAIL -> FIX log
     PROMPT_build.md                 # Builder context prompt
     PROMPT_verify.md                # Verifier context prompt
     PROMPT_split.md                 # Stuck task splitter prompt
     screenshots/                    # Visual evidence
+    signals/                        # Runtime status signals
+      PHASE                         #   Current execution phase
+      AGENT                         #   Active agent name
+      PROGRESS                      #   Task completion counters
+      STATUS                        #   Human-readable status line
+      STUCK                         #   Stuck marker with reason
+      COMPLETE                      #   Completion marker with timestamp
+      RECONCILE                     #   Planning gap feedback (Phase 4.5)
 ```
 
-## Usage
+## Project Assessment (`spectra-assess`)
 
-### Quick Start (Level 0-1)
+Before writing code, SPECTRA figures out how complex your project is and what verification intensity it needs. That's what `spectra-assess` does.
+
+**What it does:** Maps your project's characteristics (language, team size, integrations, risk factors) to a SPECTRA Level (0-4) and tuning parameters (verification intensity, retry budget, etc.).
+
+**Output:** `.spectra/assessment.yaml` — a read-only analysis file that `spectra-init` and `spectra-plan` use to configure the project.
+
+### Three-Tier Detection
+
+`spectra-assess` tries to detect if you're using [BMAD](https://github.com/bmad-code-org/BMAD-METHOD) for planning:
+
+1. **BMAD CLI installed** (`bmad` command available) — records version, sets `source.mode: bmad-detected`
+2. **BMAD directory found** (`bmad/` or `.bmad/`) — records path, sets `source.mode: bmad-detected`
+3. **Neither found** — falls back to interactive prompts (or `--non-interactive` defaults)
+
+In all cases, assessment uses the same deterministic decision tree to map inputs to Level + tuning.
+
+### Track-to-Level Mapping
+
+| Track | Level | When |
+|-------|-------|------|
+| `quick_flow` | 0 | Low blast radius, no integrations, no risks |
+| `quick_flow` | 1 | Any complexity factor present |
+| `bmad_method` | 2 | Default for structured planning |
+| `bmad_method` | 3 | Complexity triggers: 3+ integrations, 5+ team, high blast, security/payments risk |
+| `enterprise` | 4 | Always Level 4 |
+
+### Usage
 
 ```bash
-# Initialize a project
-cd your-project
-spectra-init --name my-feature --level 1
+# Interactive (asks you questions)
+spectra-assess
 
-# Write stories
-# Edit .spectra/stories/001-my-story.md with acceptance criteria
+# CI/automation (must specify track)
+spectra-assess --non-interactive --track bmad_method
 
-# Generate execution plan
+# Override and force regeneration
+spectra-assess --force
+
+# Called automatically by spectra-init (you don't usually need to run it manually)
+```
+
+## BMAD Bridge (`spectra-plan --from-bmad`)
+
+If you already have BMAD planning artifacts (PRD, architecture doc, user stories), SPECTRA can consume them directly instead of requiring you to rewrite everything as `.spectra/stories/`.
+
+**What it does:** Reads BMAD artifacts and generates a canonical `plan.md` with proper level-conditional fields, file ownership, and parallelism assessment.
+
+### BMAD Directory Discovery
+
+The bridge looks for your BMAD artifacts in this order:
+
+1. `--bmad-dir PATH` (explicit override)
+2. `bmad/` directory in your project root
+3. `.bmad/` directory in your project root
+
+Inside that directory, it looks for:
+- `*prd*.md` — Product requirements (acceptance criteria, risk factors)
+- `*arch*.md` — Architecture (component structure, file ownership hints)
+- `stories/*.md` — Individual user stories (task decomposition)
+
+### Graceful Degradation
+
+| Missing Artifact | What Happens |
+|-----------------|--------------|
+| Stories | Hard FAIL (exit 1) — can't build a plan without tasks |
+| PRD | Warning + proceed — derives AC from stories alone |
+| Architecture | Warning + proceed — file ownership is best-effort |
+
+### Usage
+
+```bash
+# Generate plan from BMAD artifacts
+spectra-plan --from-bmad
+
+# Specify BMAD directory explicitly
+spectra-plan --from-bmad --bmad-dir ./my-bmad-docs
+
+# Preview without writing (prints to stdout)
+spectra-plan --from-bmad --dry-run
+
+# Override level regardless of assessment
+spectra-plan --from-bmad --level 3
+
+# Standard mode (unchanged — reads .spectra/stories/)
+spectra-plan
+```
+
+### How It Works
+
+1. Reads `assessment.yaml` for level and tuning (or defaults to Level 2 if missing)
+2. Collects BMAD artifacts (PRD + architecture + stories)
+3. Validates story content has meaningful structure (heading + acceptance criteria)
+4. Sends everything to the `spectra-planner` agent with augmented BMAD bridge instructions
+5. Planner generates canonical `plan.md` with level-appropriate fields
+6. Validates output through `spectra-plan-validate.sh`
+7. Checks for assessment drift and writes `RECONCILE` signal if needed
+8. Writes `.spectra/plan.md` (or prints to stdout with `--dry-run`)
+
+Complex BMAD stories are split into multiple plan tasks (1:N ratio) — one task per independently verifiable deliverable. File ownership for Level 3+ is derived from the architecture doc on a best-effort basis.
+
+## Examples
+
+These examples walk through SPECTRA from simplest to most complex. Start with Example 1 — you can stop reading at any point and still have enough to use SPECTRA.
+
+### Example 1: Fix a Bug (Level 0)
+
+The simplest case. You found a bug and want an AI agent to fix it.
+
+```bash
+# Navigate to your project
+cd my-web-app
+
+# Initialize SPECTRA for a quick fix
+spectra-init --name "fix-login-redirect" --level 0
+```
+
+This creates a `.spectra/` directory in your project with template files. The important one is the story file. Open it and describe the bug:
+
+```bash
+# Edit the story file (use any editor)
+# File: .spectra/stories/001-fix-login-redirect.md
+```
+
+Write something like:
+
+```markdown
+# Story 001: Fix login redirect
+
+## Summary
+After login, users are redirected to /undefined instead of /dashboard.
+
+## Acceptance Criteria
+- Successful login redirects to /dashboard
+- Failed login stays on /login with error message
+- Direct navigation to /dashboard without login redirects to /login
+
+## Technical Notes
+- Bug is likely in src/auth/login.ts redirect logic
+```
+
+Now generate the plan and run it:
+
+```bash
+# Generate the execution plan (calls AI planner)
 spectra-plan
 
-# Run the loop
+# Run it — SPECTRA handles the rest
 spectra-loop
+
+# Check status anytime while it's running
+spectra-status
 ```
 
-### Full Pipeline (Level 3+)
+For a Level 0 fix, `spectra-loop` runs a single agent that reads the plan, makes the fix, and verifies it. If the verification command passes, you're done. If it fails, the agent retries (up to `Max-iterations` times).
+
+**What gets created:**
+- `.spectra/plan.md` — one task with your bug description, files to change, and a verify command
+- `.spectra/signals/PROGRESS` — shows `1/1 done` when complete
+- `.spectra/signals/COMPLETE` — written when the loop finishes successfully
+
+### Example 2: Build a Small Feature (Level 1)
+
+Adding a dark mode toggle to an existing app. This needs 2-3 stories and a few iterations.
 
 ```bash
-# Initialize
-cd your-project
-spectra-init --name big-feature --level 3
+cd my-web-app
+spectra-init --name "dark-mode" --level 1
+```
 
-# Planning phase (fills constitution, PRD, architecture, stories)
-# Use claude-desktop or /spectra-prime for interactive planning
+Write 2 stories:
 
-# Generate plan from stories
+**`.spectra/stories/001-toggle-component.md`:**
+```markdown
+# Story 001: Dark mode toggle component
+
+## Summary
+Add a toggle switch in the header that switches between light and dark themes.
+
+## Acceptance Criteria
+- Toggle renders in the top-right of the header
+- Clicking toggles between light/dark class on <body>
+- Preference persists in localStorage
+- Default follows OS preference (prefers-color-scheme)
+```
+
+**`.spectra/stories/002-theme-styles.md`:**
+```markdown
+# Story 002: Dark mode CSS variables
+
+## Summary
+Define CSS custom properties for both themes and apply them globally.
+
+## Acceptance Criteria
+- Light theme: white background, dark text
+- Dark theme: dark background, light text
+- All existing components use CSS variables (no hardcoded colors)
+- Transition animation between themes (200ms)
+```
+
+Generate and run:
+
+```bash
 spectra-plan
+# → Generates plan.md with 2 tasks, each with AC, files, and verify commands
 
-# Launch Agent Teams execution
 spectra-loop
-# This automatically:
-#   1. Detects Level 3 -> launches spectra-lead agent
-#   2. Lead creates team, parses plan.md into shared task list
-#   3. Spawns auditor -> builder -> verifier per task
-#   4. Parallel builders for independent tasks, serial verification
-#   5. Final review by spectra-reviewer (Sonnet cross-model)
-#   6. Writes COMPLETE signal and shuts down team
+# → Runs sequential loop: build task 001, verify, build task 002, verify
+# → Level 1 uses 3-5 iterations per task
+
+# Watch progress
+spectra-status
 ```
 
-### Force Sequential Mode
+Expected `spectra-status` output during execution:
+
+```
+SPECTRA Status
+  Phase:    executing
+  Agent:    spectra-builder
+  Progress: 1/2 tasks (0 stuck)
+  Current:  Task 002: Dark mode CSS variables
+```
+
+### Example 3: Build from BMAD Artifacts (Level 2-3)
+
+You already ran BMAD planning and have docs ready. SPECTRA consumes them directly.
 
 ```bash
-spectra-loop --sequential    # Uses legacy loop even for Level 3+
+# Your project already has:
+#   bmad/prd.md                    — Product requirements
+#   bmad/architecture.md           — System design
+#   bmad/stories/001-user-auth.md  — Detailed stories
+#   bmad/stories/002-dashboard.md
+
+cd my-project
+
+# Step 1: Assess the project (detects BMAD artifacts)
+spectra-assess
+# → Creates .spectra/assessment.yaml
+# → Output: "Level 2, medium verification, retry_budget: 3"
+
+# Step 2: Initialize with assessment-driven defaults
+spectra-init --name "user-dashboard"
+# → Picks up level from assessment.yaml automatically
+
+# Step 3: Generate plan from BMAD artifacts
+spectra-plan --from-bmad
+# → Reads PRD for acceptance criteria and risk factors
+# → Reads architecture for file ownership (Level 3+)
+# → Reads stories for task decomposition
+# → Generates .spectra/plan.md with Scope, Wiring-proof, etc.
+
+# Preview first if you want
+spectra-plan --from-bmad --dry-run
+
+# Step 4: Execute
+spectra-loop
+
+# Step 5: Watch progress live (refreshes every 5 seconds)
+spectra-status --watch
 ```
+
+At Level 3, SPECTRA uses **Agent Teams** — multiple builders work in parallel on independent tasks, while a lead agent coordinates and a verifier checks each task sequentially.
+
+### Example 4: Monitor a Running Build
+
+`spectra-status` has three output modes:
+
+```bash
+# Human-readable dashboard (default)
+spectra-status
+```
+
+Output:
+```
+SPECTRA Status
+  Phase:    executing
+  Agent:    spectra-builder
+  Progress: 3/5 tasks (1 stuck)
+  Current:  Task 004: Add payment validation
+  Stuck:    Task 003 — "test timeout after 30s"
+```
+
+```bash
+# JSON for scripts and CI
+spectra-status --json
+```
+
+Output:
+```json
+{"phase":"executing","agent":"spectra-builder","total":5,"done":3,"stuck":1}
+```
+
+```bash
+# Live monitoring (refreshes every 5s, Ctrl+C to stop)
+spectra-status --watch
+```
+
+**What the signals mean:**
+- **Phase: executing** — agents are actively working
+- **Phase: complete** — all tasks done, COMPLETE signal written
+- **Phase: stuck** — a task hit Max-iterations without passing verification
+- **Progress: 3/5 (1 stuck)** — 3 tasks passed verification, 1 failed permanently, 1 remaining
+- **RECONCILE signal** — the plan used different settings than assessment recommended (informational, no action needed in v4.0)
+
+### Example 5: When Things Go Wrong
+
+**A task fails verification** — the builder retries automatically up to `Max-iterations` times (default varies by task complexity: 3 for trivial, 5 for setup, 8 for features, 10 for complex). You don't need to do anything.
+
+**A task gets stuck** (exhausted all retries):
+```
+# spectra-status shows:
+  Progress: 4/5 tasks (1 stuck)
+  Stuck:    Task 003 — "npm test -- auth fails: ECONNREFUSED"
+```
+
+The `[!]` stuck state is written to `plan.md`. Check what happened:
+
+```bash
+# See the stuck signal
+cat .spectra/signals/STUCK
+
+# Check lessons learned (the agent writes what it tried)
+cat .spectra/lessons-learned.md
+```
+
+To fix manually and continue:
+1. Fix the underlying issue (maybe a missing env var, a database that's down, etc.)
+2. Edit `.spectra/plan.md` — change `[!]` back to `[ ]` for the stuck task
+3. Run `spectra-loop` again — it picks up where it left off
+
+**Common mistakes and what they mean:**
+
+| You see... | It means... |
+|------------|-------------|
+| `Error: No .spectra/stories/ directory` | Run `spectra-init` first |
+| `Error: No stories found` | Write at least one `.md` file in `.spectra/stories/` |
+| `WARN: No assessment.yaml` | Run `spectra-assess` or let `spectra-init` do it |
+| `Generated plan failed schema validation` | The AI produced malformed output. Check `.spectra/plan.md.new` and try again |
+| `--non-interactive requires --track` | In CI, you must specify `--track quick_flow\|bmad_method\|enterprise` |
 
 ## Agent Architecture (v3.1)
 
@@ -188,6 +498,8 @@ The plan.md file is the execution contract between planning and execution phases
 
 **Checkbox states:** `[ ]` pending, `[x]` complete, `[!]` stuck
 
+A task starts as `[ ]`, moves to `[x]` when verification passes, or `[!]` if it exhausts all retries. The loop scripts and lead agent read these states to decide what to work on next.
+
 **Level-conditional fields:** Not all fields are required at every level. The validator (`spectra-plan-validate.sh`) enforces based on project level:
 
 | Field | Level 0 | Level 1 | Level 2 | Level 3+ |
@@ -197,19 +509,37 @@ The plan.md file is the execution contract between planning and execution phases
 | Scope, Wiring-proof | - | - | Required | Required |
 | File-ownership, Parallelism | - | - | - | Required |
 
-**SIGN-005 enforcement:** `owns:` overlap = FAIL. `touches:` overlap = WARN (require explicit dependency). `reads:` overlap = PASS.
+**SIGN-005 enforcement:** File ownership prevents two builders from editing the same file at the same time.
+- `owns:` overlap between tasks = **FAIL** (plan is invalid)
+- `touches:` overlap = **WARN** (allowed if tasks have a sequential dependency declared in Parallelism Assessment)
+- `reads:` overlap = **PASS** (reading the same file is always fine)
+
+**Parallelism Assessment** (Level 3+ only): Appears at the end of plan.md.
+
+```markdown
+## Parallelism Assessment
+- Independent tasks: [001, 003]
+- Sequential dependencies: [001 -> 002]
+- Recommendation: TEAM_ELIGIBLE
+```
+
+The lead agent uses this to decide which tasks can run in parallel and which must wait.
 
 ## Observability
 
-SPECTRA writes signal files during execution for real-time status monitoring:
+SPECTRA writes signal files during execution for real-time status monitoring. These are plain text files in `.spectra/signals/` that any tool can read:
 
 | Signal File | Content | Written By |
 |-------------|---------|------------|
-| `.spectra/signals/PHASE` | Current phase (executing, complete, stuck) | Loop scripts |
-| `.spectra/signals/AGENT` | Active agent name | Loop scripts |
-| `.spectra/signals/PROGRESS` | Task completion status | Loop scripts |
-| `.spectra/signals/COMPLETE` | Completion marker with timestamp | Loop/Lead |
-| `.spectra/signals/STUCK` | Stuck marker with reason | Loop/Lead |
+| `PHASE` | Current phase: `executing`, `complete`, `stuck` | Loop scripts |
+| `AGENT` | Active agent name (e.g., `spectra-builder`) | Loop scripts |
+| `PROGRESS` | Task completion: `3/5 done (1 stuck)` | Loop scripts |
+| `STATUS` | Human-readable status line | Loop scripts |
+| `COMPLETE` | Completion marker with timestamp | Loop/Lead |
+| `STUCK` | Stuck marker with task ID and reason | Loop/Lead |
+| `RECONCILE` | Assessment drift detection (Phase 4.5) | spectra-plan |
+
+The `RECONCILE` signal is written by `spectra-plan --from-bmad` when the generated plan uses `Max-iterations` values that exceed the `retry_budget` from `assessment.yaml`. It's informational in v4.0 — a future version will use it to trigger planning corrections.
 
 ```bash
 # Dashboard view
@@ -236,7 +566,7 @@ spectra-status --watch
 
 ## Signs (Learned Guardrails)
 
-Signs are hard-won lessons from execution failures. They live in `guardrails.md` and are checked by both the Builder and Verifier.
+Signs are hard-won lessons from execution failures — things that went wrong and the rules we added to prevent them from happening again. They live in `guardrails.md` and are checked by both the Builder and Verifier.
 
 | Sign | Rule |
 |------|------|
@@ -303,6 +633,7 @@ SPECTRA agents can coordinate with external agents (codex-cli, claude-desktop, C
 | v1.1 | Feb 8, 2026 | Wiring Proof, Signs (001-003), 4-agent roster, verification gates |
 | v3.0 | Feb 9, 2026 | Replaced --headless multi-process with thin launcher + Agent Teams |
 | v3.1 | Feb 9-10, 2026 | spectra-lead agent, hybrid Level routing, hook rewrites, model routing cleanup |
+| v4.0 | Feb 10, 2026 | Canonical plan.md schema (Phase A), contract test suite + observability signals (Phase B), BMAD adapter spectra-assess (Phase C), BMAD bridge spectra-plan --from-bmad (Phase D), RECONCILE signal infrastructure (Phase 4.5 prep) |
 
 ## Reference
 
