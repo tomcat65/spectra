@@ -80,6 +80,9 @@ if [[ -f "${SPECTRA_HOME}/.env" ]]; then
     set +u; source "${SPECTRA_HOME}/.env"; set -u
 fi
 
+# ── Preflight: verify .env tokens (runs once, then only on .env change) ──
+"${SPECTRA_HOME}/bin/spectra-preflight.sh"
+
 # ── Verify project ──
 if [[ ! -d "${SPECTRA_DIR}" ]]; then
     echo "Error: No .spectra/ directory found. Run 'spectra-init' first."
