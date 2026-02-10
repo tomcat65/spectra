@@ -14,6 +14,7 @@ TEMPLATE_DIR="${SPECTRA_HOME}/templates/.spectra"
 # Defaults
 PROJECT_NAME=""
 LEVEL=1
+LEVEL_EXPLICIT=false
 USE_LINEAR=false
 USE_SLACK=false
 NO_COMMIT=false
@@ -24,7 +25,7 @@ PER_TASK_BUDGET="10.00"
 while [[ $# -gt 0 ]]; do
     case $1 in
         --name)           PROJECT_NAME="$2"; shift 2 ;;
-        --level)          LEVEL="$2"; shift 2 ;;
+        --level)          LEVEL="$2"; LEVEL_EXPLICIT=true; shift 2 ;;
         --linear)         USE_LINEAR=true; shift ;;
         --slack)          USE_SLACK=true; shift ;;
         --no-commit)      NO_COMMIT=true; shift ;;
@@ -78,6 +79,22 @@ echo ""
 # ── Create directory structure ──
 echo "→ Creating .spectra/ directory structure..."
 mkdir -p .spectra/stories .spectra/screenshots .spectra/logs .spectra/signals
+
+# ── Assessment (optional — populates level + tuning) ──
+if [[ ! -f .spectra/assessment.yaml ]]; then
+    if [[ -x "${SPECTRA_HOME}/bin/spectra-assess.sh" ]]; then
+        echo "→ Running project assessment..."
+        "${SPECTRA_HOME}/bin/spectra-assess.sh" --force || true
+    fi
+fi
+
+if [[ -f .spectra/assessment.yaml ]] && [[ "${LEVEL_EXPLICIT}" == false ]]; then
+    ASSESSED_LEVEL=$(grep -oP '^\s*level:\s*\K\d+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "")
+    if [[ -n "${ASSESSED_LEVEL}" ]]; then
+        LEVEL="${ASSESSED_LEVEL}"
+        echo "  Level set from assessment: ${LEVEL}"
+    fi
+fi
 
 # ── Hydrate templates ──
 hydrate() {

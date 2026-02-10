@@ -76,7 +76,22 @@ PROJECT_LEVEL=1
 if [[ -f .spectra/project.yaml ]]; then
     PROJECT_LEVEL=$(grep -oP '^level:\s*\K\d+' .spectra/project.yaml 2>/dev/null | head -1 || echo "1")
 fi
+# Read assessment tuning defaults (if available)
+RETRY_BUDGET=5
+SCOPE_DEFAULT="code"
+WIRING_DEPTH="basic"
+if [[ -f .spectra/assessment.yaml ]]; then
+    RETRY_BUDGET=$(grep -oP '^\s*retry_budget:\s*\K\d+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "5")
+    SCOPE_DEFAULT=$(grep -oP '^\s*scope_default:\s*\K\w+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "code")
+    WIRING_DEPTH=$(grep -oP '^\s*wiring_depth:\s*\K\w+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "basic")
+    # Also prefer assessment-derived level if available and project.yaml doesn't have one
+    ASSESSED_LEVEL=$(grep -oP '^\s*level:\s*\K\d+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "")
+    if [[ -n "${ASSESSED_LEVEL}" ]] && [[ "${PROJECT_LEVEL}" -eq 1 ]]; then
+        PROJECT_LEVEL="${ASSESSED_LEVEL}"
+    fi
+fi
 echo "  Project Level: ${PROJECT_LEVEL}"
+echo "  Retry Budget:  ${RETRY_BUDGET} (from assessment)"
 
 # Build level-conditional schema instructions
 LEVEL_FIELDS=""
@@ -158,7 +173,7 @@ Rules:
 - Task numbers must be 3-digit zero-padded and strictly increasing (001, 002, ...)
 - AC must be multi-line with \`  - \` sub-items (at least one criterion per task)
 - Checkbox states: [ ] pending, [x] complete, [!] stuck
-- Max-iterations: 3 for trivial, 5 for setup, 8 for feature, 10 for complex tasks
+- Max-iterations: default ${RETRY_BUDGET} (from assessment); use 3 for trivial, 5 for setup, 8 for feature, 10 for complex
 - Risk must be exactly one of: low, medium, high
 - Scope must be exactly one of: code, infra, docs, config, multi-repo
 - For Level 3+: file ownership must be explicit and non-overlapping (SIGN-005)
