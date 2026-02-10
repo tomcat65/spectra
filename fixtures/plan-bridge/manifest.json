@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "v4-approved-2026-02-10",
+  "description": "Golden fixtures for SPECTRA canonical plan schema verification",
+  "fixtures": [
+    {
+      "id": "valid-level0",
+      "file": "valid-level0.md",
+      "projectLevel": 0,
+      "expected": "pass",
+      "checks": [
+        "task_header",
+        "checkbox_line",
+        "multiline_ac",
+        "files",
+        "verify"
+      ]
+    },
+    {
+      "id": "valid-level2",
+      "file": "valid-level2.md",
+      "projectLevel": 2,
+      "expected": "pass",
+      "checks": [
+        "risk",
+        "max_iterations",
+        "scope",
+        "wiring_proof"
+      ]
+    },
+    {
+      "id": "valid-level4",
+      "file": "valid-level4.md",
+      "projectLevel": 4,
+      "expected": "pass",
+      "checks": [
+        "file_ownership_owns",
+        "file_ownership_touches",
+        "file_ownership_reads",
+        "parallelism_assessment"
+      ]
+    },
+    {
+      "id": "invalid-ownership-overlap",
+      "file": "invalid-ownership-overlap.md",
+      "projectLevel": 4,
+      "expected": "fail",
+      "errorCode": "OWNERSHIP_OVERLAP",
+      "errorDetail": "owns overlap on src/config/loader.ts"
+    },
+    {
+      "id": "invalid-missing-wiring-level2",
+      "file": "invalid-missing-wiring-level2.md",
+      "projectLevel": 2,
+      "expected": "fail",
+      "errorCode": "MISSING_REQUIRED_FIELD",
+      "errorDetail": "Wiring-proof required at level >=2"
+    },
+    {
+      "id": "invalid-ac-format",
+      "file": "invalid-ac-format.md",
+      "projectLevel": 1,
+      "expected": "fail",
+      "errorCode": "INVALID_AC_FORMAT",
+      "errorDetail": "AC must be multiline bullet list"
+    }
+  ]
+}
+

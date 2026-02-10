@@ -18,6 +18,7 @@ SPECTRA_HOME="${HOME}/.spectra"
 SPECTRA_DIR=".spectra"
 SIGNALS_DIR="${SPECTRA_DIR}/signals"
 LOGS_DIR="${SPECTRA_DIR}/logs"
+PLAN_VALIDATOR="${SPECTRA_HOME}/bin/spectra-plan-validate.sh"
 
 # ── Defaults ──
 PLAN_ONLY=false
@@ -142,6 +143,9 @@ signal_stuck() {
 - Branch: ${BRANCH_NAME}
 - Recovery: Human intervention required
 EOF
+    write_signal "PHASE" "stuck"
+    write_signal "AGENT" "none"
+    write_progress
     echo ""
     echo "╔══════════════════════════════════════════╗"
     echo "║  ⛔  STUCK — Execution halted             ║"
@@ -160,6 +164,40 @@ EOF
     exit 1
 }
 
+# ── Observability signal helpers ──
+write_signal() {
+    local signal_name="$1" signal_value="$2"
+    echo "${signal_value}" > "${SIGNALS_DIR}/${signal_name}"
+}
+
+write_progress() {
+    local total done stuck
+    if [[ -f "${SPECTRA_DIR}/plan.md" ]]; then
+        total=$(grep -cE '^\- \[[ xX!]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+        done=$(grep -cE '^\- \[[xX]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+        stuck=$(grep -cE '^\- \[!\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+        [[ "$total" -eq 0 ]] && total=$(grep -c '^\- \[.\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0") && done=$(grep -c '^\- \[[xX]\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0") && stuck=0
+        write_signal "PROGRESS" "${done}/${total} tasks (${stuck} stuck)"
+    fi
+}
+
+validate_plan_contract() {
+    if [[ ! -f "${SPECTRA_DIR}/plan.md" ]]; then
+        echo "Error: No plan.md found. Cannot execute."
+        return 1
+    fi
+
+    if [[ -x "${PLAN_VALIDATOR}" ]]; then
+        if ! "${PLAN_VALIDATOR}" --file "${SPECTRA_DIR}/plan.md" --quiet; then
+            echo "Error: plan.md failed schema validation."
+            echo "  Fix .spectra/plan.md or regenerate with 'spectra-plan'."
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
 signal_complete() {
     cat > "${SIGNALS_DIR}/COMPLETE" <<EOF
 ## SPECTRA Complete
@@ -168,6 +206,9 @@ signal_complete() {
 - Branch: ${BRANCH_NAME}
 - Pass History: ${PASS_HISTORY}
 EOF
+    write_signal "PHASE" "complete"
+    write_signal "AGENT" "none"
+    write_progress
     echo ""
     echo "╔══════════════════════════════════════════╗"
     echo "║  ✅  COMPLETE — All tasks passed           ║"
@@ -346,13 +387,20 @@ generate_task_summary() {
     fi
 }
 
-# Count tasks
+# Count tasks (supports [ ] pending, [x] complete, [!] stuck)
 count_tasks() {
-    local total done remaining
-    total=$(grep -c '^\- \[.\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
-    done=$(grep -c '^\- \[x\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
-    remaining=$((total - done))
-    echo "${total} ${done} ${remaining}"
+    local total done stuck remaining
+    total=$(grep -cE '^\- \[[ xX!]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+    done=$(grep -cE '^\- \[[xX]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+    stuck=$(grep -cE '^\- \[!\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+    if [[ "$total" -eq 0 ]]; then
+        # Compatibility fallback for older plans.
+        total=$(grep -c '^\- \[.\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+        done=$(grep -c '^\- \[[xX]\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+        stuck=0
+    fi
+    remaining=$((total - done - stuck))
+    echo "${total} ${done} ${remaining} ${stuck}"
 }
 
 # Get next unchecked task number and title (respects risk-order if present)
@@ -374,7 +422,7 @@ next_task() {
 
             local actual_line=$((section_line + checkbox_line - 1))
             local task_text
-            task_text=$(sed -n "${actual_line}p" "${SPECTRA_DIR}/plan.md" | sed 's/^- \[ \] //')
+            task_text=$(sed -n "${actual_line}p" "${SPECTRA_DIR}/plan.md" | sed -E 's/^- \[ \] //; s/^[0-9]{3}:[[:space:]]*//')
             echo "${task_id}|${task_text}|${actual_line}"
             return
         done
@@ -382,17 +430,24 @@ next_task() {
 
     # Fallback: sequential order
     local line
-    line=$(grep -n '^\- \[ \]' "${SPECTRA_DIR}/plan.md" 2>/dev/null | head -1 || echo "")
+    line=$(grep -nE '^\- \[ \] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | head -1 || echo "")
+    if [[ -z "$line" ]]; then
+        # Compatibility fallback for older plans.
+        line=$(grep -n '^\- \[ \]' "${SPECTRA_DIR}/plan.md" 2>/dev/null | head -1 || echo "")
+    fi
     if [[ -z "$line" ]]; then
         echo ""
         return
     fi
     local line_num task_text task_num
     line_num=$(echo "$line" | cut -d: -f1)
-    task_text=$(echo "$line" | cut -d: -f2- | sed 's/^- \[ \] //')
+    task_text=$(echo "$line" | cut -d: -f2- | sed -E 's/^- \[ \] //; s/^[0-9]{3}:[[:space:]]*//')
 
-    # Try to extract task number from section header above
-    task_num=$(sed -n "1,${line_num}p" "${SPECTRA_DIR}/plan.md" | grep -oP 'Task \K\d+' | tail -1 || echo "0")
+    # Prefer checkbox task number, fallback to section header above.
+    task_num=$(echo "$line" | grep -oP '\- \[ \] \K[0-9]{3}' || echo "")
+    if [[ -z "${task_num}" ]]; then
+        task_num=$(sed -n "1,${line_num}p" "${SPECTRA_DIR}/plan.md" | grep -oP 'Task \K\d+' | tail -1 || echo "0")
+    fi
     echo "${task_num}|${task_text}|${line_num}"
 }
 
@@ -629,8 +684,7 @@ fi
 # PRE-EXECUTION CHECKS
 # ══════════════════════════════════════════════════════════════
 
-if [[ ! -f "${SPECTRA_DIR}/plan.md" ]]; then
-    echo "Error: No plan.md found. Cannot execute."
+if ! validate_plan_contract; then
     exit 1
 fi
 
@@ -640,14 +694,19 @@ if [[ -f "${SIGNALS_DIR}/STUCK" ]]; then
     exit 1
 fi
 
+# Write initial signals
+write_signal "PHASE" "executing"
+write_signal "AGENT" "spectra-loop-legacy"
+write_progress
+
 # Read task counts
-read TOTAL DONE REMAINING <<< $(count_tasks)
+read TOTAL DONE REMAINING STUCK <<< $(count_tasks)
 echo ""
 echo "╔══════════════════════════════════════════╗"
 echo "║  SPECTRA v2.0 Execution Loop              ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
-echo "  Tasks:        ${DONE}/${TOTAL} complete (${REMAINING} remaining)"
+echo "  Tasks:        ${DONE}/${TOTAL} complete (${REMAINING} remaining, ${STUCK} stuck)"
 echo "  Cost Ceiling: \$${COST_CEILING}"
 echo "  Branch:       ${BRANCH_NAME}"
 echo "  Dry Run:      ${DRY_RUN}"

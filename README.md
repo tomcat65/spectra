@@ -45,12 +45,14 @@ SPECTRA is installed globally at `~/.spectra/` and integrates with Claude Code v
   bin/                              # Executable scripts
     spectra-init.sh                 #   Project scaffolding
     spectra-plan.sh                 #   Plan generation (uses spectra-planner agent)
+    spectra-plan-validate.sh        #   Canonical plan.md schema validation (v4)
     spectra-loop-v3.sh              #   Main launcher (Level routing)
     spectra-loop-legacy.sh          #   Sequential loop (Level 0-2)
     spectra-preflight.sh            #   Token verification (runs once, then on .env change)
     spectra-quick.sh                #   Quick single-task execution
     spectra-verify.sh               #   Standalone verification
     spectra-team-prompt.sh          #   Team prompt generator (Level 3+)
+    spectra-status.sh               #   Observability dashboard (reads signal files)
   hooks/                            # Claude Code lifecycle hooks
     spectra-task-completed.sh       #   Gate check on task completion
     spectra-teammate-idle.sh        #   Safety net for idle agents
@@ -159,6 +161,66 @@ Model selection and tool restrictions are defined in agent YAML frontmatter at `
 - **Opus** for builder/verifier/lead: Maximum capability for code generation and verification
 - **Sonnet** for reviewer: Different model architecture catches different bugs (cross-model assurance, not cost optimization)
 - **Haiku** for auditor: Speed and cost efficiency for pre-flight scans that don't need deep reasoning
+
+## Canonical plan.md Schema (v4)
+
+The plan.md file is the execution contract between planning and execution phases. All consumers (generator, validator, verifier, loop scripts, team prompt) agree on this schema.
+
+```markdown
+## Task 001: {title}
+- [ ] 001: {title}
+- AC:
+  - {criterion 1}
+  - {criterion 2}
+- Files: {comma-separated paths}
+- Verify: `{command that exits 0 on success}`
+- Risk: {low|medium|high}
+- Max-iterations: {3|5|8|10}
+- Scope: {code|infra|docs|config|multi-repo}
+- File-ownership:
+  - owns: [{exclusive files}]
+  - touches: [{shared-modify files}]
+  - reads: [{read-only files}]
+- Wiring-proof:
+  - CLI: {command path}
+  - Integration: {cross-module assertion}
+```
+
+**Checkbox states:** `[ ]` pending, `[x]` complete, `[!]` stuck
+
+**Level-conditional fields:** Not all fields are required at every level. The validator (`spectra-plan-validate.sh`) enforces based on project level:
+
+| Field | Level 0 | Level 1 | Level 2 | Level 3+ |
+|-------|---------|---------|---------|----------|
+| Header, checkbox, AC, Files, Verify | Required | Required | Required | Required |
+| Risk, Max-iterations | Optional | Required | Required | Required |
+| Scope, Wiring-proof | - | - | Required | Required |
+| File-ownership, Parallelism | - | - | - | Required |
+
+**SIGN-005 enforcement:** `owns:` overlap = FAIL. `touches:` overlap = WARN (require explicit dependency). `reads:` overlap = PASS.
+
+## Observability
+
+SPECTRA writes signal files during execution for real-time status monitoring:
+
+| Signal File | Content | Written By |
+|-------------|---------|------------|
+| `.spectra/signals/PHASE` | Current phase (executing, complete, stuck) | Loop scripts |
+| `.spectra/signals/AGENT` | Active agent name | Loop scripts |
+| `.spectra/signals/PROGRESS` | Task completion status | Loop scripts |
+| `.spectra/signals/COMPLETE` | Completion marker with timestamp | Loop/Lead |
+| `.spectra/signals/STUCK` | Stuck marker with reason | Loop/Lead |
+
+```bash
+# Dashboard view
+spectra-status
+
+# JSON output for programmatic use
+spectra-status --json
+
+# Live monitoring (refreshes every 5s)
+spectra-status --watch
+```
 
 ## Core Principles
 

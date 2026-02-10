@@ -100,21 +100,26 @@ System design: component diagram, data flow, API contracts, dependency map, inte
 Each task must include:
 
 ```markdown
-## Task N: [Title]
-- [ ] [Task description]
-- **Acceptance criteria:**
+## Task 001: [Title]
+- [ ] 001: [Title]
+- AC:
   - [criterion 1]
   - [criterion 2]
-- **Verify:** `[exact CLI command]`
-- **Max iterations:** 3
-- **Wiring proof:**
-  - CLI commands to test manually: [list]
-  - Cross-module calls to assert: [list]
-  - Pipeline steps for integration tests: [list]
-- **File ownership:** (Level 3+)
-  - owns: [files this task creates/modifies]
-  - reads: [files this task reads only]
+- Files: [comma-separated file paths]
+- Verify: `[exact CLI command that exits 0 on success]`
+- Risk: [low|medium|high]
+- Max-iterations: [3|5|8|10]
+- Scope: [code|infra|docs|config|multi-repo]
+- File-ownership:                          # Level 3+ only
+  - owns: [files this task creates/modifies exclusively]
+  - touches: [files this task modifies but shares]
+  - reads: [files this task only reads]
+- Wiring-proof:                            # Level 2+ only
+  - CLI: [exact command path to exercise]
+  - Integration: [cross-module/pipeline assertion]
 ```
+
+Checkbox states: `[ ]` pending, `[x]` complete, `[!]` stuck
 
 ### Mandatory Plan Requirements
 

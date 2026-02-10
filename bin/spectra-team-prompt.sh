@@ -100,7 +100,7 @@ Execute these steps FIRST before any other work:
 Call: \`TeamCreate(team_name="spectra-run", description="SPECTRA execution for ${PROJECT_NAME}")\`
 
 ### Step 2: Parse Plan and Create Task List
-Read \`.spectra/plan.md\`. For each unchecked task (\`- [ ] Task N: ...\`), call:
+Read \`.spectra/plan.md\`. For each unchecked task (\`- [ ] NNN: ...\` under \`## Task NNN:\` — skip \`[x]\` complete and \`[!]\` stuck), call:
 \`\`\`
 TaskCreate(
   subject="Task N: <title from plan.md>",

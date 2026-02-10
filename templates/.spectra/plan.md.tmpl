@@ -3,37 +3,57 @@
 ## Project: {{PROJECT_NAME}}
 ## Level: {{LEVEL}}
 ## Generated: {{DATE}}
-## Generated from: .spectra/stories/
+## Source: .spectra/stories/
 
-### Tasks (in dependency order)
+---
 
-- [ ] 001: <!-- Task description -->
-  - AC: <!-- Acceptance criteria from story -->
-  - Files: <!-- Files to create/modify -->
-  - Verify: `<!-- command that exits 0 on success -->`
-  - Risk: <!-- low | medium | high -->
-  - Max iterations: 5
-  - Wiring proof:
-    - <!-- CLI command to test manually: e.g., python -m myapp command -->
-    - <!-- Cross-module calls to assert: e.g., ModuleA.method() called by ModuleB -->
+## Task 001: <!-- Task title -->
+- [ ] 001: <!-- Task title -->
+- AC:
+  - <!-- Acceptance criterion from story -->
+  - <!-- Additional criterion -->
+- Files: <!-- comma-separated files to create/modify -->
+- Verify: `<!-- command that exits 0 on success -->`
+- Risk: low
+- Max-iterations: 5
+- Scope: code
+- File-ownership:
+  - owns: [<!-- files this task creates/modifies exclusively -->]
+  - touches: [<!-- files this task modifies but shares -->]
+  - reads: [<!-- files this task only reads -->]
+- Wiring-proof:
+  - CLI: <!-- exact command path to test manually -->
+  - Integration: <!-- cross-module calls or pipeline assertions -->
 
-- [ ] 002: <!-- Task description -->
-  - AC: <!-- Acceptance criteria from story -->
-  - Files: <!-- Files to create/modify -->
-  - Verify: `<!-- command that exits 0 on success -->`
-  - Risk: <!-- low | medium | high -->
-  - Max iterations: 8
-  - Wiring proof:
-    - <!-- CLI command to test manually -->
-    - <!-- Cross-module calls to assert -->
+## Task 002: <!-- Task title -->
+- [ ] 002: <!-- Task title -->
+- AC:
+  - <!-- Acceptance criterion from story -->
+- Files: <!-- comma-separated files to create/modify -->
+- Verify: `<!-- command that exits 0 on success -->`
+- Risk: medium
+- Max-iterations: 8
+- Scope: code
+- File-ownership:
+  - owns: [<!-- files this task creates/modifies exclusively -->]
+  - touches: [<!-- files this task modifies but shares -->]
+  - reads: [<!-- files this task only reads -->]
+- Wiring-proof:
+  - CLI: <!-- exact command path to test manually -->
+  - Integration: <!-- cross-module calls or pipeline assertions -->
 
-<!-- Add more tasks as needed -->
+---
+
+## Parallelism Assessment
+- Independent tasks: [none]
+- Sequential dependencies: [001 -> 002]
+- Recommendation: SEQUENTIAL_ONLY
 
 ### Verification Protocol
 After each task, the verifier runs:
 1. Task-specific verify command
 2. Full regression test suite
-3. Wiring proof checks (CLI boundary + import audit + pipeline completeness)
+3. Wiring-proof checks (CLI boundary + import audit + pipeline completeness)
 4. Manual CLI command execution
 
 ### Evidence Chain

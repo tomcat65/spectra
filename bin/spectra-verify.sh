@@ -15,6 +15,8 @@ set -euo pipefail
 SPECTRA_HOME="${HOME}/.spectra"
 SPECTRA_DIR=".spectra"
 LOGS_DIR="${SPECTRA_DIR}/logs"
+PLAN_FILE="${SPECTRA_DIR}/plan.md"
+PLAN_VALIDATOR="${SPECTRA_HOME}/bin/spectra-plan-validate.sh"
 
 USE_LINEAR=false
 USE_SLACK=false
@@ -59,8 +61,8 @@ EOF
 done
 
 # Verify project
-if [[ ! -f "${SPECTRA_DIR}/plan.md" ]]; then
-    echo "Error: No .spectra/plan.md found."
+if [[ ! -f "${PLAN_FILE}" ]]; then
+    echo "Error: No ${PLAN_FILE} found."
     exit 1
 fi
 
@@ -71,38 +73,122 @@ if [[ -f "${SPECTRA_HOME}/.env" ]]; then
     set +u; source "${SPECTRA_HOME}/.env"; set -u
 fi
 
+# Validate plan contract before parsing
+if [[ -x "${PLAN_VALIDATOR}" ]]; then
+    if ! "${PLAN_VALIDATOR}" --file "${PLAN_FILE}" --quiet; then
+        echo "Error: plan.md failed schema validation. Regenerate with 'spectra-plan' or fix manually."
+        exit 1
+    fi
+fi
+
+normalize_task_id() {
+    local raw="$1"
+    if [[ ! "$raw" =~ ^[0-9]{1,3}$ ]]; then
+        return 1
+    fi
+    printf "%03d" "$((10#${raw}))"
+}
+
+find_task_header_line() {
+    local task_id="$1"
+    grep -nP "^## Task ${task_id}:" "${PLAN_FILE}" 2>/dev/null | head -1 | cut -d: -f1 || true
+}
+
+get_task_section() {
+    local task_id="$1"
+    local start_line next_line end_line
+
+    start_line=$(find_task_header_line "${task_id}")
+    if [[ -n "${start_line}" ]]; then
+        next_line=$(grep -nE '^## Task [0-9]{3}:' "${PLAN_FILE}" 2>/dev/null | awk -F: -v start="${start_line}" '$1 > start {print $1; exit}')
+        if [[ -n "${next_line}" ]]; then
+            end_line=$((next_line - 1))
+            sed -n "${start_line},${end_line}p" "${PLAN_FILE}"
+        else
+            sed -n "${start_line},\$p" "${PLAN_FILE}"
+        fi
+        return
+    fi
+
+    # Compatibility fallback for non-header task blocks
+    start_line=$(grep -nE "^- \\[[ xX!]\\] ${task_id}:" "${PLAN_FILE}" 2>/dev/null | head -1 | cut -d: -f1 || true)
+    if [[ -n "${start_line}" ]]; then
+        next_line=$(grep -nE '^- \[[ xX]\] [0-9]{3}:' "${PLAN_FILE}" 2>/dev/null | awk -F: -v start="${start_line}" '$1 > start {print $1; exit}')
+        if [[ -n "${next_line}" ]]; then
+            end_line=$((next_line - 1))
+            sed -n "${start_line},${end_line}p" "${PLAN_FILE}"
+        else
+            sed -n "${start_line},\$p" "${PLAN_FILE}"
+        fi
+    fi
+}
+
 # ── Find task to verify ──
 if [[ -n "$TASK_OVERRIDE" ]]; then
-    TASK_ID="$TASK_OVERRIDE"
-    TASK_LINE=$(grep -n "Task ${TASK_ID}" "${SPECTRA_DIR}/plan.md" | head -1 | cut -d: -f1 || echo "")
+    if ! TASK_ID=$(normalize_task_id "${TASK_OVERRIDE}"); then
+        echo "Error: --task must be a numeric ID (e.g. 1 or 001)"
+        exit 1
+    fi
+    TASK_LINE=$(find_task_header_line "${TASK_ID}")
 else
-    # Find most recently checked task
-    LAST_CHECKED=$(grep -n '^\- \[x\]' "${SPECTRA_DIR}/plan.md" | tail -1 || echo "")
+    # Find most recently checked task in canonical checkbox format (skip [!] stuck).
+    LAST_CHECKED=$(grep -nE '^\- \[[xX]\] [0-9]{3}:' "${PLAN_FILE}" | tail -1 || echo "")
     if [[ -z "$LAST_CHECKED" ]]; then
         echo "  No completed tasks to verify."
         exit 0
     fi
     TASK_LINE=$(echo "$LAST_CHECKED" | cut -d: -f1)
-    TASK_ID=$(sed -n "1,${TASK_LINE}p" "${SPECTRA_DIR}/plan.md" | grep -oP 'Task \K\d+' | tail -1 || echo "0")
+    TASK_ID=$(echo "$LAST_CHECKED" | grep -oP '^\d+:\- \[[xX]\] \K[0-9]{3}' || echo "")
+fi
+
+if [[ -z "${TASK_ID:-}" ]]; then
+    echo "Error: Could not determine task ID to verify."
+    exit 1
+fi
+
+if [[ -z "${TASK_LINE:-}" ]]; then
+    TASK_LINE=$(find_task_header_line "${TASK_ID}")
+fi
+
+TASK_SECTION="$(get_task_section "${TASK_ID}")"
+if [[ -z "${TASK_SECTION}" ]]; then
+    echo "Error: Could not locate task block for Task ${TASK_ID}."
+    exit 1
 fi
 
 # ── Graduated verification: determine depth ──
 VERIFICATION_DEPTH="full"
 if [[ "$GRADUATED" == true ]]; then
-    TOTAL_TASKS=$(grep -c '^\- \[.\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
-    # Find position of current task among all tasks
-    TASK_POSITION=$(grep -n '^\- \[.\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null | grep -n "Task.*${TASK_ID}\|${TASK_ID}:" | head -1 | cut -d: -f1 || echo "$TOTAL_TASKS")
+    TOTAL_TASKS=$(grep -cE '^## Task [0-9]{3}:' "${PLAN_FILE}" 2>/dev/null || echo "0")
+    # Find position of current task among all task headers.
+    TASK_POSITION=$(awk -v id="${TASK_ID}" '
+        /^## Task [0-9]{3}:/ {
+            n++
+            task=$3
+            sub(":", "", task)
+            if (task == id) {
+                print n
+                exit
+            }
+        }
+    ' "${PLAN_FILE}" 2>/dev/null || echo "")
+    TASK_POSITION="${TASK_POSITION:-$TOTAL_TASKS}"
 
     if [[ "$TASK_POSITION" -eq "$TOTAL_TASKS" ]]; then
         VERIFICATION_DEPTH="full-sweep"
         FULL_SWEEP=true
     else
-        # Check if this task modifies files also modified by prior tasks
-        TASK_FILES=$(sed -n "/Task ${TASK_ID}/,/^## Task/p" "${SPECTRA_DIR}/plan.md" 2>/dev/null | grep -oP 'owns:\s*\K.*' | tr -d '[]' | tr ',' '\n' | xargs || echo "")
+        # Check if this task modifies files also modified by prior tasks (owns + touches)
+        TASK_FILES=$(echo "${TASK_SECTION}" | grep -oP '(owns|touches):\s*\[\K[^]]*' 2>/dev/null | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' | xargs || echo "")
         FILE_OVERLAP=false
-        for f in $TASK_FILES; do
+        HEADER_LINE=$(find_task_header_line "${TASK_ID}")
+        PRIOR_TEXT=""
+        if [[ -n "${HEADER_LINE}" ]] && [[ "${HEADER_LINE}" -gt 1 ]]; then
+            PRIOR_TEXT=$(sed -n "1,$((HEADER_LINE - 1))p" "${PLAN_FILE}" 2>/dev/null || true)
+        fi
+        for f in ${TASK_FILES}; do
             # Check if any prior completed task also owns this file
-            if sed -n "1,/Task ${TASK_ID}/p" "${SPECTRA_DIR}/plan.md" 2>/dev/null | grep -q "$f" 2>/dev/null; then
+            if [[ -n "${PRIOR_TEXT}" ]] && echo "${PRIOR_TEXT}" | grep -Fq "${f}" 2>/dev/null; then
                 FILE_OVERLAP=true
                 break
             fi
@@ -129,7 +215,6 @@ echo "  Verification Depth: ${VERIFICATION_DEPTH}"
 # ── Extract verify command from plan.md ──
 VERIFY_CMD=""
 # Look in lines following the task header for Verify: `command`
-TASK_SECTION=$(sed -n "/Task ${TASK_ID}/,/^## Task/p" "${SPECTRA_DIR}/plan.md" | head -20)
 VERIFY_CMD=$(echo "$TASK_SECTION" | grep -oP '(?:Verify|verify):\s*`\K[^`]+' | head -1 || true)
 
 VERIFY_PASS=true
@@ -205,8 +290,9 @@ if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
     LAST_COMMIT_SHORT=$(git log -1 --pretty=format:"%h" 2>/dev/null || echo "")
     LAST_COMMIT_MSG=$(git log -1 --pretty=format:"%s" 2>/dev/null || echo "")
 
-    # Check commit convention: feat(task-N) or fix(task-N)
-    if echo "$LAST_COMMIT_MSG" | grep -qiP "(feat|fix)\(.*task.*${TASK_ID}"; then
+    # Check commit convention: feat(task-N) or fix(task-N), allow zero-padded/unpadded IDs
+    TASK_ID_INT=$((10#${TASK_ID}))
+    if echo "$LAST_COMMIT_MSG" | grep -qiP "(feat|fix)\(.*task.*(${TASK_ID}|${TASK_ID_INT})"; then
         echo "  ✅ Step 3: Commit matches convention — ${LAST_COMMIT_SHORT}: ${LAST_COMMIT_MSG}"
     else
         echo "  ⚠  Step 3: Commit doesn't match task ${TASK_ID} convention"

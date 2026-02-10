@@ -73,28 +73,37 @@ System design document. Include:
 This is your most critical output. Each task must include:
 
 ```markdown
-## Task N: [Title]
-- [ ] [Task description]
-- **Acceptance criteria:**
+## Task NNN: [Title]
+- [ ] NNN: [Title]
+- AC:
   - [criterion 1]
   - [criterion 2]
-- **Verify:** `[exact CLI command to verify this task]`
-- **Risk:** [low | medium | high]
-- **Max iterations:** 3
-- **Wiring proof:**
-  - CLI commands to test manually: [list]
-  - Cross-module calls to assert: [list]
-  - Pipeline steps for integration tests: [list]
+- Files: [comma-separated file paths]
+- Verify: `[exact CLI command that exits 0 on success]`
+- Risk: [low|medium|high]
+- Max-iterations: [3|5|8|10]
+- Scope: [code|infra|docs|config|multi-repo]
+- File-ownership:                          # Level 3+ only
+  - owns: [files this task creates/modifies exclusively]
+  - touches: [files this task modifies but shares]
+  - reads: [files this task only reads]
+- Wiring-proof:                            # Level 2+ only
+  - CLI: [exact command path to exercise]
+  - Integration: [cross-module/pipeline assertion]
 ```
+
+Checkbox states: `[ ]` pending, `[x]` complete, `[!]` stuck
 
 ### Mandatory Plan Requirements
 
-1. **Every task must have a verify command** — an exact CLI command that proves the task works
-2. **Wiring proof sections are mandatory** for Level 2+ projects
+1. **Every task must have a verify command** — an exact CLI command that exits 0 on success
+2. **Wiring-proof sections are mandatory** for Level 2+ projects
 3. **Level 2+ must include a forced failure task** — a task that intentionally tests error handling and verification gates
 4. **Tasks must be ordered** so that each task can be independently verified after completion
 5. **No task should require context from a previous builder session** — each task reads plan.md fresh
-6. **Every task must have a Risk tag** — `low` (standard implementation), `medium` (integration, some unknowns), `high` (external dependencies, novel architecture). High-risk tasks are executed first when `--risk-first` is enabled.
+6. **Every task must have a Risk tag** — `low` (standard), `medium` (integration, some unknowns), `high` (external deps, novel architecture). High-risk tasks execute first with `--risk-first`.
+7. **AC must be multi-line** — use `  - criterion` sub-items, not single-line
+8. **File-ownership uses three tiers** — `owns` (SIGN-005 exclusive), `touches` (shared-modify), `reads` (read-only)
 
 ### non-goals.md (Optional but Recommended)
 
@@ -107,16 +116,18 @@ Write all artifacts to `.spectra/`:
 - `.spectra/prd.md`
 - `.spectra/architecture.md`
 - `.spectra/stories/story-N.md`
-- `.spectra/plans/plan.md`
+- `.spectra/plan.md`
 - `.spectra/non-goals.md`
 
 ### File Ownership Map (Level 3+)
 
-Every task in plan.md must include a `file_ownership` field listing the files that task owns exclusively. This enables parallel execution via Agent Teams.
+Every task in plan.md must include a `File-ownership:` section with three tiers. This enables parallel execution via Agent Teams and SIGN-005 enforcement.
 
 ```markdown
-- **File ownership:**
-  - owns: [list of files this task creates or modifies]
+- File-ownership:
+  - owns: [files this task creates or modifies exclusively — SIGN-005 exclusive]
+  - touches: [files this task modifies but shares — SIGN-005 conflict detection]
+  - reads: [files this task only reads — no conflict]
   - reads: [list of files this task reads but does not modify]
 ```
 

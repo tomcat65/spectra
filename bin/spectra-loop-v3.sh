@@ -19,6 +19,7 @@ SPECTRA_DIR=".spectra"
 SIGNALS_DIR="${SPECTRA_DIR}/signals"
 LOGS_DIR="${SPECTRA_DIR}/logs"
 PROMPT_GENERATOR="${SPECTRA_HOME}/bin/spectra-team-prompt.sh"
+PLAN_VALIDATOR="${SPECTRA_HOME}/bin/spectra-plan-validate.sh"
 
 # ── Defaults ──
 PLAN_ONLY=false
@@ -143,6 +144,40 @@ elapsed() {
     printf '%02d:%02d:%02d' $((diff/3600)) $(((diff%3600)/60)) $((diff%60))
 }
 
+validate_plan_contract() {
+    if [[ ! -f "${SPECTRA_DIR}/plan.md" ]]; then
+        echo "Error: No .spectra/plan.md found."
+        return 1
+    fi
+
+    if [[ -x "${PLAN_VALIDATOR}" ]]; then
+        if ! "${PLAN_VALIDATOR}" --file "${SPECTRA_DIR}/plan.md" --quiet; then
+            echo "Error: plan.md failed schema validation."
+            echo "  Fix .spectra/plan.md or regenerate with 'spectra-plan'."
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+# ── Observability signal helpers ──
+write_signal() {
+    local signal_name="$1" signal_value="$2"
+    echo "${signal_value}" > "${SIGNALS_DIR}/${signal_name}"
+}
+
+write_progress() {
+    local total done stuck
+    if [[ -f "${SPECTRA_DIR}/plan.md" ]]; then
+        total=$(grep -cE '^\- \[[ xX!]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+        done=$(grep -cE '^\- \[[xX]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+        stuck=$(grep -cE '^\- \[!\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+        [[ "$total" -eq 0 ]] && total=$(grep -c '^\- \[.\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0") && done=$(grep -c '^\- \[[xX]\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0") && stuck=0
+        write_signal "PROGRESS" "${done}/${total} tasks (${stuck} stuck)"
+    fi
+}
+
 # ── Display banner ──
 echo ""
 echo "╔══════════════════════════════════════════╗"
@@ -163,6 +198,15 @@ if [[ ! -x "$PROMPT_GENERATOR" ]]; then
     echo "  Expected: ${SPECTRA_HOME}/bin/spectra-team-prompt.sh"
     exit 1
 fi
+
+if ! validate_plan_contract; then
+    exit 1
+fi
+
+# ── Write initial signals ──
+write_signal "PHASE" "executing"
+write_signal "AGENT" "spectra-lead"
+write_progress
 
 # ── Generate team prompt ──
 echo "  Generating team prompt..."
@@ -201,6 +245,9 @@ echo "  Team lead session exited (code: ${SESSION_EXIT})"
 echo "  Elapsed: $(elapsed)"
 
 if [[ -f "${SIGNALS_DIR}/COMPLETE" ]]; then
+    write_signal "PHASE" "complete"
+    write_signal "AGENT" "none"
+    write_progress
     echo ""
     echo "╔══════════════════════════════════════════╗"
     echo "║  COMPLETE — All tasks passed               ║"
@@ -226,6 +273,9 @@ if [[ -f "${SIGNALS_DIR}/COMPLETE" ]]; then
     fi
 
 elif [[ -f "${SIGNALS_DIR}/STUCK" ]]; then
+    write_signal "PHASE" "stuck"
+    write_signal "AGENT" "none"
+    write_progress
     echo ""
     echo "╔══════════════════════════════════════════╗"
     echo "║  STUCK — Execution halted                  ║"
@@ -247,12 +297,18 @@ else
     echo "  Session ended without COMPLETE or STUCK signal."
     echo "  Check ${LOGS_DIR}/teams-execution.log for details."
 
-    # Check partial progress
+    # Check partial progress (supports [x] complete, [!] stuck)
     if [[ -f "${SPECTRA_DIR}/plan.md" ]]; then
-        TOTAL=$(grep -c '^\- \[.\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
-        DONE=$(grep -c '^\- \[x\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
-        REMAINING=$((TOTAL - DONE))
-        echo "  Progress: ${DONE}/${TOTAL} tasks complete (${REMAINING} remaining)"
+        TOTAL=$(grep -cE '^\- \[[ xX!]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+        DONE=$(grep -cE '^\- \[[xX]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+        STUCK=$(grep -cE '^\- \[!\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+        if [[ "${TOTAL}" -eq 0 ]]; then
+            TOTAL=$(grep -c '^\- \[.\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+            DONE=$(grep -c '^\- \[[xX]\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null || echo "0")
+            STUCK=0
+        fi
+        REMAINING=$((TOTAL - DONE - STUCK))
+        echo "  Progress: ${DONE}/${TOTAL} tasks complete (${REMAINING} remaining, ${STUCK} stuck)"
     fi
 
     echo "  Branch preserved: ${BRANCH_NAME}"
