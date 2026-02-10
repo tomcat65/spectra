@@ -84,7 +84,11 @@ mkdir -p .spectra/stories .spectra/screenshots .spectra/logs .spectra/signals
 if [[ ! -f .spectra/assessment.yaml ]]; then
     if [[ -x "${SPECTRA_HOME}/bin/spectra-assess.sh" ]]; then
         echo "→ Running project assessment..."
-        "${SPECTRA_HOME}/bin/spectra-assess.sh" --force || true
+        if [[ -t 0 ]]; then
+            "${SPECTRA_HOME}/bin/spectra-assess.sh" --force || true
+        else
+            "${SPECTRA_HOME}/bin/spectra-assess.sh" --force --non-interactive --track bmad_method || true
+        fi
     fi
 fi
 

@@ -73,27 +73,24 @@ fi
 SOURCE_MODE="manual"
 SOURCE_PRODUCER="interactive-fallback"
 BMAD_CONFIDENCE="0.5"
+BMAD_EXTRA_SOURCE=""
 
 # Tier 1: BMAD CLI
 if command -v bmad &>/dev/null; then
-    SOURCE_MODE="bmad"
-    SOURCE_PRODUCER="workflow-init"
-    BMAD_CONFIDENCE="0.9"
-    # TODO: Parse bmad *workflow-init output when BMAD CLI exists
-    echo "  BMAD CLI detected. (Structured parsing not yet implemented — using interactive fallback)"
-    SOURCE_MODE="manual"
+    SOURCE_MODE="bmad-detected"
     SOURCE_PRODUCER="interactive-fallback"
-    BMAD_CONFIDENCE="0.5"
+    BMAD_CONFIDENCE="0.7"
+    BMAD_VERSION=$(bmad --version 2>/dev/null || echo "unknown")
+    BMAD_EXTRA_SOURCE="  bmad_version: \"${BMAD_VERSION}\""
+    echo "  BMAD CLI detected (v${BMAD_VERSION}). Full parsing requires Phase D."
 # Tier 2: BMAD artifacts directory
 elif [[ -d "bmad" ]] || [[ -d ".bmad" ]]; then
-    SOURCE_MODE="bmad"
-    SOURCE_PRODUCER="bmad-artifacts"
-    BMAD_CONFIDENCE="0.7"
-    # TODO: Parse BMAD artifact files when directory exists
-    echo "  BMAD directory detected. (Artifact parsing not yet implemented — using interactive fallback)"
-    SOURCE_MODE="manual"
+    SOURCE_MODE="bmad-detected"
     SOURCE_PRODUCER="interactive-fallback"
-    BMAD_CONFIDENCE="0.5"
+    BMAD_CONFIDENCE="0.7"
+    BMAD_PATH=$(cd "bmad" 2>/dev/null || cd ".bmad" 2>/dev/null; pwd)
+    BMAD_EXTRA_SOURCE="  bmad_path: \"${BMAD_PATH}\""
+    echo "  BMAD directory detected (${BMAD_PATH}). Full parsing requires Phase D."
 fi
 
 # ══════════════════════════════════════════
@@ -150,7 +147,8 @@ if [[ "${NON_INTERACTIVE}" == false ]] && [[ "${SOURCE_PRODUCER}" == "interactiv
     read -r -p "  Compliance requirements? (comma-separated: soc2,pci-dss,hipaa,gdpr) or none: " input
     [[ -n "${input}" && "${input}" != "none" ]] && COMPLIANCE_RAW="${input}"
 elif [[ "${NON_INTERACTIVE}" == true ]] && [[ -z "${OVERRIDE_TRACK}" ]]; then
-    echo "Warning: --non-interactive without --track; using default track 'bmad_method'" >&2
+    echo "ERROR: --non-interactive requires --track (quick_flow|bmad_method|enterprise)" >&2
+    exit 1
 fi
 
 # Ensure numeric
@@ -330,11 +328,10 @@ esac
 # ══════════════════════════════════════════
 
 declare -a WARNINGS=()
-if [[ "${SOURCE_PRODUCER}" == "interactive-fallback" ]]; then
+if [[ "${SOURCE_MODE}" == "bmad-detected" ]]; then
+    WARNINGS+=("BMAD detected but full artifact parsing requires spectra-plan --from-bmad (Phase D)")
+elif [[ "${SOURCE_PRODUCER}" == "interactive-fallback" ]]; then
     WARNINGS+=("BMAD unavailable; assessment derived from manual answers")
-fi
-if [[ "${NON_INTERACTIVE}" == true ]] && [[ -z "${OVERRIDE_TRACK}" ]]; then
-    WARNINGS+=("non-interactive fallback defaults used")
 fi
 
 # ══════════════════════════════════════════
@@ -365,6 +362,12 @@ else
     COMP_YAML=" []"
 fi
 
+# scope_default derivation
+SCOPE_DEFAULT="code"
+if [[ "${LEVEL}" -eq 4 ]] && [[ "${DOMAIN}" == "infra" ]]; then
+    SCOPE_DEFAULT="infra"
+fi
+
 # Build warnings YAML array
 WARN_YAML=""
 if [[ ${#WARNINGS[@]} -gt 0 ]]; then
@@ -381,7 +384,8 @@ version: 1
 generated_at: "${GENERATED_AT}"
 source:
   mode: ${SOURCE_MODE}
-  producer: ${SOURCE_PRODUCER}
+  producer: ${SOURCE_PRODUCER}${BMAD_EXTRA_SOURCE:+
+${BMAD_EXTRA_SOURCE}}
 bmad:
   track: ${TRACK}
   confidence: ${BMAD_CONFIDENCE}
@@ -402,7 +406,8 @@ spectra:
 tuning:
   verification_intensity: ${VERIFICATION_INTENSITY}
   wiring_depth: ${WIRING_DEPTH}
-  retry_budget: ${RETRY_BUDGET}${WARN_YAML}
+  retry_budget: ${RETRY_BUDGET}
+  scope_default: ${SCOPE_DEFAULT}${WARN_YAML}
 EOF
 
 # ══════════════════════════════════════════
