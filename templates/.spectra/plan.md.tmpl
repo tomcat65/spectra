@@ -1,0 +1,43 @@
+# SPECTRA Execution Plan
+
+## Project: {{PROJECT_NAME}}
+## Level: {{LEVEL}}
+## Generated: {{DATE}}
+## Generated from: .spectra/stories/
+
+### Tasks (in dependency order)
+
+- [ ] 001: <!-- Task description -->
+  - AC: <!-- Acceptance criteria from story -->
+  - Files: <!-- Files to create/modify -->
+  - Verify: `<!-- command that exits 0 on success -->`
+  - Risk: <!-- low | medium | high -->
+  - Max iterations: 5
+  - Wiring proof:
+    - <!-- CLI command to test manually: e.g., python -m myapp command -->
+    - <!-- Cross-module calls to assert: e.g., ModuleA.method() called by ModuleB -->
+
+- [ ] 002: <!-- Task description -->
+  - AC: <!-- Acceptance criteria from story -->
+  - Files: <!-- Files to create/modify -->
+  - Verify: `<!-- command that exits 0 on success -->`
+  - Risk: <!-- low | medium | high -->
+  - Max iterations: 8
+  - Wiring proof:
+    - <!-- CLI command to test manually -->
+    - <!-- Cross-module calls to assert -->
+
+<!-- Add more tasks as needed -->
+
+### Verification Protocol
+After each task, the verifier runs:
+1. Task-specific verify command
+2. Full regression test suite
+3. Wiring proof checks (CLI boundary + import audit + pipeline completeness)
+4. Manual CLI command execution
+
+### Evidence Chain
+Every task completion must include:
+1. Commit hash (from `git rev-parse HEAD`)
+2. Verify command output (test count + pass/fail)
+3. Files created/modified (from `git diff --name-only`)

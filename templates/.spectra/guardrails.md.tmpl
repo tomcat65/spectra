@@ -1,0 +1,26 @@
+# Guardrails — {{PROJECT_NAME}}
+
+> Learned Signs from SPECTRA execution. These are hard-won lessons that prevent recurring failure patterns.
+> Updated automatically as verification gates catch issues.
+
+## Signs
+
+### SIGN-001: Integration tests must invoke what they import
+> "Every integration test must invoke every pipeline step it imports — importing a module without calling it is dead code in a test."
+- **Origin**: spectra-healthcheck dry run, Task 5 (Feb 2026)
+- **Pattern**: Builder imports LinearTracker in integration test but never calls create_issue() or update_status()
+- **Prevention**: Before committing integration tests, verify every import has at least one method call + assertion
+
+### SIGN-002: CLI commands need subprocess-level tests
+> "CLI commands must have subprocess-level tests that prove real execution, not just class-level unit tests."
+- **Origin**: spectra-healthcheck dry run, Task 3 (Feb 2026)
+- **Pattern**: Class-level tests pass but CLI crashes at runtime due to missing dependency (PyYAML) or narrow exception handling
+- **Prevention**: Every CLI command wired in __main__.py must have a subprocess test that runs the actual command
+
+### SIGN-003: Lessons must generalize, not just fix
+> "If the spec says A → B → C → D and your test skips B, you've written a unit test with extra steps — not an integration test."
+- **Origin**: spectra-healthcheck dry run, Tasks 3+5 (Feb 2026)
+- **Pattern**: Builder learns specific fix (add CLI tests) but doesn't generalize to broader principle (test all wiring). Same bug class recurs in different form.
+- **Prevention**: After any FAIL, builder must articulate the GENERAL principle, not just the specific fix
+
+<!-- New Signs are appended here as they are discovered -->

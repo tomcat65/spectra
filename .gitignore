@@ -1,0 +1,30 @@
+# Secrets — NEVER commit
+.env
+.env.*
+*.key
+*.pem
+*.secret
+credentials.*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.sublime-*
+
+# Logs and temp
+*.log
+*.tmp
+*.bak
+*.orig
+logs/
+
+# Node (if any tooling added later)
+node_modules/
