@@ -47,6 +47,7 @@ SPECTRA is installed globally at `~/.spectra/` and integrates with Claude Code v
     spectra-plan.sh                 #   Plan generation (uses spectra-planner agent)
     spectra-loop-v3.sh              #   Main launcher (Level routing)
     spectra-loop-legacy.sh          #   Sequential loop (Level 0-2)
+    spectra-preflight.sh            #   Token verification (runs once, then on .env change)
     spectra-quick.sh                #   Quick single-task execution
     spectra-verify.sh               #   Standalone verification
     spectra-team-prompt.sh          #   Team prompt generator (Level 3+)
@@ -197,6 +198,32 @@ Integration tokens live in `~/.spectra/.env` (chmod 600):
 | `LINEAR_TEAM_ID` | spectra-init.sh | Target Linear team |
 | `SLACK_WEBHOOK_URL` | spectra-loop-v3.sh, spectra-verify.sh, spectra-init.sh | Notifications |
 | `GITHUB_TOKEN` | Fallback (gh CLI handles its own auth) | GitHub API |
+
+### Preflight Verification
+
+`spectra-preflight` verifies all `.env` tokens are valid before SPECTRA launches. It runs automatically as part of `spectra-loop` and uses hash-based caching to avoid redundant checks.
+
+**How it works:**
+1. On first run (or when `.env` changes), it makes real HTTP calls to test each token
+2. On success, it stores `sha256sum(.env)` in `.env.verified`
+3. On subsequent runs, it compares hashes and silently skips if unchanged
+
+```bash
+# Manual verification
+spectra-preflight           # Runs only if .env changed since last check
+spectra-preflight --force   # Always run, ignore cached hash
+```
+
+**Automatic integration:** `spectra-loop` calls `spectra-preflight` after sourcing `.env` and before any project work. If any token fails, the loop aborts with a clear error.
+
+| Token | Test Method |
+|-------|-------------|
+| `LINEAR_API_KEY` | GraphQL query to `api.linear.app` (HTTP 200) |
+| `LINEAR_TEAM_ID` | Team lookup via Linear GraphQL (HTTP 200) |
+| `SLACK_WEBHOOK_URL` | Empty payload POST (HTTP 400 = valid URL, no message posted) |
+| `GITHUB_TOKEN` | GET `/user` on `api.github.com` (HTTP 200) |
+
+Tokens that are not set in `.env` are reported as SKIP (not FAIL) — only invalid tokens block the launch.
 
 ## Multi-Agent Collaboration
 
