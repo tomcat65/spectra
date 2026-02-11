@@ -188,15 +188,14 @@ FW=$(parse_fw "$CFG")
 if [[ -n "$FW" ]]; then
     echo "[spectra-verify] Section 2: Framework checks"
     while IFS='|' read -r name pat sev msg paths; do
-        [[ -z "$name" ]] && continue; sp=""
+        [[ -z "$name" ]] && continue; sp_arr=()
         if [[ -n "$paths" ]]; then IFS=',' read -ra _pa <<< "$paths"; for p in "${_pa[@]}"; do
             p="${p## }"; p="${p%% }"; [[ -z "$p" ]] && continue; t="$PROJECT_ROOT/${p%/}"
-            { [[ -d "$t" ]] || [[ -f "$t" ]]; } && sp="$sp $t"; done
-        else while IFS= read -r sd; do [[ -n "$sd" ]] && { t="$PROJECT_ROOT/${sd%/}"; [[ -d "$t" ]] && sp="$sp $t"; }
+            { [[ -d "$t" ]] || [[ -f "$t" ]]; } && sp_arr+=("$t"); done
+        else while IFS= read -r sd; do [[ -n "$sd" ]] && { t="$PROJECT_ROOT/${sd%/}"; [[ -d "$t" ]] && sp_arr+=("$t"); }
             done <<< "$SRC_DIRS"; fi
-        [[ -z "$sp" ]] && continue
-        # shellcheck disable=SC2086
-        h=$(grep -rnE "$pat" $sp 2>/dev/null || true); hc=0; [[ -n "$h" ]] && hc=$(echo "$h" | wc -l)
+        [[ ${#sp_arr[@]} -eq 0 ]] && continue
+        h=$(grep -rnE "$pat" "${sp_arr[@]}" 2>/dev/null || true); hc=0; [[ -n "$h" ]] && hc=$(echo "$h" | wc -l)
         if [[ $hc -gt 0 ]]; then report "FAIL" "[${name}] ${msg} (${hc} match(es))"
             [[ "$VERBOSE" == true ]] && echo "$h" | head -5 | sed 's/^/         /'
         else report "PASS" "[${name}] clean"; fi
