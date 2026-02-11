@@ -422,6 +422,11 @@ set -e
 
 if [[ $CLAUDE_EXIT -eq 124 ]]; then
     echo "⚠  Plan generation timed out after ${PLAN_TIMEOUT}s. Try again or increase PLAN_TIMEOUT."
+    rm -f .spectra/plan.md.new
+    exit 1
+elif [[ $CLAUDE_EXIT -ne 0 ]]; then
+    echo "⚠  Plan generation failed (claude exit code: ${CLAUDE_EXIT})."
+    rm -f .spectra/plan.md.new
     exit 1
 fi
 
