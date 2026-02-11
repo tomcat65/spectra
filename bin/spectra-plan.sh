@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
         --level)        LEVEL_OVERRIDE="$2"; shift 2 ;;
         -h|--help)
             cat <<EOF
-SPECTRA v1.2 Plan Generator
+SPECTRA v4.1 Plan Generator
 
 Usage: spectra-plan [OPTIONS]
 
@@ -100,12 +100,13 @@ fi
 # BMAD ARTIFACT COLLECTION (--from-bmad mode)
 # ══════════════════════════════════════════
 
-PRD_CONTENT=""
-ARCH_CONTENT=""
 STORIES_CONTENT=""
+STORY_FILES=""
 STORY_COUNT=0
 PLAN_SOURCE=".spectra/stories/"
 BMAD_WARNINGS=()
+PRD_FILE=""
+ARCH_FILE=""
 
 if [[ "${FROM_BMAD}" == true ]]; then
     # Auto-discover BMAD directory if not explicit
@@ -126,20 +127,18 @@ if [[ "${FROM_BMAD}" == true ]]; then
 
     PLAN_SOURCE="BMAD (${BMAD_DIR}/)"
 
-    # Collect PRD
+    # Collect PRD (file path only — agent reads content from disk)
     PRD_FILE=$(find "${BMAD_DIR}" -maxdepth 2 -iname "*prd*" -name "*.md" 2>/dev/null | head -1 || true)
     if [[ -n "${PRD_FILE}" ]]; then
-        PRD_CONTENT=$(cat "${PRD_FILE}")
         echo "  PRD: ${PRD_FILE}"
     else
         BMAD_WARNINGS+=("No PRD found in ${BMAD_DIR}. Acceptance criteria derived from stories only.")
         echo "  WARN: No PRD found in ${BMAD_DIR}."
     fi
 
-    # Collect Architecture
+    # Collect Architecture (file path only — agent reads content from disk)
     ARCH_FILE=$(find "${BMAD_DIR}" -maxdepth 2 -iname "*arch*" -name "*.md" 2>/dev/null | head -1 || true)
     if [[ -n "${ARCH_FILE}" ]]; then
-        ARCH_CONTENT=$(cat "${ARCH_FILE}")
         echo "  Architecture: ${ARCH_FILE}"
     else
         BMAD_WARNINGS+=("No architecture doc in ${BMAD_DIR}. File ownership will be best-effort.")
@@ -186,9 +185,11 @@ if [[ "${FROM_BMAD}" == true ]]; then
         exit 1
     fi
 
-    # Build stories content
+    # Build stories content (for validation) and file list (for agent prompt)
     while IFS= read -r story; do
         [[ -z "${story}" ]] && continue
+        STORY_FILES="${STORY_FILES}
+- ${story}"
         STORIES_CONTENT="${STORIES_CONTENT}
 --- $(basename "${story}") ---
 $(cat "${story}")
@@ -223,6 +224,8 @@ else
     fi
 
     for story in $(find .spectra/stories -name "*.md" -not -name ".gitkeep" | sort); do
+        STORY_FILES="${STORY_FILES}
+- ${story}"
         STORIES_CONTENT="${STORIES_CONTENT}
 --- $(basename "$story") ---
 $(cat "$story")
@@ -253,15 +256,6 @@ echo ""
 for w in "${BMAD_WARNINGS[@]+${BMAD_WARNINGS[@]}}"; do
     echo "  WARN: ${w}"
 done
-
-# ══════════════════════════════════════════
-# READ CONSTITUTION
-# ══════════════════════════════════════════
-
-CONSTITUTION=""
-if [[ -f .spectra/constitution.md ]]; then
-    CONSTITUTION=$(cat .spectra/constitution.md)
-fi
 
 # ══════════════════════════════════════════
 # BUILD LEVEL-CONDITIONAL SCHEMA INSTRUCTIONS
@@ -298,18 +292,12 @@ if [[ "${PROJECT_LEVEL}" -ge 3 ]]; then
 fi
 
 # ══════════════════════════════════════════
-# BMAD CONTEXT (augmented prompt for --from-bmad)
+# BMAD BRIDGE INSTRUCTIONS (meta-rules only, no file content)
 # ══════════════════════════════════════════
 
-BMAD_CONTEXT=""
+BMAD_INSTRUCTIONS=""
 if [[ "${FROM_BMAD}" == true ]]; then
-    BMAD_CONTEXT="
-## Product Requirements Document (from BMAD)
-${PRD_CONTENT:-Not available — derive acceptance criteria from stories alone.}
-
-## Architecture Document (from BMAD)
-${ARCH_CONTENT:-Not available — derive file paths from stories and project conventions.}
-
+    BMAD_INSTRUCTIONS="
 ## BMAD Bridge Instructions
 You are generating a plan from BMAD artifacts. Additional rules:
 1. Extract acceptance criteria from PRD user stories AND from individual story files. Prefer story-level criteria when both exist.
@@ -318,30 +306,41 @@ You are generating a plan from BMAD artifacts. Additional rules:
 4. Map PRD non-functional requirements to Risk assessment (security/performance concerns = high risk).
 5. Each BMAD story may map to 1-3 plan tasks. Split by logical unit of work — one task per independently verifiable deliverable.
 6. Preserve BMAD story IDs in task titles where possible (e.g., 'US-1: ...' becomes 'Task 001: US-1 — ...').
-7. Default Scope to '${SCOPE_DEFAULT}' unless the task clearly targets a different scope.
-"
+7. Default Scope to '${SCOPE_DEFAULT}' unless the task clearly targets a different scope."
 fi
 
 # ══════════════════════════════════════════
-# BUILD PLANNER PROMPT
+# BUILD PLANNER PROMPT (file-path approach — BUG #2 fix)
 # ══════════════════════════════════════════
 
 GENERATED_DATE=$(date +%Y-%m-%d)
 
-PLAN_PROMPT="You are a SPECTRA plan generator. Convert the following $(if [[ "${FROM_BMAD}" == true ]]; then echo "BMAD artifacts"; else echo "stories"; fi) into a canonical plan.md file.
+# Build file list for agent to read from disk (instead of inlining content)
+READ_FILES="${STORY_FILES}"
+[[ -n "${PRD_FILE}" ]] && READ_FILES="${READ_FILES}
+- ${PRD_FILE}"
+[[ -n "${ARCH_FILE}" ]] && READ_FILES="${READ_FILES}
+- ${ARCH_FILE}"
+[[ -f .spectra/constitution.md ]] && READ_FILES="${READ_FILES}
+- .spectra/constitution.md"
+[[ -f .spectra/assessment.yaml ]] && READ_FILES="${READ_FILES}
+- .spectra/assessment.yaml"
+[[ -f .spectra/discovery.md ]] && READ_FILES="${READ_FILES}
+- .spectra/discovery.md"
 
-## Constitution
-${CONSTITUTION}
-${BMAD_CONTEXT}
-## Stories
-${STORIES_CONTENT}
+PLAN_PROMPT="OUTPUT COMPLETE RAW MARKDOWN TO STDOUT starting with '# SPECTRA Execution Plan'.
+No summary, no commentary, no permission requests. Your stdout IS the file — the calling script captures it via redirect.
 
+Read these files:
+${READ_FILES}
+
+Generate a Level ${PROJECT_LEVEL} canonical plan.md from these $(if [[ "${FROM_BMAD}" == true ]]; then echo "BMAD artifacts"; else echo "stories"; fi).
+${BMAD_INSTRUCTIONS}
 ## Project Level: ${PROJECT_LEVEL}
 
 ## Output Format
 Generate EXACTLY this schema (no extra text before/after markdown):
 
-\`\`\`markdown
 # SPECTRA Execution Plan
 
 ## Project: (extract from constitution or stories)
@@ -366,7 +365,6 @@ Generate EXACTLY this schema (no extra text before/after markdown):
 - Files: [comma-separated file paths]
 - Verify: \`[command that exits 0 on success]\`${LEVEL_FIELDS}
 ${PARALLELISM_SECTION}
-\`\`\`
 
 Rules:
 - One \`## Task NNN\` block per logical unit of work
@@ -379,6 +377,7 @@ Rules:
 - Max-iterations: default ${RETRY_BUDGET} (from assessment); use 3 for trivial, 5 for setup, 8 for feature, 10 for complex
 - Risk must be exactly one of: low, medium, high
 - Scope must be exactly one of: code, infra, docs, config, multi-repo
+- For Level 3+: file ownership lists MUST use square brackets: \`- owns: [file1.py, file2.py]\`. Use \`[]\` for empty lists, never \`(none)\`.
 - For Level 3+: file ownership must be explicit and non-overlapping (SIGN-005)
 - For Level 3+: owns = exclusive, touches = shared-modify, reads = read-only
 
@@ -386,7 +385,53 @@ Output ONLY the markdown content, no code fences wrapping it."
 
 echo "→ Generating plan from $(if [[ "${FROM_BMAD}" == true ]]; then echo "BMAD artifacts"; else echo "stories"; fi)..."
 
-claude --agent spectra-planner -p "${PLAN_PROMPT}" > .spectra/plan.md.new
+# ── Slack notification: plan generation started ──
+if [[ -n "${SLACK_WEBHOOK_URL:-}" ]]; then
+    curl -s -X POST "${SLACK_WEBHOOK_URL}" \
+        -H "Content-Type: application/json" \
+        -d "{\"text\":\"SPECTRA: Plan generation started (${STORY_COUNT} stories, Level ${PROJECT_LEVEL})\"}" > /dev/null 2>&1 || true
+fi
+
+# ── Background progress indicator (BUG #4 fix) ──
+show_progress() {
+    local pid=$1
+    local steps=("Parsing stories" "Reading PRD" "Reading architecture" "Generating plan" "Generating plan" "Generating plan" "Validating")
+    local pcts=(10 20 30 50 60 70 90)
+    local i=0
+    while kill -0 "$pid" 2>/dev/null; do
+        if [[ $i -lt ${#steps[@]} ]]; then
+            printf "\r  [%3d%%] %s..." "${pcts[$i]}" "${steps[$i]}"
+            i=$((i + 1))
+        else
+            printf "\r  [%3d%%] Generating plan (still working)..." 80
+        fi
+        sleep 10
+    done
+    printf "\r  [100%%] Done.                              \n"
+}
+
+# ── Timeout-wrapped invocation (BUG #6 fix) ──
+PLAN_TIMEOUT=${PLAN_TIMEOUT:-300}
+set +e
+timeout "${PLAN_TIMEOUT}" claude --agent spectra-planner --output-format text -p "${PLAN_PROMPT}" > .spectra/plan.md.new &
+CLAUDE_PID=$!
+show_progress $CLAUDE_PID
+wait $CLAUDE_PID
+CLAUDE_EXIT=$?
+set -e
+
+if [[ $CLAUDE_EXIT -eq 124 ]]; then
+    echo "⚠  Plan generation timed out after ${PLAN_TIMEOUT}s. Try again or increase PLAN_TIMEOUT."
+    exit 1
+fi
+
+# ── Empty output check (BUG #7 fix) ──
+if [[ ! -s .spectra/plan.md.new ]]; then
+    echo "⚠  Plan generation produced empty output. Claude may have errored."
+    echo "  Check: claude --agent spectra-planner -p 'test' to verify agent works."
+    rm -f .spectra/plan.md.new
+    exit 1
+fi
 
 # ══════════════════════════════════════════
 # VALIDATE GENERATED PLAN
@@ -461,4 +506,11 @@ else
     echo "  Output: .spectra/plan.md"
     echo ""
     echo "Next: Run 'spectra-loop' to start execution"
+
+    # Slack notification: plan generation complete
+    if [[ -n "${SLACK_WEBHOOK_URL:-}" ]]; then
+        curl -s -X POST "${SLACK_WEBHOOK_URL}" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\":\"SPECTRA: Plan generated (${TASK_COUNT} tasks, Level ${PROJECT_LEVEL})\"}" > /dev/null 2>&1 || true
+    fi
 fi
