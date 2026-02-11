@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
         --level)        LEVEL_OVERRIDE="$2"; shift 2 ;;
         -h|--help)
             cat <<EOF
-SPECTRA v4.1 Plan Generator
+SPECTRA v5.0 Plan Generator
 
 Usage: spectra-plan [OPTIONS]
 

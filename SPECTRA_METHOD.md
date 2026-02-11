@@ -117,15 +117,15 @@ Level 2 — Medium Feature (1-5 days)
 
 Level 3 — Large Feature / New Module (1-4 weeks)
   → Full BMAD pipeline: PRD + Architecture + Stories
-  → Agent Teams execution via spectra-lead agent
-  → Parallel builders for independent tasks
-  → Native task lists, messaging, verification gates
+  → Bash-native parallel execution (& + wait)
+  → Independent tasks build simultaneously, serial verify
+  → JSON checkpoint for deterministic resume
 
 Level 4 — Enterprise System / Greenfield (1+ months)
   → Full BMAD with all agents (Analyst → PM → Architect → SM)
-  → Agent Teams with parallel builders + GitHub/Slack integration
+  → Parallel builders + GitHub/Slack integration
   → Sprint-based delivery with QA agent validation
-  → spectra-lead coordinates all phases autonomously
+  → Bash orchestration coordinates all phases autonomously
 ```
 
 **Decision rule**: If you can describe the change in one sentence, it's Level 0-1. If you need a meeting to explain it, it's Level 2-3. If it needs a slide deck, it's Level 4.
@@ -577,7 +577,7 @@ cp .env.example .env
 | Level 3 (Large feature) | 50K | 500K-1.5M | 150K | **~1.7M** |
 | Level 4 (Enterprise) | 150K | 2M-8M | 500K | **~8.6M** |
 
-*v3.1 model assignments: Opus for planning/building/verification/lead, Sonnet for cross-model review, Haiku for pre-flight audit. Models defined in agent YAML frontmatter (`~/.claude/agents/spectra-*.md`), not env vars.*
+*v5.0 model assignments: Opus for planning/building/verification, Sonnet for cross-model review, Haiku for pre-flight audit and oracle classification. Models defined in agent YAML frontmatter (`~/.claude/agents/spectra-*.md`), not env vars.*
 
 ## Appendix B: Framework Source Links
 
@@ -589,7 +589,7 @@ cp .env.example .env
 
 ---
 
-*SPECTRA v3.1 — A unified AI software engineering methodology*
+*SPECTRA v5.0 — A unified AI software engineering methodology*
 *Combining the planning depth of BMAD, the execution simplicity of Ralph Wiggum, and the orchestration rigor of Your Claude Engineer.*
 
 ---
@@ -693,97 +693,105 @@ The Wiring Proof Checklist is enforced at three levels:
 
 ---
 
-## 14. Agent Teams Integration (v3.1)
+## 14. Bash-Native Parallel Execution (v5.0)
 
-SPECTRA v3.1 introduces native Claude Code Agent Teams for Level 3+ projects, replacing the bash-orchestrated loop with coordinated multi-agent execution.
+SPECTRA v5.0 replaces the LLM-based coordinator (spectra-lead agent) with bash-native orchestration. Bash handles all bookkeeping — LLMs are workers that build, verify, classify, and review with <500 byte prompts.
 
-### Hybrid Execution Model
+### Why v5.0?
 
-| Project Level | Execution Mode | Rationale |
-|---------------|---------------|-----------|
-| Level 0-2 | **Sequential** (spectra-loop-legacy.sh) | Overhead not justified for simple work |
-| Level 3+ | **Agent Teams** (spectra-lead agent) | Parallel builders, shared task lists, native messaging |
+The v3.1 Agent Teams approach fed a 47KB prompt to an LLM "lead" agent that spent 200 Opus turns on TaskCreate, TaskUpdate, SendMessage — burning >60% of context on coordination. v5.0 moves all coordination to bash, where it costs zero tokens.
 
-The `--sequential` flag forces legacy mode for any level.
+### Unified Execution Model
 
-### Agent Teams Architecture
+| Project Level | Execution Mode | Parallelism |
+|---------------|---------------|-------------|
+| Level 0-2 | **Sequential** (spectra-loop-v5.sh) | MAX_BATCH_SIZE forced to 1 |
+| Level 3+ | **Parallel** (spectra-loop-v5.sh) | Up to MAX_BATCH_SIZE independent tasks via `&` + `wait` |
+
+One script handles all levels. The `--sequential` flag forces batch size 1 for any level.
+
+### v5.0 Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                SPECTRA v3.1 — Agent Teams Mode                │
+│             SPECTRA v5.0 — Bash-Native Parallel               │
 ├─────────────────────────────────────────────────────────────┤
 │                                                               │
-│  spectra-loop-v3.sh (thin launcher)                          │
-│    ↓                                                          │
-│  spectra-lead (Opus, delegate mode, max 200 turns)           │
-│    ├── TeamCreate("spectra-run")                              │
-│    ├── TaskCreate (plan.md → shared task list)                │
-│    ├── Task → spectra-planner (Opus, plan mode)               │
-│    ├── Task → spectra-reviewer (Sonnet, plan mode)            │
-│    ├── Task → spectra-auditor (Haiku, plan mode)              │
-│    ├── Task → spectra-builder (Opus, acceptEdits) ×N parallel │
-│    ├── Task → spectra-verifier (Opus, plan mode) ×1 serial    │
-│    ├── SendMessage / TaskUpdate for coordination              │
-│    └── TeamDelete on completion                               │
+│  spectra-loop-v5.sh (full orchestrator)                      │
+│    ├── parse_plan()     → bash arrays from plan.md           │
+│    ├── next_batch()     → independent tasks (dep + SIGN-005) │
+│    ├── build_prompt()   → <500 byte prompt per task          │
+│    ├── preflight_prompt()→ Haiku auditor per task             │
+│    ├── parallel_build() → & + wait for batch                 │
+│    ├── verify_prompt()  → sequential verifier per task       │
+│    ├── oracle_classify()→ 3-turn Haiku failure typing        │
+│    ├── write_checkpoint()→ JSON state for resume             │
+│    └── signal_complete()→ COMPLETE signal + final report     │
 │                                                               │
 ├─────────────────────────────────────────────────────────────┤
-│  Hooks (user-level, ~/.claude/settings.json):                │
-│  - TaskCompleted: gate check (verify report PASS/FAIL)       │
-│  - TeammateIdle: safety net (dirty state detection)          │
+│  Agents (workers only — no coordination tools):              │
+│  - spectra-builder:  Opus, acceptEdits, max 50 turns         │
+│  - spectra-verifier: Opus, plan mode, no Edit/Write          │
+│  - spectra-auditor:  Haiku, plan mode, 10 turns max          │
+│  - spectra-oracle:   Haiku, plan mode, 3 turns max           │
+│  - spectra-reviewer: Sonnet, plan mode, cross-model review   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Team Lead Agent (spectra-lead.md)
+### Core Functions
 
-The team lead is a dedicated agent definition (`~/.claude/agents/spectra-lead.md`) with:
-- **Tools:** TeamCreate, TaskCreate, TaskUpdate, TaskList, TaskGet, SendMessage, TeamDelete, Read, Grep, Glob, Bash
-- **No Edit, No Write** — architectural guarantee against SIGN-004 (Lead Drift)
-- **Permission mode:** delegate
-- **Max turns:** 200
+**`parse_plan()`** — Reads plan.md into parallel bash arrays: TASK_IDS, TASK_TITLES, TASK_STATUS, TASK_RISKS, TASK_OWNS, TASK_TOUCHES, TASK_VERIFY, TASK_MAX_ITER, TASK_LINES, TASK_DEPS.
 
-The lead coordinates all phases: team initialization → plan.md → TaskCreate mapping → teammate spawning → verification gates → retry logic → shutdown protocol.
+**`next_batch()`** — Returns independent tasks ready to execute. Checks: all deps complete, no file ownership conflicts (SIGN-005), respects MAX_BATCH_SIZE. Risk-first sorting (high risk before low).
 
-### Agent Team Communication
+**`build_prompt()`** — Generates <500 byte prompt per task. Agent reads full context from disk (CLAUDE.md, plan.md, guardrails.md).
 
-All agents (builder, verifier, reviewer, auditor) now have team communication tools:
-- `SendMessage` — report results to team lead
-- `TaskUpdate` — mark tasks in-progress/completed
-- `TaskList` / `TaskGet` — read assigned tasks
+**`parallel_build()`** — Launches batch of builders as background processes (`&`), then `wait`. Each builder writes its report to `.spectra/logs/task-NNN-build.md`.
 
-When running standalone (no team context), agents ignore team tools and follow their standard protocols.
+**`oracle_classify()`** — On verification failure, spawns 3-turn Haiku agent that reads the verify report and returns exactly one classification word: test_failure, missing_dependency, wiring_gap, architecture_mismatch, ambiguous_spec, or external_blocker.
 
-### Hook Design (v3.1)
+### Checkpoint & Resume
 
-Hooks are simplified safety nets — orchestration logic lives in the lead agent, not in bash scripts:
+State is stored in `.spectra/signals/CHECKPOINT` as JSON:
+```json
+{
+  "completed": ["001", "003"],
+  "stuck": ["002"],
+  "retry_counts": {"004": 2},
+  "pass_history": {"002": ["test_failure", "wiring_gap"]},
+  "elapsed_seconds": 1847,
+  "branch": "spectra/my-project"
+}
+```
 
-**TaskCompleted hook** (~50 lines): Pure gate check. If verify report shows PASS → allow. If FAIL → reject. If no report → allow (lead handles spawning verifier).
+Resume is deterministic: read JSON → set arrays → continue from next incomplete task. Uses `jq` if available, falls back to `grep`.
 
-**TeammateIdle hook** (~27 lines): If COMPLETE/STUCK signal → allow idle. If uncommitted changes → reject. Otherwise → allow (lead handles assignment via SendMessage).
+**Compound failure detection:** If `pass_history` shows 2+ different failure types on the same task, the task is marked STUCK (the plan is wrong, not just the code).
 
-### Key Signs for Agent Teams
+**Diminishing budget:** Iteration 1 = 50 turns, iteration 2 = 35, iteration 3 = 25. Prevents infinite burn on fundamentally broken tasks.
 
-- **SIGN-004: Lead Drift** — The team lead must never edit source files. No Edit/Write tools.
-- **SIGN-005: File Ownership Conflict** — No two builders may edit the same file simultaneously.
-- **SIGN-006: Verification Parallelism** — Verification is never parallel (Doctrine 5).
-- **SIGN-007: Orphaned Teammates** — Always send shutdown_request before TeamDelete.
+### Key Signs
 
-### Execution Flow (Level 3+)
+- **SIGN-005: File Ownership Conflict** — No two builders may edit the same file simultaneously. `next_batch()` enforces this.
+- **SIGN-006: Verification Parallelism** — Verification is never parallel (Doctrine 5). Always sequential after parallel build.
+
+### Execution Flow (All Levels)
 
 ```
-spectra-loop-v3.sh
-  → Detects Level 3+ → launches: claude --agent spectra-lead -p "<team-prompt>"
-  → spectra-lead:
-    1. TeamCreate("spectra-run")
-    2. Parse plan.md → TaskCreate for each task + verify task
-    3. For each task (parallel if independent):
-       a. Spawn auditor → pre-flight scan
-       b. Spawn builder-N → implement task
-       c. Builder sends completion message → lead reads build report
-       d. Spawn verifier → 4-step audit (SERIAL, Doctrine 5)
-       e. Parse verify report → PASS → next task, FAIL → retry/STUCK
-    4. All tasks PASS → spawn reviewer → final PR review
-    5. Write COMPLETE signal
-    6. SendMessage(shutdown_request) to all teammates
-    7. TeamDelete()
-  → spectra-loop-v3.sh cleans up team directories
+spectra-loop-v5.sh
+  1. parse_plan() → load all tasks into arrays
+  2. restore_checkpoint() → resume from JSON if --resume
+  3. WHILE incomplete tasks remain:
+     a. next_batch() → get independent, unblocked tasks
+     b. For each task in batch: preflight audit (parallel Haiku)
+     c. parallel_build() → & + wait for all builders
+     d. For each completed task (SERIAL):
+        - verify_prompt() → spawn verifier
+        - If PASS → mark [x], commit, checkpoint
+        - If FAIL → oracle_classify() → increment retry
+        - If compound failure → mark [!] STUCK
+     e. write_checkpoint() → JSON state to disk
+     f. refresh_claude_md() → update project context
+  4. All tasks [x] → signal_complete()
+  5. Write final report to .spectra/logs/
 ```

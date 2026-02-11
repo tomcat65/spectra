@@ -126,7 +126,7 @@ EOF
         echo "  Tasks:    ${done}/${total} complete"
         echo "  Remaining: ${remaining}"
         echo "  Stuck:    ${stuck}"
-        echo "  Progress: ${progress}"
+        echo "  Progress: ${done}/${total} tasks (${stuck} stuck)"
 
         if [[ -n "${complete_info}" ]]; then
             echo "  ────────────────────────────────────"

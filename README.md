@@ -20,8 +20,8 @@ SPECTRA right-sizes process to project complexity. You tell it how big the job i
 | 0 | Bug fix / hotfix | Skip to task | Single agent, one pass |
 | 1 | Small feature (< 1 day) | Quick spec | Sequential loop (3-5 iterations) |
 | 2 | Medium feature (1-5 days) | Full PRD + stories | Sequential loop + verification gates |
-| 3 | Large feature (1-4 weeks) | Full pipeline | Agent Teams (parallel builders) |
-| 4 | Enterprise system (1+ months) | Full pipeline + sprints | Agent Teams + sprint delivery |
+| 3 | Large feature (1-4 weeks) | Full pipeline | Parallel builders (`&` + `wait`) |
+| 4 | Enterprise system (1+ months) | Full pipeline + sprints | Parallel builders + sprint delivery |
 
 ## Installation
 
@@ -30,8 +30,8 @@ SPECTRA is installed globally at `~/.spectra/` and integrates with Claude Code v
 ### Prerequisites
 
 - [Claude Code CLI](https://claude.com/claude-code) (Opus 4.6+)
-- Agent Teams enabled: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json` env
 - Git
+- `jq` (optional, for checkpoint JSON parsing; falls back to grep)
 
 ### Directory Structure
 
@@ -47,16 +47,14 @@ SPECTRA is installed globally at `~/.spectra/` and integrates with Claude Code v
     spectra-assess.sh               #   BMAD adapter (project assessment)
     spectra-plan.sh                 #   Plan generation (uses spectra-planner agent)
     spectra-plan-validate.sh        #   Canonical plan.md schema validation (v4)
-    spectra-loop-v3.sh              #   Main launcher (Level routing)
-    spectra-loop-legacy.sh          #   Sequential loop (Level 0-2)
+    spectra-loop.sh                 #   Main loop (symlink → spectra-loop-v5.sh)
+    spectra-loop-v5.sh              #   v5.0 bash-native parallel loop (all levels)
+    spectra-loop-legacy.sh          #   Legacy sequential loop (preserved for reference)
     spectra-preflight.sh            #   Token verification (runs once, then on .env change)
     spectra-quick.sh                #   Quick single-task execution
     spectra-verify.sh               #   Standalone verification
-    spectra-team-prompt.sh          #   Team prompt generator (Level 3+)
     spectra-status.sh               #   Observability dashboard (--json, --watch)
-  hooks/                            # Claude Code lifecycle hooks
-    spectra-task-completed.sh       #   Gate check on task completion
-    spectra-teammate-idle.sh        #   Safety net for idle agents
+  hooks/                            # Claude Code lifecycle hooks (reserved)
   templates/                        # Project scaffolding templates
     .spectra/                       #   Per-project template files
   fixtures/                         # Test fixtures
@@ -68,14 +66,13 @@ SPECTRA is installed globally at `~/.spectra/` and integrates with Claude Code v
   signals/                          # Signal file definitions
 
 ~/.claude/agents/                   # Canonical agent definitions
-  spectra-lead.md                   # Team coordinator (Level 3+)
-  spectra-planner.md                # Planning artifact generator
-  spectra-builder.md                # Code implementer
-  spectra-verifier.md               # Quality gate
-  spectra-reviewer.md               # Cross-model adversarial reviewer
-  spectra-auditor.md                # Fast pre-flight scanner
+  spectra-planner.md                # Planning artifact generator (Opus)
+  spectra-builder.md                # Code implementer (Opus)
+  spectra-verifier.md               # Quality gate (Opus)
+  spectra-reviewer.md               # Cross-model adversarial reviewer (Sonnet)
+  spectra-auditor.md                # Fast pre-flight scanner (Haiku)
+  spectra-oracle.md                 # 3-turn failure classifier (Haiku)
   spectra-scout.md                  # Pre-planning investigator
-  spectra-orchestrator.md           # Manual/interactive orchestrator (deprecated for automation)
 ```
 
 ### Per-Project Structure
@@ -374,7 +371,7 @@ spectra-loop
 spectra-status --watch
 ```
 
-At Level 3, SPECTRA uses **Agent Teams** — multiple builders work in parallel on independent tasks, while a lead agent coordinates and a verifier checks each task sequentially.
+At Level 3, SPECTRA spawns multiple builders in parallel (`&` + `wait`) on independent tasks with no file ownership overlap, then verifies each task sequentially.
 
 ### Example 4: Monitor a Running Build
 
@@ -453,24 +450,34 @@ To fix manually and continue:
 | `Generated plan failed schema validation` | The AI produced malformed output. Check `.spectra/plan.md.new` and try again |
 | `--non-interactive requires --track` | In CI, you must specify `--track quick_flow\|bmad_method\|enterprise` |
 
-## Agent Architecture (v3.1)
+## Agent Architecture (v5.0)
 
-Model selection and tool restrictions are defined in agent YAML frontmatter at `~/.claude/agents/spectra-*.md`. There are no env vars for model routing.
+Model selection and tool restrictions are defined in agent YAML frontmatter at `~/.claude/agents/spectra-*.md`. There are no env vars for model routing. Bash is the orchestrator — agents are workers with <500 byte prompts that read context from disk.
 
 | Agent | Model | Role | Key Tools | Constraint |
 |-------|-------|------|-----------|------------|
-| **spectra-lead** | Opus | Coordinator | TeamCreate, TaskCreate, SendMessage | No Edit/Write (SIGN-004) |
-| **spectra-builder** | Opus | Implementer | Read, Edit, Write, Bash | acceptEdits mode |
+| **spectra-builder** | Opus | Implementer | Read, Edit, Write, Bash | acceptEdits mode, max 50 turns |
 | **spectra-verifier** | Opus | Quality gate | Read, Bash, Grep | No Edit/Write |
-| **spectra-reviewer** | Sonnet | Adversarial review | Read, Grep, Bash | Different model = different failure modes |
+| **spectra-reviewer** | Sonnet | Adversarial review | Read, Grep, Bash | Cross-model assurance |
 | **spectra-auditor** | Haiku | Pre-flight scan | Read, Grep, Glob | 10 turns max, minimal cost |
+| **spectra-oracle** | Haiku | Failure classifier | Read, Grep | 3 turns max, single-word output |
 | **spectra-planner** | Opus | Plan generation | Read, Grep, Glob, Bash | plan mode, research only |
 
 ### Why Different Models?
 
-- **Opus** for builder/verifier/lead: Maximum capability for code generation and verification
+- **Opus** for builder/verifier: Maximum capability for code generation and verification
 - **Sonnet** for reviewer: Different model architecture catches different bugs (cross-model assurance, not cost optimization)
-- **Haiku** for auditor: Speed and cost efficiency for pre-flight scans that don't need deep reasoning
+- **Haiku** for auditor/oracle: Speed and cost efficiency for scans and classification that don't need deep reasoning
+
+### v5.0 Architecture: Bash-Native Parallel
+
+v5.0 replaces the LLM-based coordinator (spectra-lead agent) with bash-native orchestration. Key changes:
+
+- **No Agent Teams API** — no TeamCreate, TaskCreate, TaskUpdate, SendMessage overhead
+- **Prompts <500 bytes** — agents read context from disk (CLAUDE.md, plan.md, guardrails.md)
+- **Parallel via `&` + `wait`** — independent tasks build simultaneously, no coordination protocol
+- **Deterministic resume** — JSON checkpoint file, no LLM reconstruction
+- **Oracle classifier** — 3-turn Haiku replaces lead agent judgment for failure typing
 
 ## Canonical plan.md Schema (v4)
 
@@ -498,7 +505,7 @@ The plan.md file is the execution contract between planning and execution phases
 
 **Checkbox states:** `[ ]` pending, `[x]` complete, `[!]` stuck
 
-A task starts as `[ ]`, moves to `[x]` when verification passes, or `[!]` if it exhausts all retries. The loop scripts and lead agent read these states to decide what to work on next.
+A task starts as `[ ]`, moves to `[x]` when verification passes, or `[!]` if it exhausts all retries. The loop script reads these states to decide what to work on next.
 
 **Level-conditional fields:** Not all fields are required at every level. The validator (`spectra-plan-validate.sh`) enforces based on project level:
 
@@ -523,7 +530,7 @@ A task starts as `[ ]`, moves to `[x]` when verification passes, or `[!]` if it 
 - Recommendation: TEAM_ELIGIBLE
 ```
 
-The lead agent uses this to decide which tasks can run in parallel and which must wait.
+The loop script uses this to decide which tasks can run in parallel (`&` + `wait`) and which must wait.
 
 ## Observability
 
@@ -588,7 +595,7 @@ Integration tokens live in `~/.spectra/.env` (chmod 600):
 |-------|---------|---------|
 | `LINEAR_API_KEY` | spectra-init.sh | Create Linear projects/issues |
 | `LINEAR_TEAM_ID` | spectra-init.sh | Target Linear team |
-| `SLACK_WEBHOOK_URL` | spectra-loop-v3.sh, spectra-verify.sh, spectra-init.sh | Notifications |
+| `SLACK_WEBHOOK_URL` | spectra-loop-v5.sh, spectra-verify.sh, spectra-init.sh | Notifications |
 | `GITHUB_TOKEN` | Fallback (gh CLI handles its own auth) | GitHub API |
 
 ### Preflight Verification
@@ -634,6 +641,8 @@ SPECTRA agents can coordinate with external agents (codex-cli, claude-desktop, C
 | v3.0 | Feb 9, 2026 | Replaced --headless multi-process with thin launcher + Agent Teams |
 | v3.1 | Feb 9-10, 2026 | spectra-lead agent, hybrid Level routing, hook rewrites, model routing cleanup |
 | v4.0 | Feb 10, 2026 | Canonical plan.md schema (Phase A), contract test suite + observability signals (Phase B), BMAD adapter spectra-assess (Phase C), BMAD bridge spectra-plan --from-bmad (Phase D), RECONCILE signal infrastructure (Phase 4.5 prep) |
+| v4.1 | Feb 10, 2026 | Dynamic max_turns, incomplete exit detection, level fallback chain, file-ownership format fallback |
+| v5.0 | Feb 11, 2026 | Bash-native parallel architecture: replaced LLM coordinator (spectra-lead) with bash `&` + `wait`, <500 byte prompts, JSON checkpoint resume, oracle failure classifier (Haiku), removed Agent Teams dependency |
 
 ## Reference
 
