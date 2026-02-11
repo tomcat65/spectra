@@ -219,12 +219,22 @@ for i in "${!TASK_HEADERS[@]}"; do
         if [[ "${local_has_ownership}" == false ]]; then
             ERRORS+=("Task ${task_id}: Level ${PROJECT_LEVEL} requires '- File-ownership:' section")
         else
-            # owns: required
-            if ! echo "${task_block}" | grep -qE '^[[:space:]]*- owns: \['; then
-                ERRORS+=("Task ${task_id}: missing '- owns: [...]' in File-ownership")
+            # owns: required (accept both bracket and bare formats)
+            if echo "${task_block}" | grep -qE '^[[:space:]]*- owns: \['; then
+                true  # Bracket format (preferred)
+            elif echo "${task_block}" | grep -qE '^[[:space:]]*- owns: [^\[]'; then
+                WARNINGS+=("Task ${task_id}: '- owns:' should use bracket format: '- owns: [file1, file2]'")
             else
-                # Collect owned files for SIGN-005
+                ERRORS+=("Task ${task_id}: missing '- owns: [...]' in File-ownership")
+            fi
+
+            # Parse owned files for SIGN-005 (handles both bracket and bare formats)
+            if echo "${task_block}" | grep -qE '^[[:space:]]*- owns:'; then
+                # Collect owned files for SIGN-005 (bracket or bare format)
                 owned_files=$(echo "${task_block}" | grep -oP '^\s*- owns: \[\K[^]]*' | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' || true)
+                if [[ -z "${owned_files}" ]]; then
+                    owned_files=$(echo "${task_block}" | grep -oP '^\s*- owns: \K.+' | sed 's/^\[//;s/\]$//' | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' | grep -v '(none)' || true)
+                fi
                 while IFS= read -r f; do
                     [[ -z "$f" ]] && continue
                     if [[ -n "${ALL_OWNS[${f}]:-}" ]]; then
@@ -235,8 +245,11 @@ for i in "${!TASK_HEADERS[@]}"; do
                 done <<< "${owned_files}"
             fi
 
-            # touches: optional but checked for SIGN-005 warnings
+            # touches: optional but checked for SIGN-005 warnings (bracket or bare format)
             touched_files=$(echo "${task_block}" | grep -oP '^\s*- touches: \[\K[^]]*' | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' || true)
+            if [[ -z "${touched_files}" ]]; then
+                touched_files=$(echo "${task_block}" | grep -oP '^\s*- touches: \K.+' | sed 's/^\[//;s/\]$//' | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' | grep -v '(none)' || true)
+            fi
             while IFS= read -r f; do
                 [[ -z "$f" ]] && continue
                 if [[ -n "${ALL_TOUCHES[${f}]:-}" ]]; then
@@ -246,8 +259,8 @@ for i in "${!TASK_HEADERS[@]}"; do
                 fi
             done <<< "${touched_files}"
 
-            # reads: accepted, no conflict check needed
-            if ! echo "${task_block}" | grep -qE '^[[:space:]]*- reads: \['; then
+            # reads: accepted, no conflict check needed (bracket or bare format)
+            if ! echo "${task_block}" | grep -qE '^[[:space:]]*- reads: (\[|[^\[])'; then
                 WARNINGS+=("Task ${task_id}: missing '- reads: [...]' in File-ownership (optional but recommended)")
             fi
         fi
