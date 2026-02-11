@@ -366,11 +366,28 @@ Generate EXACTLY this schema (no extra text before/after markdown):
 - Verify: \`[command that exits 0 on success]\`${LEVEL_FIELDS}
 ${PARALLELISM_SECTION}
 
+## Assertions (auto-generate for each task)
+For each task, append an Assertions block with machine-checkable rules derived from the task description:
+- Quoted strings or model names (claude-*, gpt-*) → \`  - GREP file \"value\" EXISTS\`
+- New function names → \`  - CALLSITE function_name NOT_ONLY_IN tests/ EXISTS\`
+- \"N fields/dimensions/items\" → \`  - COUNT file \"pattern\" MIN N\`
+- Patterns that should NOT exist → \`  - GREP file \"pattern\" NOT_EXISTS\`
+
+Example:
+\`\`\`
+- Assertions:
+  - GREP ralph/eval/judge.py \"claude-sonnet-4-5-20250929\" EXISTS
+  - CALLSITE score_conversation NOT_ONLY_IN tests/ EXISTS
+\`\`\`
+
+Assertions are a starting point — humans can add/remove/edit them. But auto-generating them ensures the common cases are covered by default.
+
 Rules:
 - One \`## Task NNN\` block per logical unit of work
 - Header ID and checkbox ID must match exactly (e.g., Task 003 + - [ ] 003)
 - Tasks must be in dependency order (prerequisite tasks first)
 - Each task must have a concrete verification command
+- If .spectra/verify.yaml exists, append \`&& ~/.spectra/bin/spectra-verify-wiring.sh .\` to the Verify command
 - Task numbers must be 3-digit zero-padded and strictly increasing (001, 002, ...)
 - AC must be multi-line with \`  - \` sub-items (at least one criterion per task)
 - Checkbox states: [ ] pending, [x] complete, [!] stuck
