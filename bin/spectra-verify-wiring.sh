@@ -174,7 +174,7 @@ parse_fw() { local n="" p="" s="" m="" ps=""
         elif echo "$l" | grep -qE '^\s+pattern:'; then p=$(echo "$l" | sed "s/.*pattern:\s*//;s/^[\"']//;s/[\"']$//")
         elif echo "$l" | grep -qE '^\s+severity:'; then s=$(echo "$l" | sed "s/.*severity:\s*//;s/^[\"']//;s/[\"']$//")
         elif echo "$l" | grep -qE '^\s+message:'; then m=$(echo "$l" | sed "s/.*message:\s*//;s/^[\"']//;s/[\"']$//")
-        elif echo "$l" | grep -qE '^\s+paths:'; then ps=$(echo "$l" | sed 's/.*paths:\s*//' | tr -d '[]"'"'" | tr ',' ' ')
+        elif echo "$l" | grep -qE '^\s+paths:'; then ps=$(echo "$l" | sed 's/.*paths:\s*//' | tr -d "[]\"'")
         fi
     done < <(awk '
         /^[[:space:]]*framework_checks:/ { found=1; match($0,/^[[:space:]]*/); base=RLENGTH; next }
@@ -189,7 +189,8 @@ if [[ -n "$FW" ]]; then
     echo "[spectra-verify] Section 2: Framework checks"
     while IFS='|' read -r name pat sev msg paths; do
         [[ -z "$name" ]] && continue; sp=""
-        if [[ -n "$paths" ]]; then for p in $paths; do t="$PROJECT_ROOT/${p%/}"
+        if [[ -n "$paths" ]]; then IFS=',' read -ra _pa <<< "$paths"; for p in "${_pa[@]}"; do
+            p="${p## }"; p="${p%% }"; [[ -z "$p" ]] && continue; t="$PROJECT_ROOT/${p%/}"
             { [[ -d "$t" ]] || [[ -f "$t" ]]; } && sp="$sp $t"; done
         else while IFS= read -r sd; do [[ -n "$sd" ]] && { t="$PROJECT_ROOT/${sd%/}"; [[ -d "$t" ]] && sp="$sp $t"; }
             done <<< "$SRC_DIRS"; fi
@@ -260,7 +261,7 @@ if [[ -f "$PF" ]]; then
                 GREP) af=$(echo "$a" | awk '{print $2}'); ap=$(echo "$a" | sed 's/.*"\(.*\)".*/\1/')
                     ae=$(echo "$a" | awk '{print $NF}'); fp="$PROJECT_ROOT/$af"
                     [[ -f "$fp" ]] || { report "FAIL" "GREP ${af} — file not found"; continue; }
-                    fc=$(grep -cE "$ap" "$fp" 2>/dev/null || echo 0)
+                    fc=$(grep -cE "$ap" "$fp" 2>/dev/null || true); fc=${fc:-0}
                     if [[ "$ae" == "EXISTS" ]]; then [[ $fc -gt 0 ]] && report "PASS" "GREP ${af} \"${ap}\" EXISTS" \
                         || report "FAIL" "GREP ${af} — \"${ap}\" not found"
                     elif [[ "$ae" == "NOT_EXISTS" ]]; then [[ $fc -eq 0 ]] && report "PASS" "GREP ${af} \"${ap}\" NOT_EXISTS" \
@@ -274,13 +275,13 @@ if [[ -f "$PF" ]]; then
                 COUNT) af=$(echo "$a" | awk '{print $2}'); ap=$(echo "$a" | sed 's/.*"\(.*\)".*/\1/')
                     am=$(echo "$a" | awk '{print $NF}'); fp="$PROJECT_ROOT/$af"
                     [[ -f "$fp" ]] || { report "FAIL" "COUNT ${af} — file not found"; continue; }
-                    ac=$(grep -cE "$ap" "$fp" 2>/dev/null || echo 0)
+                    ac=$(grep -cE "$ap" "$fp" 2>/dev/null || true); ac=${ac:-0}
                     [[ $ac -ge $am ]] && report "PASS" "COUNT ${af} \"${ap}\" >= ${am} (${ac})" \
                         || report "FAIL" "COUNT ${af} \"${ap}\" expected >= ${am}, got ${ac}" ;;
                 NOT_EXISTS) af=$(echo "$a" | awk '{print $2}'); ap=$(echo "$a" | sed 's/.*"\(.*\)".*/\1/')
                     fp="$PROJECT_ROOT/$af"
                     [[ -f "$fp" ]] || { report "PASS" "NOT_EXISTS ${af} — file absent"; continue; }
-                    fc=$(grep -cE "$ap" "$fp" 2>/dev/null || echo 0)
+                    fc=$(grep -cE "$ap" "$fp" 2>/dev/null || true); fc=${fc:-0}
                     [[ $fc -eq 0 ]] && report "PASS" "NOT_EXISTS ${af} \"${ap}\"" \
                         || report "FAIL" "NOT_EXISTS ${af} — \"${ap}\" found (${fc} match(es))" ;;
                 *) report "SKIP" "Unknown assertion: ${TY}" ;;
