@@ -21,6 +21,12 @@ NO_COMMIT=false
 COST_CEILING="50.00"
 PER_TASK_BUDGET="10.00"
 
+# Cross-platform sed -i helper (GNU vs BSD)
+sed_inplace() {
+    if sed --version >/dev/null 2>&1; then sed -i "$@"
+    else sed -i '' "$@"; fi
+}
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -47,7 +53,7 @@ Options:
   --per-task-budget N  Per-task budget in USD (default: 10.00)
   -h, --help           Show this help
 
-Architecture (v5.0 — All-Anthropic):
+Architecture (v5.1 — All-Anthropic):
   spectra-planner   Opus    Planning artifacts
   spectra-reviewer  Sonnet  Cross-model plan validation
   spectra-auditor   Haiku   Pre-flight Sign scanning
@@ -150,16 +156,16 @@ if [[ -f "${SPECTRA_HOME}/templates/verify.yaml.template" ]]; then
         fmt_list() { echo "$1" | tr ',' '\n' | sed 's/^\s*//;s/\s*$//' | grep -v '^$' \
             | sed 's/.*/"&"/' | paste -sd, | sed 's/^/[/;s/$/]/'; }
 
-        [[ -n "$WV_SOURCE_DIRS" ]] && sed -i "s|source_dirs: \[\]|source_dirs: $(fmt_list "$WV_SOURCE_DIRS")|" .spectra/verify.yaml
-        sed -i "s|test_dirs: \[\"tests/\"\]|test_dirs: $(fmt_list "$WV_TEST_DIRS")|" .spectra/verify.yaml
-        [[ -n "$WV_ENTRY_POINTS" ]] && sed -i "s|entry_points: \[\]|entry_points: $(fmt_list "$WV_ENTRY_POINTS")|" .spectra/verify.yaml
-        [[ -n "$WV_LANGUAGE" ]] && sed -i "s|language: \"\"|language: \"$WV_LANGUAGE\"|" .spectra/verify.yaml
+        [[ -n "$WV_SOURCE_DIRS" ]] && sed_inplace "s|source_dirs: \[\]|source_dirs: $(fmt_list "$WV_SOURCE_DIRS")|" .spectra/verify.yaml
+        sed_inplace "s|test_dirs: \[\"tests/\"\]|test_dirs: $(fmt_list "$WV_TEST_DIRS")|" .spectra/verify.yaml
+        [[ -n "$WV_ENTRY_POINTS" ]] && sed_inplace "s|entry_points: \[\]|entry_points: $(fmt_list "$WV_ENTRY_POINTS")|" .spectra/verify.yaml
+        [[ -n "$WV_LANGUAGE" ]] && sed_inplace "s|language: \"\"|language: \"$WV_LANGUAGE\"|" .spectra/verify.yaml
 
         # Framework auto-detection
         if [[ "$WV_LANGUAGE" == "python" ]]; then
             if grep -qi "fastapi" requirements.txt 2>/dev/null || grep -qi "fastapi" pyproject.toml 2>/dev/null; then
                 echo "  Detected FastAPI — adding framework checks..."
-                sed -i '/framework_checks: \[\]/c\  framework_checks:\n    - name: "no-flask-tuple-returns"\n      pattern: '"'"'return\\s+\\{.*\\},\\s*[0-9]{3}'"'"'\n      paths: ['"$(fmt_list "$WV_SOURCE_DIRS")"']\n      severity: error\n      message: "Flask-style tuple return in FastAPI — use JSONResponse"' .spectra/verify.yaml
+                sed_inplace '/framework_checks: \[\]/c\  framework_checks:\n    - name: "no-flask-tuple-returns"\n      pattern: '"'"'return\\s+\\{.*\\},\\s*[0-9]{3}'"'"'\n      paths: '"$(fmt_list "$WV_SOURCE_DIRS")"'\n      severity: error\n      message: "Flask-style tuple return in FastAPI — use JSONResponse"' .spectra/verify.yaml
             fi
         fi
     else
@@ -172,12 +178,12 @@ fi
 
 # ── Generate project.yaml (v5.0 — All-Anthropic agents) ──
 cat > .spectra/project.yaml <<YAML
-# SPECTRA v5.0 Project Configuration
+# SPECTRA v5.1 Project Configuration
 name: ${PROJECT_NAME}
 level: ${LEVEL}
 created: ${DATE}
 status: initialized
-spectra_version: "4.1"
+spectra_version: "5.1"
 
 # All-Anthropic Agent Roster (Claude Code Tier 2 Subagents)
 agents:
@@ -227,7 +233,7 @@ cat > CLAUDE.md <<EOF
 - Level: ${LEVEL}
 - Phase: initialized
 - Branch: (not yet started)
-- Spectra Version: 1.2
+- Spectra Version: 5.1
 
 ## Active Signs
 $(cat .spectra/guardrails.md 2>/dev/null | grep -E "^### SIGN-|^> " | head -20 || echo "None defined yet — will populate from guardrails.md")
@@ -280,7 +286,7 @@ if [[ "$USE_SLACK" == true ]]; then
     if [[ -n "${SLACK_WEBHOOK_URL:-}" ]]; then
         curl -s -X POST "${SLACK_WEBHOOK_URL}" \
             -H "Content-Type: application/json" \
-            -d "{\"text\":\"🚀 SPECTRA v5.0 initialized: *${PROJECT_NAME}* (Level ${LEVEL})\"}" > /dev/null 2>&1 || true
+            -d "{\"text\":\"🚀 SPECTRA v5.1 initialized: *${PROJECT_NAME}* (Level ${LEVEL})\"}" > /dev/null 2>&1 || true
         echo "→ Slack notified."
     fi
 fi
@@ -290,7 +296,7 @@ if [[ "$NO_COMMIT" == false ]]; then
     if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
         echo "→ Creating initial SPECTRA commit..."
         git add .spectra/ CLAUDE.md
-        git commit -m "chore: initialize SPECTRA v5.0 framework (Level ${LEVEL})" --no-verify 2>/dev/null || echo "  Nothing to commit."
+        git commit -m "chore: initialize SPECTRA v5.1 framework (Level ${LEVEL})" --no-verify 2>/dev/null || echo "  Nothing to commit."
     else
         echo "⚠  Not a git repository. Run 'git init' first."
     fi

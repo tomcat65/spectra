@@ -637,7 +637,7 @@ rules:
     raw_pattern: 'db\.collection.*\.(set|add|update|delete)'
 ```
 
-`spectra-verify-wiring.sh` reads this config and enforces all rules. It runs as part of the verify command for every task.
+`spectra-verify-wiring.sh` reads this config and enforces all rules. It runs as part of the verify command for every task. Wiring checks are scoped to git-modified files (new/changed since merge-base) to avoid flagging legacy dead code; falls back to full scan outside git repos.
 
 ### plan.md Assertions
 
@@ -650,7 +650,7 @@ The planner auto-generates an `Assertions` block for each task:
   - COUNT ralph/server.py "JSONResponse" MIN 3
 ```
 
-Assertion types: `GREP file "pattern" EXISTS|NOT_EXISTS`, `CALLSITE function NOT_ONLY_IN dir/ EXISTS`, `COUNT file "pattern" MIN N`.
+Assertion types: `GREP file "pattern" EXISTS|NOT_EXISTS`, `CALLSITE function NOT_ONLY_IN dir/ EXISTS`, `COUNT file "pattern" MIN N`, `NOT_EXISTS file "pattern"` (standalone inverse — PASS if pattern absent).
 
 ### What This Replaces
 

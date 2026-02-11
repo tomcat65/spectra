@@ -84,14 +84,14 @@ _yaml_nav() {
       while(depth>1 && ind<=exp_indent[depth-1]) depth--
       re="^[[:space:]]*"keys[depth]"[[:space:]]*:"
       if($0~re){
-        if(depth==n){ sub(/^[[:space:]]*[^:]+:[[:space:]]*/,"",$0); print $0; exit }
+        if(depth==n){ sub(/^[[:space:]]*[^:]+:[[:space:]]*/,"",$0); sub(/[[:space:]]*#.*/,"",$0); print $0; exit }
         else{ exp_indent[depth]=ind; depth++ }
       }
     }' "$file" 2>/dev/null
 }
 yv() { # Extract scalar value at dotted path
     if command -v yq >/dev/null 2>&1; then yq -r ".$1 // \"\"" "$2" 2>/dev/null
-    else _yaml_nav "$1" "$2" | sed 's/^["'"'"']//;s/["'"'"']$//' ; fi; }
+    else _yaml_nav "$1" "$2" | sed 's/[[:space:]]*#.*//;s/^["'"'"']//;s/["'"'"']$//' ; fi; }
 yl() { # Extract list value at dotted path as newline-separated items
     if command -v yq >/dev/null 2>&1; then yq -r ".$1 // [] | .[]" "$2" 2>/dev/null || true
     else _yaml_nav "$1" "$2" | tr -d '[]"'"'" | tr ',' '\n' | sed 's/^\s*//;s/\s*$//' | { grep -v '^$' || true; }; fi; }
@@ -121,13 +121,27 @@ esac
 TEXCL=""
 while IFS= read -r td; do [[ -n "$td" ]] && TEXCL="$TEXCL --exclude-dir=${td%/}"; done <<< "$TST_DIRS"
 
+# ── Git-scoped file list (only check modified files, not legacy code) ──
+WIRING_SCOPE="all"; GIT_FILES=""
+if [[ "$WIRING" == "true" ]] && git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    MB=$(git -C "$PROJECT_ROOT" merge-base HEAD main 2>/dev/null \
+      || git -C "$PROJECT_ROOT" merge-base HEAD master 2>/dev/null || echo "")
+    if [[ -n "$MB" ]]; then GIT_FILES=$(git -C "$PROJECT_ROOT" diff --name-only "$MB" --diff-filter=AM 2>/dev/null || true)
+    else GIT_FILES=$(git -C "$PROJECT_ROOT" diff --name-only HEAD~1 --diff-filter=AM 2>/dev/null || true); fi
+    GIT_FILES="$GIT_FILES"$'\n'"$(git -C "$PROJECT_ROOT" diff --name-only --diff-filter=AM 2>/dev/null || true)"
+    GIT_FILES="$GIT_FILES"$'\n'"$(git -C "$PROJECT_ROOT" diff --name-only --cached --diff-filter=AM 2>/dev/null || true)"
+    GIT_FILES=$(echo "$GIT_FILES" | sort -u | { grep -v '^$' || true; })
+    [[ -n "$GIT_FILES" ]] && WIRING_SCOPE="git"
+fi
+
 # ── Section 1: Wiring ──
 if [[ "$WIRING" == "true" && -n "$FDEF" && -n "$SRC_DIRS" ]]; then
-    echo "[spectra-verify] Section 1: Wiring check"
+    echo "[spectra-verify] Section 1: Wiring check (scope: ${WIRING_SCOPE})"
     while IFS= read -r sd; do
         [[ -z "$sd" ]] && continue; sp="$PROJECT_ROOT/${sd%/}"; [[ -d "$sp" ]] || continue
         while IFS= read -r sf; do
             [[ -z "$sf" ]] && continue; rf="${sf#$PROJECT_ROOT/}"
+            [[ "$WIRING_SCOPE" == "git" ]] && ! echo "$GIT_FILES" | grep -qxF "$rf" && continue
             while IFS= read -r ml; do
                 [[ -z "$ml" ]] && continue
                 fn=$(echo "$ml" | fname_extract); [[ -z "$fn" ]] && continue
@@ -168,7 +182,7 @@ parse_fw() { local n="" p="" s="" m="" ps=""
             if(ind<=base && $0~/[a-z]/) exit
             print
         }' "$1")
-    [[ -n "$n" && -n "$p" ]] && echo "${n}|${p}|${s:-error}|${m:-}|${ps}"; }
+    [[ -n "$n" && -n "$p" ]] && echo "${n}|${p}|${s:-error}|${m:-}|${ps}"; return 0; }
 
 FW=$(parse_fw "$CFG")
 if [[ -n "$FW" ]]; then
@@ -220,7 +234,7 @@ parse_const() { local f="" p="" m=""
         found { match($0,/^[[:space:]]*/); ind=RLENGTH
             if(ind<=base && $0~/[a-z]/) exit; print
         }' "$1" | head -50)
-    [[ -n "$f" && -n "$p" ]] && echo "${f}|${p}|${m:-constant check}"; }
+    [[ -n "$f" && -n "$p" ]] && echo "${f}|${p}|${m:-constant check}"; return 0; }
 
 CS=$(parse_const "$CFG")
 if [[ -n "$CS" ]]; then
@@ -236,7 +250,7 @@ fi
 # ── Section 5: Plan assertions ──
 PF="$PROJECT_ROOT/.spectra/plan.md"
 if [[ -f "$PF" ]]; then
-    AS=$(grep -E '^\s+- (GREP|CALLSITE|COUNT) ' "$PF" 2>/dev/null || true)
+    AS=$(grep -E '^\s+- (GREP|CALLSITE|COUNT|NOT_EXISTS) ' "$PF" 2>/dev/null || true)
     if [[ -n "$AS" ]]; then
         echo "[spectra-verify] Section 5: Plan assertions"
         while IFS= read -r a; do
@@ -263,6 +277,12 @@ if [[ -f "$PF" ]]; then
                     ac=$(grep -cE "$ap" "$fp" 2>/dev/null || echo 0)
                     [[ $ac -ge $am ]] && report "PASS" "COUNT ${af} \"${ap}\" >= ${am} (${ac})" \
                         || report "FAIL" "COUNT ${af} \"${ap}\" expected >= ${am}, got ${ac}" ;;
+                NOT_EXISTS) af=$(echo "$a" | awk '{print $2}'); ap=$(echo "$a" | sed 's/.*"\(.*\)".*/\1/')
+                    fp="$PROJECT_ROOT/$af"
+                    [[ -f "$fp" ]] || { report "PASS" "NOT_EXISTS ${af} — file absent"; continue; }
+                    fc=$(grep -cE "$ap" "$fp" 2>/dev/null || echo 0)
+                    [[ $fc -eq 0 ]] && report "PASS" "NOT_EXISTS ${af} \"${ap}\"" \
+                        || report "FAIL" "NOT_EXISTS ${af} — \"${ap}\" found (${fc} match(es))" ;;
                 *) report "SKIP" "Unknown assertion: ${TY}" ;;
             esac
         done <<< "$AS"; echo ""
