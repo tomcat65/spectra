@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║  SPECTRA v5.0 Project Initializer                                ║
+# ║  SPECTRA v5.1 Project Initializer                                ║
 # ║  Scaffolds .spectra/ + CLAUDE.md for All-Anthropic subagents     ║
 # ╚══════════════════════════════════════════════════════════════════╝
 #
@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
         --per-task-budget) PER_TASK_BUDGET="$2"; shift 2 ;;
         -h|--help)
             cat <<EOF
-SPECTRA v5.0 Project Initializer
+SPECTRA v5.1 Project Initializer
 
 Usage: spectra-init --name "Project Name" [OPTIONS]
 
@@ -68,7 +68,7 @@ DATE=$(date +%Y-%m-%d)
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 echo "╔══════════════════════════════════════════╗"
-echo "║  SPECTRA v5.0 Project Initializer         ║"
+echo "║  SPECTRA v5.1 Project Initializer         ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 echo "  Project: ${PROJECT_NAME}"
@@ -129,6 +129,45 @@ if [[ "$LEVEL" -ge 1 ]]; then
         echo "→ Global Signs propagated to local guardrails.md"
     fi
     hydrate "${TEMPLATE_DIR}/lessons-learned.md.tmpl" ".spectra/lessons-learned.md"
+fi
+
+# ── Wiring Verification Setup ──
+echo "→ Setting up wiring verification..."
+if [[ -f "${SPECTRA_HOME}/templates/verify.yaml.template" ]]; then
+    cp "${SPECTRA_HOME}/templates/verify.yaml.template" ".spectra/verify.yaml"
+
+    if [[ -t 0 ]]; then
+        # Interactive mode: ask user for project-specific values
+        echo ""
+        echo "=== Wiring Verification Setup ==="
+        read -p "  Source directories (comma-separated, e.g. src/,lib/): " WV_SOURCE_DIRS
+        read -p "  Test directories (comma-separated, default: tests/): " WV_TEST_DIRS
+        WV_TEST_DIRS="${WV_TEST_DIRS:-tests/}"
+        read -p "  Entry point files (comma-separated, e.g. src/server.py): " WV_ENTRY_POINTS
+        read -p "  Language (python/typescript/javascript/go/rust): " WV_LANGUAGE
+
+        # Format as YAML lists
+        fmt_list() { echo "$1" | tr ',' '\n' | sed 's/^\s*//;s/\s*$//' | grep -v '^$' \
+            | sed 's/.*/"&"/' | paste -sd, | sed 's/^/[/;s/$/]/'; }
+
+        [[ -n "$WV_SOURCE_DIRS" ]] && sed -i "s|source_dirs: \[\]|source_dirs: $(fmt_list "$WV_SOURCE_DIRS")|" .spectra/verify.yaml
+        sed -i "s|test_dirs: \[\"tests/\"\]|test_dirs: $(fmt_list "$WV_TEST_DIRS")|" .spectra/verify.yaml
+        [[ -n "$WV_ENTRY_POINTS" ]] && sed -i "s|entry_points: \[\]|entry_points: $(fmt_list "$WV_ENTRY_POINTS")|" .spectra/verify.yaml
+        [[ -n "$WV_LANGUAGE" ]] && sed -i "s|language: \"\"|language: \"$WV_LANGUAGE\"|" .spectra/verify.yaml
+
+        # Framework auto-detection
+        if [[ "$WV_LANGUAGE" == "python" ]]; then
+            if grep -qi "fastapi" requirements.txt 2>/dev/null || grep -qi "fastapi" pyproject.toml 2>/dev/null; then
+                echo "  Detected FastAPI — adding framework checks..."
+                sed -i '/framework_checks: \[\]/c\  framework_checks:\n    - name: "no-flask-tuple-returns"\n      pattern: '"'"'return\\s+\\{.*\\},\\s*[0-9]{3}'"'"'\n      paths: ['"$(fmt_list "$WV_SOURCE_DIRS")"']\n      severity: error\n      message: "Flask-style tuple return in FastAPI — use JSONResponse"' .spectra/verify.yaml
+            fi
+        fi
+    else
+        echo "  Non-interactive: verify.yaml template copied (edit manually)"
+    fi
+    echo "  Created: .spectra/verify.yaml"
+else
+    echo "  WARN: verify.yaml.template not found. Skipping wiring verification setup."
 fi
 
 # ── Generate project.yaml (v5.0 — All-Anthropic agents) ──
@@ -274,7 +313,7 @@ fi
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
-echo "║  SPECTRA v5.0 initialized!                ║"
+echo "║  SPECTRA v5.1 initialized!                ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 echo "  Files created:"
@@ -282,6 +321,7 @@ echo "    .spectra/project.yaml    — Project config (All-Anthropic agents)"
 echo "    .spectra/constitution.md — Project constraints"
 echo "    .spectra/plan.md         — Execution plan (fill in tasks)"
 echo "    .spectra/guardrails.md   — Sign patterns"
+echo "    .spectra/verify.yaml     — Wiring verification rules"
 echo "    .spectra/signals/        — Runtime signal directory"
 echo "    CLAUDE.md                — Subagent context (auto-refreshed)"
 echo ""
