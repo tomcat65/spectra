@@ -33,7 +33,7 @@ Validates canonical plan.md task schema (v4).
 
 Options:
   --file PATH   Validate a specific file (default: .spectra/plan.md)
-  --level N     Override project level (default: read from project.yaml)
+  --level N     Override project level (default: project.yaml, then plan header, else 1)
   --quiet       Print errors only
   -h, --help    Show this help
 
@@ -79,12 +79,19 @@ if [[ ! -f "${PLAN_FILE}" ]]; then
 fi
 
 # ── Determine project level ──
-PROJECT_LEVEL=1
+PROJECT_LEVEL=""
 if [[ -n "${LEVEL_OVERRIDE}" ]]; then
     PROJECT_LEVEL="${LEVEL_OVERRIDE}"
 elif [[ -f "${SPECTRA_DIR}/project.yaml" ]]; then
-    PROJECT_LEVEL=$(grep -oP '^level:\s*\K\d+' "${SPECTRA_DIR}/project.yaml" 2>/dev/null | head -1 || echo "1")
+    PROJECT_LEVEL=$(grep -oP '^level:\s*\K\d+' "${SPECTRA_DIR}/project.yaml" 2>/dev/null | head -1 || true)
 fi
+
+# Fallback for standalone fixture validation (e.g., --file fixtures/.../valid-level0.md)
+if [[ -z "${PROJECT_LEVEL}" ]]; then
+    PROJECT_LEVEL=$(grep -oP '^## Level:\s*\K\d+' "${PLAN_FILE}" 2>/dev/null | head -1 || true)
+fi
+
+PROJECT_LEVEL="${PROJECT_LEVEL:-1}"
 
 # ── Parse task headers ──
 mapfile -t TASK_HEADERS < <(grep -nE '^## Task [0-9]{3}: .+' "${PLAN_FILE}" || true)
