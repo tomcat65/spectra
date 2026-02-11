@@ -24,6 +24,7 @@ PLAN_VALIDATOR="${SPECTRA_HOME}/bin/spectra-plan-validate.sh"
 # ── Defaults ──
 PLAN_ONLY=false
 SKIP_PLANNING=false
+RESUME=false
 DRY_RUN=false
 COST_CEILING=""
 RISK_FIRST=false
@@ -42,7 +43,7 @@ while [[ $# -gt 0 ]]; do
         --cost-ceiling)  COST_CEILING="$2"; PASSTHROUGH_ARGS+=("$1" "$2"); shift 2 ;;
         --max-turns)     MAX_TURNS="$2"; shift 2 ;;
         --sequential)    FORCE_SEQUENTIAL=true; shift ;;
-        --resume)        SKIP_PLANNING=true; PASSTHROUGH_ARGS+=("--skip-planning"); shift ;;
+        --resume)        RESUME=true; SKIP_PLANNING=true; PASSTHROUGH_ARGS+=("--skip-planning"); shift ;;
         -h|--help)
             cat <<EOF
 SPECTRA v4.1 Execution Loop (Native Agent Teams)
@@ -101,9 +102,9 @@ if [[ -f "${SIGNALS_DIR}/STUCK" ]]; then
     exit 1
 fi
 
-# ── Branch isolation (reuse existing spectra/run-* branch on resume) ──
+# ── Branch isolation (reuse existing branch ONLY on --resume, not bare --skip-planning) ──
 BRANCH_NAME=""
-if [[ "$SKIP_PLANNING" == true ]] && git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+if [[ "$RESUME" == true ]] && git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
     EXISTING_BRANCH=$(git branch --list 'spectra/run-*' | tail -1 | tr -d ' *' || true)
     if [[ -n "$EXISTING_BRANCH" ]]; then
         BRANCH_NAME="$EXISTING_BRANCH"
