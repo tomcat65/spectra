@@ -589,7 +589,76 @@ cp .env.example .env
 
 ---
 
-*SPECTRA v5.0 — A unified AI software engineering methodology*
+## 15. Self-Audit & Wiring Verification (v5.1)
+
+### Why Self-Audit Exists
+
+Phase 8 audits revealed the same failure mode for the THIRD time: the builder produces code that passes unit tests but isn't wired into the runtime. Dead functions, wrong constants, mock-only tests. The fix cycle doubles the work every time.
+
+v5.1 eliminates this by making the builder self-auditing and adding automated verification.
+
+### The 4 Universal Checks (Builder Self-Audit)
+
+Before every commit, the builder must run these 4 checks:
+
+1. **Reachability** — Every public function has at least one callsite in existing runtime code (not just tests)
+2. **Spec Fidelity** — Every specific value in the task description (model names, status codes, field counts) appears literally in the code
+3. **Integration Test Exists** — At least one test exercises the path from an entry point through the new code without mocking the connection
+4. **Single Source of Truth** — IDs, timestamps, and computed values are generated once and passed through (no duplicate generation)
+
+### verify.yaml Configuration
+
+Each SPECTRA project can include `.spectra/verify.yaml` to define machine-checkable rules:
+
+```yaml
+project:
+  source_dirs: ["src/"]
+  test_dirs: ["tests/"]
+  entry_points: ["src/server.py"]
+  language: python
+
+rules:
+  wiring:
+    enabled: true
+    ignore_patterns: ["_*", "test_*"]
+  framework_checks:
+    - name: "no-flask-tuple-returns"
+      pattern: 'return\s+\{.*\},\s*[0-9]{3}'
+      paths: ["src/server.py"]
+      severity: error
+      message: "Flask-style tuple return in FastAPI"
+  constants:
+    - file: "src/config.py"
+      pattern: "claude-sonnet-4-5-20250929"
+      message: "Model must be Sonnet 4.5"
+  write_guard:
+    enabled: true
+    abstraction: "safe_write"
+    raw_pattern: 'db\.collection.*\.(set|add|update|delete)'
+```
+
+`spectra-verify-wiring.sh` reads this config and enforces all rules. It runs as part of the verify command for every task.
+
+### plan.md Assertions
+
+The planner auto-generates an `Assertions` block for each task:
+
+```markdown
+- Assertions:
+  - GREP ralph/eval/judge.py "claude-sonnet-4-5-20250929" EXISTS
+  - CALLSITE score_conversation NOT_ONLY_IN tests/ EXISTS
+  - COUNT ralph/server.py "JSONResponse" MIN 3
+```
+
+Assertion types: `GREP file "pattern" EXISTS|NOT_EXISTS`, `CALLSITE function NOT_ONLY_IN dir/ EXISTS`, `COUNT file "pattern" MIN N`.
+
+### What This Replaces
+
+Self-audit + automated verification replaces the need for a dedicated auditor LLM for mechanical checks. The Haiku auditor still handles pattern-based Sign scanning, but wiring verification is now deterministic bash — zero tokens, instant feedback.
+
+---
+
+*SPECTRA v5.1 — A unified AI software engineering methodology*
 *Combining the planning depth of BMAD, the execution simplicity of Ralph Wiggum, and the orchestration rigor of Your Claude Engineer.*
 
 ---
