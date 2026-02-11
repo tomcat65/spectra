@@ -191,7 +191,15 @@ Task(subagent_type="spectra-verifier", team_name="spectra-run", name="verifier",
 
 ### Step D: Parse Result
 Read .spectra/logs/task-N-verify.md:
-- If Result: PASS → Mark task completed via \`TaskUpdate(taskId, status="completed")\`, write STATUS signal via Bash, move to next task.
+- If Result: PASS → Do ALL of the following:
+  1. Mark task completed via \`TaskUpdate(taskId, status="completed")\`
+  2. **Update plan.md checkbox** (MANDATORY — this is the resume source of truth):
+     \`\`\`bash
+     sed -i 's/^- \[ \] NNN:/- [x] NNN:/' .spectra/plan.md
+     \`\`\`
+  3. Write STATUS signal via Bash
+  4. Git add + commit: \`git add -A && git commit -m "feat(task-N): description"\`
+  5. Move to next task
 - If Result: FAIL → Check Failure Type:
   - test_failure, missing_dependency: retry up to 3 times (Steps A→B→C→D)
   - wiring_gap: retry up to 2 times
@@ -202,7 +210,11 @@ Read .spectra/logs/task-N-verify.md:
 ### Retry Protocol
 On FAIL with retryable type:
 1. Re-run Steps A→B→C→D with diminishing token budget
-2. If all retries exhausted → write STUCK signal and stop
+2. If all retries exhausted → write STUCK signal, **update plan.md checkbox** (MANDATORY):
+   \`\`\`bash
+   sed -i 's/^- \[ \] NNN:/- [!] NNN:/' .spectra/plan.md
+   \`\`\`
+   Then stop.
 
 ### Research Retry Protocol (SIGN-008)
 On FAIL with external_blocker type where research might help:
