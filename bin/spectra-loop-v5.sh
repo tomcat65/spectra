@@ -821,9 +821,8 @@ parallel_build() {
             continue
         fi
 
-        claude --agent spectra-builder --headless --permission-mode acceptEdits \
-            --prompt "${prompt_text}" \
-            --max-turns ${budget} > "${LOGS_DIR}/task-${task_id}-build.log" 2>&1 &
+        claude --agent spectra-builder -p --permission-mode acceptEdits \
+            "${prompt_text}" > "${LOGS_DIR}/task-${task_id}-build.log" 2>&1 &
         pids+=($!)
     done
 
@@ -862,9 +861,9 @@ oracle_classify() {
     fi
 
     local classification
-    classification=$(claude --agent spectra-oracle --headless --permission-mode plan \
-        --prompt "Read .spectra/logs/task-${task_id}-verify.md. Classify the failure as EXACTLY one of: test_failure, missing_dependency, wiring_gap, architecture_mismatch, ambiguous_spec, external_blocker. Respond with ONLY the classification word, nothing else." \
-        --max-turns 3 2>&1 | tail -1 | tr -d '[:space:]' || echo "")
+    classification=$(claude --agent spectra-oracle -p --permission-mode plan \
+        "Read .spectra/logs/task-${task_id}-verify.md. Classify the failure as EXACTLY one of: test_failure, missing_dependency, wiring_gap, architecture_mismatch, ambiguous_spec, external_blocker. Respond with ONLY the classification word, nothing else." \
+        2>&1 | tail -1 | tr -d '[:space:]' || echo "")
 
     # Validate classification is one of the known types
     case "$classification" in
@@ -1111,14 +1110,14 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
         echo "  [DRY RUN] Would spawn: spectra-reviewer (Sonnet)"
     else
         echo "  Spawning spectra-planner (Opus)..."
-        claude --agent spectra-planner --headless --permission-mode plan \
-            --prompt "Read the project description and generate all required SPECTRA planning artifacts for this project. Write to .spectra/ directory." \
-            --max-turns 40 2>&1 | tee "${LOGS_DIR}/planning.log" || true
+        claude --agent spectra-planner -p --permission-mode plan \
+            "Read the project description and generate all required SPECTRA planning artifacts for this project. Write to .spectra/ directory." \
+            2>&1 | tee "${LOGS_DIR}/planning.log" || true
 
         echo "  Spawning spectra-reviewer (Sonnet) for plan validation..."
-        claude --agent spectra-reviewer --headless --permission-mode plan \
-            --prompt "Review all planning artifacts in .spectra/ (constitution.md, plan.md, prd.md if present). Write your verdict to .spectra/signals/plan-review.md following the exact format in your instructions." \
-            --max-turns 25 2>&1 | tee "${LOGS_DIR}/plan-review.log" || true
+        claude --agent spectra-reviewer -p --permission-mode plan \
+            "Review all planning artifacts in .spectra/ (constitution.md, plan.md, prd.md if present). Write your verdict to .spectra/signals/plan-review.md following the exact format in your instructions." \
+            2>&1 | tee "${LOGS_DIR}/plan-review.log" || true
 
         if [[ -f "${SIGNALS_DIR}/plan-review.md" ]]; then
             VERDICT=$(grep -oP 'Verdict:\s*\K\S+' "${SIGNALS_DIR}/plan-review.md" | head -1 || echo "UNKNOWN")
@@ -1135,14 +1134,14 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
                     ;;
                 REJECTED)
                     echo "  Plan rejected. Attempting one revision..."
-                    claude --agent spectra-planner --headless --permission-mode plan \
-                        --prompt "Your plan was REJECTED. Read .spectra/signals/plan-review.md for rejection reasons. Revise the planning artifacts to address all blocking issues. This is your ONE revision attempt." \
-                        --max-turns 40 2>&1 | tee "${LOGS_DIR}/planning-revision.log" || true
+                    claude --agent spectra-planner -p --permission-mode plan \
+                        "Your plan was REJECTED. Read .spectra/signals/plan-review.md for rejection reasons. Revise the planning artifacts to address all blocking issues. This is your ONE revision attempt." \
+                        2>&1 | tee "${LOGS_DIR}/planning-revision.log" || true
 
                     rm -f "${SIGNALS_DIR}/plan-review.md"
-                    claude --agent spectra-reviewer --headless --permission-mode plan \
-                        --prompt "Re-review the revised planning artifacts in .spectra/. This is the second review. Write verdict to .spectra/signals/plan-review.md." \
-                        --max-turns 25 2>&1 | tee "${LOGS_DIR}/plan-re-review.log" || true
+                    claude --agent spectra-reviewer -p --permission-mode plan \
+                        "Re-review the revised planning artifacts in .spectra/. This is the second review. Write verdict to .spectra/signals/plan-review.md." \
+                        2>&1 | tee "${LOGS_DIR}/plan-re-review.log" || true
 
                     RE_VERDICT=$(grep -oP 'Verdict:\s*\K\S+' "${SIGNALS_DIR}/plan-review.md" 2>/dev/null | head -1 || echo "UNKNOWN")
                     if [[ "$RE_VERDICT" == "REJECTED" ]] || [[ "$RE_VERDICT" == "UNKNOWN" ]]; then
@@ -1269,9 +1268,8 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
             task_id="${TASK_IDS[$idx]}"
             write_batch_status "${batch_desc}" "auditor"
 
-            claude --agent spectra-auditor --headless --permission-mode plan \
-                --prompt "$(preflight_prompt "$task_id")" \
-                --max-turns 10 > "${LOGS_DIR}/task-${task_id}-preflight.log" 2>&1 &
+            claude --agent spectra-auditor -p --permission-mode plan \
+                "$(preflight_prompt "$task_id")" > "${LOGS_DIR}/task-${task_id}-preflight.log" 2>&1 &
             audit_pids+=($!)
         done
 
@@ -1337,9 +1335,8 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
 
         echo "    Verifying Task ${task_id} (${verify_depth})..."
         set +e
-        claude --agent spectra-verifier --headless --permission-mode plan \
-            --prompt "$(verify_prompt "$idx" "$verify_depth")" \
-            --max-turns 30 > "${LOGS_DIR}/task-${task_id}-verify.log" 2>&1
+        claude --agent spectra-verifier -p --permission-mode plan \
+            "$(verify_prompt "$idx" "$verify_depth")" > "${LOGS_DIR}/task-${task_id}-verify.log" 2>&1
         VERIFY_EXIT=$?
         set -e
 
@@ -1482,9 +1479,9 @@ FAILEOF
     if [[ -f "${SIGNALS_DIR}/NEGOTIATE" ]]; then
         echo "  Negotiate signal detected — routing to reviewer..."
         last_task_id="${TASK_IDS[${BATCH[-1]}]}"
-        claude --agent spectra-reviewer --headless --permission-mode plan \
-            --prompt "A builder has raised a spec negotiation for Task ${last_task_id}. Read .spectra/signals/NEGOTIATE for the proposed adaptation. Evaluate against constitution.md and non-goals.md. Write your verdict to .spectra/signals/NEGOTIATE_REVIEW." \
-            --max-turns 15 2>&1 | tail -5 || true
+        claude --agent spectra-reviewer -p --permission-mode plan \
+            "A builder has raised a spec negotiation for Task ${last_task_id}. Read .spectra/signals/NEGOTIATE for the proposed adaptation. Evaluate against constitution.md and non-goals.md. Write your verdict to .spectra/signals/NEGOTIATE_REVIEW." \
+            2>&1 | tail -5 || true
 
         if [[ -f "${SIGNALS_DIR}/NEGOTIATE_REVIEW" ]]; then
             neg_verdict=""
@@ -1527,9 +1524,9 @@ if [[ $REMAINING -eq 0 ]] && [[ $TOTAL -gt 0 ]]; then
 
     if [[ "$DRY_RUN" == false ]]; then
         echo "  Spawning spectra-reviewer (Sonnet) for final PR review..."
-        claude --agent spectra-reviewer --headless --permission-mode plan \
-            --prompt "Perform a final PR review. Read .spectra/logs/ for all task reports. Review the git diff. Check lessons-learned.md for patterns worth promoting to Signs. Write your review to .spectra/logs/pr-review.md." \
-            --max-turns 25 2>&1 | tee "${LOGS_DIR}/pr-review-session.log" || true
+        claude --agent spectra-reviewer -p --permission-mode plan \
+            "Perform a final PR review. Read .spectra/logs/ for all task reports. Review the git diff. Check lessons-learned.md for patterns worth promoting to Signs. Write your review to .spectra/logs/pr-review.md." \
+            2>&1 | tee "${LOGS_DIR}/pr-review-session.log" || true
     fi
 
     if [[ "$DRY_RUN" == false ]]; then
