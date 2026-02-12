@@ -518,6 +518,23 @@ parse_plan() {
             continue
         fi
 
+        # Parse Dependencies line: - Dependencies: Task 001, Task 003 (or just 001, 003)
+        if [[ "$line" =~ ^-\ Dependencies: ]]; then
+            local dep_str="${line#*Dependencies:}"
+            while [[ "$dep_str" =~ ([0-9]{3}) ]]; do
+                local dep_id="${BASH_REMATCH[1]}"
+                if [[ "$dep_id" != "${TASK_IDS[$current_idx]}" ]]; then
+                    if [[ -n "${TASK_DEPS[$current_idx]}" ]]; then
+                        TASK_DEPS[$current_idx]="${TASK_DEPS[$current_idx]},${dep_id}"
+                    else
+                        TASK_DEPS[$current_idx]="${dep_id}"
+                    fi
+                fi
+                dep_str="${dep_str#*${BASH_REMATCH[1]}}"
+            done
+            continue
+        fi
+
     done < "$plan"
 
     # ── Parse Dependency Graph section ──
@@ -547,9 +564,10 @@ parse_dependencies() {
             continue
         fi
 
-        # Parse chain notation: Tasks 001 → 002 → 003
-        # Also handles: 001 → 002 → 003 → 004
-        if [[ "$line" =~ [Tt]asks?\ +([0-9]{3}(\ *→\ *[0-9]{3})+) ]]; then
+        # Parse chain notation: Tasks 001 → 002 → 003 (or -> ASCII arrows)
+        # Normalize Unicode arrow → to ASCII -> before matching
+        local norm_line="${line//→/->}"
+        if [[ "$norm_line" =~ [Tt]asks?\ +([0-9]{3}(\ *-\>\ *[0-9]{3})+) ]]; then
             local chain="${BASH_REMATCH[1]}"
             # Split on arrow
             local -a chain_ids=()
@@ -761,7 +779,7 @@ verify_prompt() {
     local verify_depth="${2:-graduated}"
     local task_id="${TASK_IDS[$idx]}"
 
-    local prompt="Verify Task ${task_id}. Read CLAUDE.md and .spectra/plan.md section '## Task ${task_id}' for context. Write your report to .spectra/logs/task-${task_id}-verify.md. Verification depth: ${verify_depth}."
+    local prompt="Verify Task ${task_id}. Read CLAUDE.md and .spectra/plan.md section '## Task ${task_id}' for context. Output your verification report with 'Result: PASS' or 'Result: FAIL' and 'Failure Type:' if applicable. Depth: ${verify_depth}."
 
     # Enforce prompt budget (<500 bytes)
     if [[ ${#prompt} -gt 480 ]]; then
@@ -773,7 +791,7 @@ verify_prompt() {
 preflight_prompt() {
     local task_id="$1"
 
-    local prompt="Scan codebase for active Sign violations before Task ${task_id} build. Report to .spectra/logs/task-${task_id}-preflight.md"
+    local prompt="Scan codebase for active Sign violations before Task ${task_id} build. Output your report with an 'Advisory for Builder' section if violations found."
 
     # Enforce prompt budget (<500 bytes)
     if [[ ${#prompt} -gt 480 ]]; then
@@ -830,13 +848,29 @@ parallel_build() {
         return 0
     fi
 
-    # Wait for all builders
+    # Wait for all builders and track exit codes
     local failed=false
+    local -a builder_exits=()
     for i in "${!pids[@]}"; do
-        wait "${pids[$i]}" || {
-            echo "  Builder for Task ${batch_task_ids[$i]} exited non-zero"
+        local _bx=0
+        wait "${pids[$i]}" || _bx=$?
+        builder_exits+=("$_bx")
+        if [[ "$_bx" -ne 0 ]]; then
+            echo "  Builder for Task ${batch_task_ids[$i]} exited non-zero (exit=$_bx)"
             failed=true
-        }
+        fi
+    done
+
+    # Detect infra failures (CLI errors, not code errors)
+    for i in "${!batch_task_ids[@]}"; do
+        local _tid="${batch_task_ids[$i]}"
+        local _log="${LOGS_DIR}/task-${_tid}-build.log"
+        if [[ "${builder_exits[$i]}" -ne 0 ]] && [[ -f "$_log" ]]; then
+            if grep -qiE 'error: unknown option|unknown flag|unrecognized option|command not found' "$_log" 2>/dev/null; then
+                echo "  INFRA FAILURE detected for Task ${_tid} (CLI/tooling error, not code)"
+                echo "INFRA_FAILURE" > "${SIGNALS_DIR}/INFRA_FAIL_${_tid}"
+            fi
+        fi
     done
 
     # Check for STUCK signal from any builder
@@ -1116,8 +1150,8 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
 
         echo "  Spawning spectra-reviewer (Sonnet) for plan validation..."
         claude --agent spectra-reviewer -p --permission-mode plan \
-            "Review all planning artifacts in .spectra/ (constitution.md, plan.md, prd.md if present). Write your verdict to .spectra/signals/plan-review.md following the exact format in your instructions." \
-            2>&1 | tee "${LOGS_DIR}/plan-review.log" || true
+            "Review all planning artifacts in .spectra/ (constitution.md, plan.md, prd.md if present). Output your verdict following the exact format in your instructions with 'Verdict:' line." \
+            2>&1 | tee "${LOGS_DIR}/plan-review.log" "${SIGNALS_DIR}/plan-review.md" || true
 
         if [[ -f "${SIGNALS_DIR}/plan-review.md" ]]; then
             VERDICT=$(grep -oP 'Verdict:\s*\K\S+' "${SIGNALS_DIR}/plan-review.md" | head -1 || echo "UNKNOWN")
@@ -1140,8 +1174,8 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
 
                     rm -f "${SIGNALS_DIR}/plan-review.md"
                     claude --agent spectra-reviewer -p --permission-mode plan \
-                        "Re-review the revised planning artifacts in .spectra/. This is the second review. Write verdict to .spectra/signals/plan-review.md." \
-                        2>&1 | tee "${LOGS_DIR}/plan-re-review.log" || true
+                        "Re-review the revised planning artifacts in .spectra/. This is the second review. Output your verdict with 'Verdict:' line." \
+                        2>&1 | tee "${LOGS_DIR}/plan-re-review.log" "${SIGNALS_DIR}/plan-review.md" || true
 
                     RE_VERDICT=$(grep -oP 'Verdict:\s*\K\S+' "${SIGNALS_DIR}/plan-review.md" 2>/dev/null | head -1 || echo "UNKNOWN")
                     if [[ "$RE_VERDICT" == "REJECTED" ]] || [[ "$RE_VERDICT" == "UNKNOWN" ]]; then
@@ -1269,7 +1303,8 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
             write_batch_status "${batch_desc}" "auditor"
 
             claude --agent spectra-auditor -p --permission-mode plan \
-                "$(preflight_prompt "$task_id")" > "${LOGS_DIR}/task-${task_id}-preflight.log" 2>&1 &
+                "$(preflight_prompt "$task_id")" \
+                2>&1 | tee "${LOGS_DIR}/task-${task_id}-preflight.log" "${LOGS_DIR}/task-${task_id}-preflight.md" &
             audit_pids+=($!)
         done
 
@@ -1296,10 +1331,15 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
         fi
     done
 
+    BATCH_START_TIME=$(date +%s)
+
     set +e
     parallel_build "${BATCH[@]}"
     BUILD_EXIT=$?
     set -e
+
+    BATCH_END_TIME=$(date +%s)
+    BATCH_ELAPSED=$((BATCH_END_TIME - BATCH_START_TIME))
 
     if [[ "$DRY_RUN" == true ]]; then
         echo "  [DRY RUN] All builds in batch would complete"
@@ -1314,6 +1354,31 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
     # Check for STUCK from builders
     if [[ -f "${SIGNALS_DIR}/STUCK" ]]; then
         signal_stuck "Builder raised STUCK during batch [${batch_desc}]: $(head -5 "${SIGNALS_DIR}/STUCK")"
+    fi
+
+    # Check for infra failures (CLI/tooling errors, not code errors)
+    INFRA_FAILED=false
+    for idx in "${BATCH[@]}"; do
+        task_id="${TASK_IDS[$idx]}"
+        if [[ -f "${SIGNALS_DIR}/INFRA_FAIL_${task_id}" ]]; then
+            TASK_STATUS[$idx]="stuck"
+            task_line="${TASK_LINES[$idx]}"
+            if [[ "$task_line" -gt 0 ]]; then
+                sed_inplace "${task_line}s/\- \[ \]/- [!]/" "${SPECTRA_DIR}/plan.md"
+            fi
+            INFRA_FAILED=true
+        fi
+    done
+    if [[ "$INFRA_FAILED" == true ]]; then
+        write_checkpoint
+        signal_stuck "Infrastructure failure detected in batch [${batch_desc}]. Check build logs for CLI errors."
+    fi
+
+    # Bogus run detection: if batch completes too fast, builders likely crashed
+    MIN_EXPECTED=$((local_batch_size * 30))
+    if [[ "$BATCH_ELAPSED" -lt "$MIN_EXPECTED" ]]; then
+        echo "  WARNING: Batch completed in ${BATCH_ELAPSED}s (expected >=${MIN_EXPECTED}s for ${local_batch_size} task(s))."
+        echo "  This may indicate builders crashed immediately. Check build logs."
     fi
 
     # ── Step C: Sequential verification for each task in batch ──
@@ -1336,8 +1401,9 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
         echo "    Verifying Task ${task_id} (${verify_depth})..."
         set +e
         claude --agent spectra-verifier -p --permission-mode plan \
-            "$(verify_prompt "$idx" "$verify_depth")" > "${LOGS_DIR}/task-${task_id}-verify.log" 2>&1
-        VERIFY_EXIT=$?
+            "$(verify_prompt "$idx" "$verify_depth")" \
+            2>&1 | tee "${LOGS_DIR}/task-${task_id}-verify.log" "${LOGS_DIR}/task-${task_id}-verify.md"
+        VERIFY_EXIT=${PIPESTATUS[0]}
         set -e
 
         # ── Step D: Parse verification result ──
@@ -1480,8 +1546,8 @@ FAILEOF
         echo "  Negotiate signal detected — routing to reviewer..."
         last_task_id="${TASK_IDS[${BATCH[-1]}]}"
         claude --agent spectra-reviewer -p --permission-mode plan \
-            "A builder has raised a spec negotiation for Task ${last_task_id}. Read .spectra/signals/NEGOTIATE for the proposed adaptation. Evaluate against constitution.md and non-goals.md. Write your verdict to .spectra/signals/NEGOTIATE_REVIEW." \
-            2>&1 | tail -5 || true
+            "A builder has raised a spec negotiation for Task ${last_task_id}. Read .spectra/signals/NEGOTIATE for the proposed adaptation. Evaluate against constitution.md and non-goals.md. Output your verdict with 'Verdict:' line." \
+            2>&1 | tee "${LOGS_DIR}/negotiate-review.log" "${SIGNALS_DIR}/NEGOTIATE_REVIEW" || true
 
         if [[ -f "${SIGNALS_DIR}/NEGOTIATE_REVIEW" ]]; then
             neg_verdict=""
@@ -1525,8 +1591,8 @@ if [[ $REMAINING -eq 0 ]] && [[ $TOTAL -gt 0 ]]; then
     if [[ "$DRY_RUN" == false ]]; then
         echo "  Spawning spectra-reviewer (Sonnet) for final PR review..."
         claude --agent spectra-reviewer -p --permission-mode plan \
-            "Perform a final PR review. Read .spectra/logs/ for all task reports. Review the git diff. Check lessons-learned.md for patterns worth promoting to Signs. Write your review to .spectra/logs/pr-review.md." \
-            2>&1 | tee "${LOGS_DIR}/pr-review-session.log" || true
+            "Perform a final PR review. Read .spectra/logs/ for all task reports. Review the git diff. Check lessons-learned.md for patterns worth promoting to Signs. Output your review with a 'Verdict:' line." \
+            2>&1 | tee "${LOGS_DIR}/pr-review-session.log" "${LOGS_DIR}/pr-review.md" || true
     fi
 
     if [[ "$DRY_RUN" == false ]]; then
