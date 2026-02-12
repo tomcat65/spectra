@@ -1366,6 +1366,7 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
             if [[ "$task_line" -gt 0 ]]; then
                 sed_inplace "${task_line}s/\- \[ \]/- [!]/" "${SPECTRA_DIR}/plan.md"
             fi
+            rm -f "${SIGNALS_DIR}/INFRA_FAIL_${task_id}"
             INFRA_FAILED=true
         fi
     done
@@ -1379,6 +1380,7 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
     if [[ "$BATCH_ELAPSED" -lt "$MIN_EXPECTED" ]]; then
         echo "  WARNING: Batch completed in ${BATCH_ELAPSED}s (expected >=${MIN_EXPECTED}s for ${local_batch_size} task(s))."
         echo "  This may indicate builders crashed immediately. Check build logs."
+        echo "  WARNING" > "${SIGNALS_DIR}/BOGUS_RUN_WARNING"
     fi
 
     # ── Step C: Sequential verification for each task in batch ──
@@ -1547,7 +1549,7 @@ FAILEOF
         last_task_id="${TASK_IDS[${BATCH[-1]}]}"
         claude --agent spectra-reviewer -p --permission-mode plan \
             "A builder has raised a spec negotiation for Task ${last_task_id}. Read .spectra/signals/NEGOTIATE for the proposed adaptation. Evaluate against constitution.md and non-goals.md. Output your verdict with 'Verdict:' line." \
-            2>&1 | tee "${LOGS_DIR}/negotiate-review.log" "${SIGNALS_DIR}/NEGOTIATE_REVIEW" || true
+            2>&1 | tee "${LOGS_DIR}/negotiate-review.log" "${SIGNALS_DIR}/NEGOTIATE_REVIEW" | tail -5 || true
 
         if [[ -f "${SIGNALS_DIR}/NEGOTIATE_REVIEW" ]]; then
             neg_verdict=""
