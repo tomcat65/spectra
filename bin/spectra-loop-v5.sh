@@ -564,10 +564,11 @@ parse_dependencies() {
             continue
         fi
 
-        # Parse chain notation: Tasks 001 → 002 → 003 (or -> ASCII arrows)
-        # Normalize Unicode arrow → to ASCII -> before matching
+        # Normalize Unicode arrows to ASCII for consistent parsing
         local norm_line="${line//→/->}"
-        if [[ "$norm_line" =~ [Tt]asks?\ +([0-9]{3}(\ *-\>\ *[0-9]{3})+) ]]; then
+
+        # Parse chain notation: any line with 001 -> 002 (-> 003 ...) chains
+        if [[ "$norm_line" =~ ([0-9]{3}(\ *-\>\ *[0-9]{3})+) ]]; then
             local chain="${BASH_REMATCH[1]}"
             # Split on arrow
             local -a chain_ids=()
@@ -848,7 +849,7 @@ parallel_build() {
         return 0
     fi
 
-    # Wait for all builders and track exit codes
+    # Wait for all builders and track exit statuses
     local failed=false
     local -a builder_exits=()
     for i in "${!pids[@]}"; do
@@ -856,20 +857,8 @@ parallel_build() {
         wait "${pids[$i]}" || _bx=$?
         builder_exits+=("$_bx")
         if [[ "$_bx" -ne 0 ]]; then
-            echo "  Builder for Task ${batch_task_ids[$i]} exited non-zero (exit=$_bx)"
+            echo "  Builder for Task ${batch_task_ids[$i]} exited non-zero (${_bx})"
             failed=true
-        fi
-    done
-
-    # Detect infra failures (CLI errors, not code errors)
-    for i in "${!batch_task_ids[@]}"; do
-        local _tid="${batch_task_ids[$i]}"
-        local _log="${LOGS_DIR}/task-${_tid}-build.log"
-        if [[ "${builder_exits[$i]}" -ne 0 ]] && [[ -f "$_log" ]]; then
-            if grep -qiE 'error: unknown option|unknown flag|unrecognized option|command not found' "$_log" 2>/dev/null; then
-                echo "  INFRA FAILURE detected for Task ${_tid} (CLI/tooling error, not code)"
-                echo "INFRA_FAILURE" > "${SIGNALS_DIR}/INFRA_FAIL_${_tid}"
-            fi
         fi
     done
 
@@ -877,6 +866,19 @@ parallel_build() {
     if [[ -f "${SIGNALS_DIR}/STUCK" ]]; then
         return 1
     fi
+
+    # Detect infra failures (bad CLI flags, missing commands, etc.)
+    for i in "${!batch_task_ids[@]}"; do
+        local _tid="${batch_task_ids[$i]}"
+        local _exit="${builder_exits[$i]:-0}"
+        local _log="${LOGS_DIR}/task-${_tid}-build.log"
+        if [[ "$_exit" -ne 0 ]] && [[ -f "$_log" ]]; then
+            if grep -qiE 'error: unknown option|unknown flag|unrecognized option|command not found' "$_log" 2>/dev/null; then
+                echo "  INFRA_FAILURE: Task ${_tid} builder hit CLI/infra error (exit ${_exit})"
+                echo "INFRA_FAILURE" > "${SIGNALS_DIR}/INFRA_FAIL_${_tid}"
+            fi
+        fi
+    done
 
     $failed && return 1
     return 0
@@ -1150,7 +1152,7 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
 
         echo "  Spawning spectra-reviewer (Sonnet) for plan validation..."
         claude --agent spectra-reviewer -p --permission-mode plan \
-            "Review all planning artifacts in .spectra/ (constitution.md, plan.md, prd.md if present). Output your verdict following the exact format in your instructions with 'Verdict:' line." \
+            "Review all planning artifacts in .spectra/ (constitution.md, plan.md, prd.md if present). Output your verdict following the exact format in your instructions. Include a 'Verdict:' line (APPROVED, APPROVED_WITH_WARNINGS, or REJECTED)." \
             2>&1 | tee "${LOGS_DIR}/plan-review.log" "${SIGNALS_DIR}/plan-review.md" || true
 
         if [[ -f "${SIGNALS_DIR}/plan-review.md" ]]; then
@@ -1174,7 +1176,7 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
 
                     rm -f "${SIGNALS_DIR}/plan-review.md"
                     claude --agent spectra-reviewer -p --permission-mode plan \
-                        "Re-review the revised planning artifacts in .spectra/. This is the second review. Output your verdict with 'Verdict:' line." \
+                        "Re-review the revised planning artifacts in .spectra/. This is the second review. Output your verdict with a 'Verdict:' line." \
                         2>&1 | tee "${LOGS_DIR}/plan-re-review.log" "${SIGNALS_DIR}/plan-review.md" || true
 
                     RE_VERDICT=$(grep -oP 'Verdict:\s*\K\S+' "${SIGNALS_DIR}/plan-review.md" 2>/dev/null | head -1 || echo "UNKNOWN")
@@ -1351,16 +1353,12 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
         continue
     fi
 
-    # Check for STUCK from builders
-    if [[ -f "${SIGNALS_DIR}/STUCK" ]]; then
-        signal_stuck "Builder raised STUCK during batch [${batch_desc}]: $(head -5 "${SIGNALS_DIR}/STUCK")"
-    fi
-
-    # Check for infra failures (CLI/tooling errors, not code errors)
+    # Check for infra failures before proceeding to verification
     INFRA_FAILED=false
     for idx in "${BATCH[@]}"; do
         task_id="${TASK_IDS[$idx]}"
         if [[ -f "${SIGNALS_DIR}/INFRA_FAIL_${task_id}" ]]; then
+            echo "  Task ${task_id}: INFRA_FAILURE — builder had CLI/infra error, skipping verification"
             TASK_STATUS[$idx]="stuck"
             task_line="${TASK_LINES[$idx]}"
             if [[ "$task_line" -gt 0 ]]; then
@@ -1372,15 +1370,22 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
     done
     if [[ "$INFRA_FAILED" == true ]]; then
         write_checkpoint
-        signal_stuck "Infrastructure failure detected in batch [${batch_desc}]. Check build logs for CLI errors."
+        signal_stuck "Infrastructure failure detected: one or more builders hit CLI errors. Check build logs in ${LOGS_DIR}/"
     fi
 
-    # Bogus run detection: if batch completes too fast, builders likely crashed
+    # Bogus run detection — suspiciously fast batch
     MIN_EXPECTED=$((local_batch_size * 30))
     if [[ "$BATCH_ELAPSED" -lt "$MIN_EXPECTED" ]]; then
-        echo "  WARNING: Batch completed in ${BATCH_ELAPSED}s (expected >=${MIN_EXPECTED}s for ${local_batch_size} task(s))."
-        echo "  This may indicate builders crashed immediately. Check build logs."
+        echo ""
+        echo "  WARNING: Batch completed in ${BATCH_ELAPSED}s (expected >=${MIN_EXPECTED}s for ${local_batch_size} task(s))"
+        echo "  This may indicate builders failed silently (bad CLI flags, empty runs)."
+        echo "  Check build logs: ${LOGS_DIR}/task-*-build.log"
         echo "  WARNING" > "${SIGNALS_DIR}/BOGUS_RUN_WARNING"
+    fi
+
+    # Check for STUCK from builders
+    if [[ -f "${SIGNALS_DIR}/STUCK" ]]; then
+        signal_stuck "Builder raised STUCK during batch [${batch_desc}]: $(head -5 "${SIGNALS_DIR}/STUCK")"
     fi
 
     # ── Step C: Sequential verification for each task in batch ──
@@ -1548,7 +1553,7 @@ FAILEOF
         echo "  Negotiate signal detected — routing to reviewer..."
         last_task_id="${TASK_IDS[${BATCH[-1]}]}"
         claude --agent spectra-reviewer -p --permission-mode plan \
-            "A builder has raised a spec negotiation for Task ${last_task_id}. Read .spectra/signals/NEGOTIATE for the proposed adaptation. Evaluate against constitution.md and non-goals.md. Output your verdict with 'Verdict:' line." \
+            "A builder has raised a spec negotiation for Task ${last_task_id}. Read .spectra/signals/NEGOTIATE for the proposed adaptation. Evaluate against constitution.md and non-goals.md. Output your verdict with a 'Verdict:' line." \
             2>&1 | tee "${LOGS_DIR}/negotiate-review.log" "${SIGNALS_DIR}/NEGOTIATE_REVIEW" | tail -5 || true
 
         if [[ -f "${SIGNALS_DIR}/NEGOTIATE_REVIEW" ]]; then
@@ -1593,7 +1598,7 @@ if [[ $REMAINING -eq 0 ]] && [[ $TOTAL -gt 0 ]]; then
     if [[ "$DRY_RUN" == false ]]; then
         echo "  Spawning spectra-reviewer (Sonnet) for final PR review..."
         claude --agent spectra-reviewer -p --permission-mode plan \
-            "Perform a final PR review. Read .spectra/logs/ for all task reports. Review the git diff. Check lessons-learned.md for patterns worth promoting to Signs. Output your review with a 'Verdict:' line." \
+            "Perform a final PR review. Read .spectra/logs/ for all task reports. Review the git diff. Check lessons-learned.md for patterns worth promoting to Signs. Output your review." \
             2>&1 | tee "${LOGS_DIR}/pr-review-session.log" "${LOGS_DIR}/pr-review.md" || true
     fi
 

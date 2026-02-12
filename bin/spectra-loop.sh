@@ -567,8 +567,8 @@ parse_dependencies() {
         # Normalize Unicode arrows to ASCII for consistent parsing
         local norm_line="${line//→/->}"
 
-        # Parse chain notation: Tasks 001 → 002 → 003 (or Tasks 001 -> 002 -> 003)
-        if [[ "$norm_line" =~ [Tt]asks?\ +([0-9]{3}(\ *-\>\ *[0-9]{3})+) ]]; then
+        # Parse chain notation: any line with 001 -> 002 (-> 003 ...) chains
+        if [[ "$norm_line" =~ ([0-9]{3}(\ *-\>\ *[0-9]{3})+) ]]; then
             local chain="${BASH_REMATCH[1]}"
             # Split on arrow
             local -a chain_ids=()
