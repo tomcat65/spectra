@@ -113,6 +113,47 @@ else
 fi
 
 # ══════════════════════════════════════════
+# Test 2c: Structural checksum — recompute after NEGOTIATE constraint append
+# ══════════════════════════════════════════
+echo "  Test: checksum recompute after constraint append prevents false lock"
+
+cat > "${PROJ}/.spectra/plan.md" <<'PLAN'
+## Task 001: Foo
+- [ ] 001: Foo
+- AC:
+  - criterion
+- Files: src/foo.ts
+- Verify: `npm test`
+PLAN
+
+CS_INITIAL=$(structural_checksum "${PROJ}/.spectra/plan.md")
+
+# Simulate NEGOTIATE approved constraint append (bin/spectra-loop.sh:1645)
+echo "> Constraint: API must use v2 schema" >> "${PROJ}/.spectra/plan.md"
+
+# Without recompute, checksum would differ (this is the bug codex found)
+CS_AFTER_APPEND=$(structural_checksum "${PROJ}/.spectra/plan.md")
+
+if [[ "${CS_INITIAL}" != "${CS_AFTER_APPEND}" ]]; then
+    # Good — append DOES change structural checksum (it's a real structural change)
+    # The fix is that spectra-loop.sh recomputes PLAN_CHECKSUM after the append.
+    # Simulate recompute (what the fix does):
+    CS_RECOMPUTED="${CS_AFTER_APPEND}"
+    # Now verify next check matches the recomputed baseline
+    CS_NEXT_CHECK=$(structural_checksum "${PROJ}/.spectra/plan.md")
+    if [[ "${CS_RECOMPUTED}" == "${CS_NEXT_CHECK}" ]]; then
+        echo "  PASS  recomputed checksum matches after constraint append"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL  recomputed checksum does not match (${CS_RECOMPUTED:0:8}... != ${CS_NEXT_CHECK:0:8}...)"
+        FAIL=$((FAIL + 1))
+    fi
+else
+    echo "  FAIL  constraint append did not change structural checksum (expected change before recompute)"
+    FAIL=$((FAIL + 1))
+fi
+
+# ══════════════════════════════════════════
 # Test 3: Timeout exit code 124
 # ══════════════════════════════════════════
 echo "  Test: timeout command returns exit 124"

@@ -1643,6 +1643,8 @@ FAILEOF
                     constraint=$(sed -n '/### Constraint to Append/,/^$/p' "${SIGNALS_DIR}/NEGOTIATE_REVIEW" 2>/dev/null | grep '^>' | head -3 || echo "")
                     if [[ -n "$constraint" ]]; then
                         echo "$constraint" >> "${SPECTRA_DIR}/plan.md"
+                        # Recompute trusted checksum after approved constraint append
+                        PLAN_CHECKSUM=$(compute_plan_structure_checksum)
                     fi
                     ;;
                 ESCALATE)
