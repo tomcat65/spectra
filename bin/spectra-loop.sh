@@ -37,6 +37,7 @@ COST_CEILING=""
 RISK_FIRST=false
 MAX_BATCH_SIZE=4
 MAX_TASKS=50
+BUILDER_TIMEOUT=600  # seconds per builder invocation (default 10 min)
 START_TIME=$(date +%s)
 ELAPSED_OFFSET=0
 
@@ -65,6 +66,7 @@ while [[ $# -gt 0 ]]; do
         --risk-first)    RISK_FIRST=true; shift ;;
         --cost-ceiling)  COST_CEILING="$2"; shift 2 ;;
         --max-batch)     MAX_BATCH_SIZE="$2"; shift 2 ;;
+        --builder-timeout) BUILDER_TIMEOUT="$2"; shift 2 ;;
         -h|--help)
             cat <<EOF
 SPECTRA v5.0 Execution Loop — Bash-Native Parallel Architecture
@@ -79,6 +81,7 @@ Options:
   --risk-first      Execute high-risk tasks first (default on for Level 2+)
   --cost-ceiling N  Override cost ceiling from project.yaml (USD)
   --max-batch N     Max parallel builders per batch (default: 4, Level 0-2 forces 1)
+  --builder-timeout N  Seconds before killing a hung builder (default: 600)
   -h, --help        Show this help
 
 Architecture (v5.0):
@@ -840,7 +843,8 @@ parallel_build() {
             continue
         fi
 
-        claude --agent spectra-builder -p --permission-mode acceptEdits \
+        timeout "${BUILDER_TIMEOUT}" \
+            claude --agent spectra-builder -p --permission-mode acceptEdits \
             "${prompt_text}" > "${LOGS_DIR}/task-${task_id}-build.log" 2>&1 &
         pids+=($!)
     done
@@ -856,7 +860,11 @@ parallel_build() {
         local _bx=0
         wait "${pids[$i]}" || _bx=$?
         builder_exits+=("$_bx")
-        if [[ "$_bx" -ne 0 ]]; then
+        if [[ "$_bx" -eq 124 ]]; then
+            echo "  TIMEOUT: Builder for Task ${batch_task_ids[$i]} killed after ${BUILDER_TIMEOUT}s"
+            echo "TIMEOUT" > "${SIGNALS_DIR}/TIMEOUT_${batch_task_ids[$i]}"
+            failed=true
+        elif [[ "$_bx" -ne 0 ]]; then
             echo "  Builder for Task ${batch_task_ids[$i]} exited non-zero (${_bx})"
             failed=true
         fi
@@ -1243,6 +1251,32 @@ echo ""
 echo "  Parsing plan.md..."
 parse_plan
 
+# ── Plan checksum lock (Phase 1 Quick Win) ──
+# Record SHA256 of plan.md at parse time. If it changes mid-loop, halt.
+PLAN_CHECKSUM=""
+if [[ -f "${SPECTRA_DIR}/plan.md" ]]; then
+    PLAN_CHECKSUM=$(sha256sum "${SPECTRA_DIR}/plan.md" | cut -d' ' -f1)
+fi
+
+verify_plan_checksum() {
+    if [[ -z "${PLAN_CHECKSUM}" ]]; then
+        return 0  # No checksum to verify (e.g., dry-run without plan file)
+    fi
+    local current
+    current=$(sha256sum "${SPECTRA_DIR}/plan.md" 2>/dev/null | cut -d' ' -f1 || echo "")
+    if [[ "${current}" != "${PLAN_CHECKSUM}" ]]; then
+        echo ""
+        echo "  PLAN LOCK VIOLATION: plan.md was modified during execution!"
+        echo "  Expected: ${PLAN_CHECKSUM:0:16}..."
+        echo "  Got:      ${current:0:16}..."
+        echo "  Halting to prevent stale-plan execution."
+        echo ""
+        write_signal "PLAN_LOCK_FAIL" "plan.md checksum mismatch at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        return 1
+    fi
+    return 0
+}
+
 # ── Initialize per-task tracking arrays ──
 declare -a RETRY_COUNTS=()
 declare -a FAILURE_TYPES=()
@@ -1310,6 +1344,14 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
 
     read -ra BATCH <<< "$BATCH_STR"
     local_batch_size=${#BATCH[@]}
+
+    # Verify plan.md hasn't been tampered with before executing batch
+    if [[ "$DRY_RUN" == false ]]; then
+        if ! verify_plan_checksum; then
+            signal_stuck "Plan checksum lock violation — plan.md modified during execution"
+            break
+        fi
+    fi
 
     # Describe the batch
     batch_desc=""

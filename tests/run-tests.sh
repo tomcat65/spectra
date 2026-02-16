@@ -74,6 +74,24 @@ TOTAL_FAIL=$((TOTAL_FAIL + assess_fail))
 [[ ${assess_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
 
 # ══════════════════════════════════════════
+# Suite 3: Loop unit tests (Phase 1 quick wins)
+# ══════════════════════════════════════════
+echo "=== Suite: loop-unit ==="
+set +e
+output=$("${SCRIPT_DIR}/test-loop-unit.sh" 2>&1)
+loop_exit=$?
+set -e
+echo "${output}"
+echo ""
+
+# Parse pass/fail counts from the sub-test output
+loop_pass=$(echo "${output}" | grep -oP 'loop-unit: \K[0-9]+(?= passed)' || echo "0")
+loop_fail=$(echo "${output}" | grep -oP 'passed, \K[0-9]+(?= failed)' || echo "0")
+TOTAL_PASS=$((TOTAL_PASS + loop_pass))
+TOTAL_FAIL=$((TOTAL_FAIL + loop_fail))
+[[ ${loop_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
+
+# ══════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════
 echo "==============================="

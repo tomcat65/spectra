@@ -62,6 +62,24 @@
       "expected": "fail",
       "errorCode": "MISSING_REQUIRED_FIELD",
       "errorDetail": "AC section missing entirely"
+    },
+    {
+      "id": "invalid-dependency-cycle",
+      "file": "invalid-dependency-cycle.md",
+      "projectLevel": 2,
+      "expected": "fail",
+      "errorCode": "DEPENDENCY_CYCLE",
+      "errorDetail": "Circular dependency: 001 -> 002 -> 003 -> 001"
+    },
+    {
+      "id": "valid-deps-no-cycle",
+      "file": "valid-deps-no-cycle.md",
+      "projectLevel": 2,
+      "expected": "pass",
+      "checks": [
+        "dependency_graph_acyclic",
+        "sequential_deps_parsed"
+      ]
     }
   ]
 }

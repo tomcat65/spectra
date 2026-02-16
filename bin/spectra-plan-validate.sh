@@ -319,6 +319,82 @@ if [[ ${#WARNINGS[@]} -gt 0 ]] && [[ ${#SEQ_DEPS[@]} -gt 0 ]]; then
 fi
 
 # ══════════════════════════════════════════
+# DAG CYCLE DETECTION (Phase 1 Quick Win)
+# ══════════════════════════════════════════
+
+# Build adjacency list from SEQ_DEPS and run DFS cycle detection.
+# SEQ_DEPS has bidirectional keys "A->B" and "B->A" — we only want forward edges.
+# Re-parse the original line for directed edges only.
+declare -A DAG_EDGES=()  # "from" -> "to1,to2,..."
+if [[ -n "${seq_deps_line:-}" ]]; then
+    while read -r chain; do
+        chain=$(echo "${chain}" | tr -d '[]' | sed 's/,//g')
+        prev=""
+        for node in ${chain}; do
+            [[ "${node}" == "->" ]] && continue
+            [[ ! "${node}" =~ ^[0-9]+$ ]] && continue
+            node=$(printf '%03d' "$((10#${node}))")
+            if [[ -n "${prev}" ]]; then
+                if [[ -n "${DAG_EDGES[${prev}]:-}" ]]; then
+                    DAG_EDGES["${prev}"]="${DAG_EDGES[${prev}]},${node}"
+                else
+                    DAG_EDGES["${prev}"]="${node}"
+                fi
+            fi
+            prev="${node}"
+        done
+    done <<< "$(echo "${seq_deps_line}" | tr ',' '\n')"
+fi
+
+# DFS cycle detection using three-color marking (white/gray/black)
+declare -A DAG_COLOR=()  # 0=white (unvisited), 1=gray (in-stack), 2=black (done)
+declare -A DAG_PARENT=()
+
+dag_detect_cycle() {
+    local node="$1"
+    DAG_COLOR["${node}"]=1  # gray = in current DFS path
+
+    local neighbors="${DAG_EDGES[${node}]:-}"
+    if [[ -n "${neighbors}" ]]; then
+        IFS=',' read -ra adj <<< "${neighbors}"
+        for next in "${adj[@]}"; do
+            next=$(echo "${next}" | tr -d ' ')
+            [[ -z "${next}" ]] && continue
+
+            local color="${DAG_COLOR[${next}]:-0}"
+            if [[ "${color}" -eq 1 ]]; then
+                # Back-edge found — reconstruct cycle path
+                local cycle_path="${next} -> ${node}"
+                local trace="${node}"
+                while [[ "${trace}" != "${next}" ]] && [[ -n "${DAG_PARENT[${trace}]:-}" ]]; do
+                    trace="${DAG_PARENT[${trace}]}"
+                    cycle_path="${next} -> ${trace} -> ${cycle_path#* -> }"
+                done
+                ERRORS+=("Dependency cycle detected: ${cycle_path}")
+                return 1
+            elif [[ "${color}" -eq 0 ]]; then
+                DAG_PARENT["${next}"]="${node}"
+                if ! dag_detect_cycle "${next}"; then
+                    return 1
+                fi
+            fi
+        done
+    fi
+
+    DAG_COLOR["${node}"]=2  # black = fully explored
+    return 0
+}
+
+# Run DFS from each unvisited node
+for dag_node in "${!DAG_EDGES[@]}"; do
+    if [[ "${DAG_COLOR[${dag_node}]:-0}" -eq 0 ]]; then
+        if ! dag_detect_cycle "${dag_node}"; then
+            break  # Stop after first cycle found
+        fi
+    fi
+done
+
+# ══════════════════════════════════════════
 # PLAN-LEVEL CHECKS
 # ══════════════════════════════════════════
 
