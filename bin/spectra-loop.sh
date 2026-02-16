@@ -1252,10 +1252,20 @@ echo "  Parsing plan.md..."
 parse_plan
 
 # ── Plan checksum lock (Phase 1 Quick Win) ──
-# Record SHA256 of plan.md at parse time. If it changes mid-loop, halt.
+# Checksum covers only structural (immutable) lines of plan.md — task headers,
+# AC, Files, Verify, deps, ownership. Checkbox state lines (- [ ]/[x]/[!]) and
+# appended constraints are mutable during execution, so they are excluded.
 PLAN_CHECKSUM=""
+
+compute_plan_structure_checksum() {
+    # Strip mutable lines: checkbox state, trailing constraint appendages
+    # Keep: ## Task headers, - AC:, - Files:, - Verify:, - Risk:, - Scope:, etc.
+    grep -vE '^\- \[[ xX!]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null \
+        | sha256sum | cut -d' ' -f1
+}
+
 if [[ -f "${SPECTRA_DIR}/plan.md" ]]; then
-    PLAN_CHECKSUM=$(sha256sum "${SPECTRA_DIR}/plan.md" | cut -d' ' -f1)
+    PLAN_CHECKSUM=$(compute_plan_structure_checksum)
 fi
 
 verify_plan_checksum() {
@@ -1263,15 +1273,15 @@ verify_plan_checksum() {
         return 0  # No checksum to verify (e.g., dry-run without plan file)
     fi
     local current
-    current=$(sha256sum "${SPECTRA_DIR}/plan.md" 2>/dev/null | cut -d' ' -f1 || echo "")
+    current=$(compute_plan_structure_checksum)
     if [[ "${current}" != "${PLAN_CHECKSUM}" ]]; then
         echo ""
-        echo "  PLAN LOCK VIOLATION: plan.md was modified during execution!"
+        echo "  PLAN LOCK VIOLATION: plan.md structure was modified during execution!"
         echo "  Expected: ${PLAN_CHECKSUM:0:16}..."
         echo "  Got:      ${current:0:16}..."
         echo "  Halting to prevent stale-plan execution."
         echo ""
-        write_signal "PLAN_LOCK_FAIL" "plan.md checksum mismatch at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        write_signal "PLAN_LOCK_FAIL" "plan.md structural checksum mismatch at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
         return 1
     fi
     return 0

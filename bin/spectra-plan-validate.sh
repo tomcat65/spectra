@@ -363,13 +363,19 @@ dag_detect_cycle() {
 
             local color="${DAG_COLOR[${next}]:-0}"
             if [[ "${color}" -eq 1 ]]; then
-                # Back-edge found — reconstruct cycle path
-                local cycle_path="${next} -> ${node}"
+                # Back-edge found — reconstruct cycle: walk parent chain from node back to next
+                local -a cycle_nodes=("${node}")
                 local trace="${node}"
                 while [[ "${trace}" != "${next}" ]] && [[ -n "${DAG_PARENT[${trace}]:-}" ]]; do
                     trace="${DAG_PARENT[${trace}]}"
-                    cycle_path="${next} -> ${trace} -> ${cycle_path#* -> }"
+                    cycle_nodes=("${trace}" "${cycle_nodes[@]}")
                 done
+                # Format: "next -> ... -> node -> next" (closing the cycle)
+                local cycle_path=""
+                for cn in "${cycle_nodes[@]}"; do
+                    cycle_path="${cycle_path:+${cycle_path} -> }${cn}"
+                done
+                cycle_path="${cycle_path} -> ${next}"
                 ERRORS+=("Dependency cycle detected: ${cycle_path}")
                 return 1
             elif [[ "${color}" -eq 0 ]]; then

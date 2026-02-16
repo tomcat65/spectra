@@ -18,49 +18,97 @@ trap cleanup EXIT
 
 tmp_dir=$(mktemp -d)
 
-# ══════════════════════════════════════════
-# Test 1: Plan checksum — detect plan.md mutation
-# ══════════════════════════════════════════
-echo "  Test: plan checksum detects mutation"
+# Helper: compute structural checksum (same algorithm as spectra-loop.sh)
+structural_checksum() {
+    grep -vE '^\- \[[ xX!]\] [0-9]{3}:' "$1" 2>/dev/null | sha256sum | cut -d' ' -f1
+}
 
-# Create a fake project directory
+# ══════════════════════════════════════════
+# Test 1: Structural checksum — detect task definition mutation
+# ══════════════════════════════════════════
+echo "  Test: structural checksum detects task definition mutation"
+
 PROJ="${tmp_dir}/checksum-test"
 mkdir -p "${PROJ}/.spectra/signals"
-echo "## Task 001: Foo" > "${PROJ}/.spectra/plan.md"
+cat > "${PROJ}/.spectra/plan.md" <<'PLAN'
+## Task 001: Foo
+- [ ] 001: Foo
+- AC:
+  - criterion
+- Files: src/foo.ts
+- Verify: `npm test`
+PLAN
 
-# Compute initial checksum
-INITIAL=$(sha256sum "${PROJ}/.spectra/plan.md" | cut -d' ' -f1)
+INITIAL=$(structural_checksum "${PROJ}/.spectra/plan.md")
 
-# Mutate the plan
+# Mutate a structural line (add new task)
 echo "## Task 002: Bar" >> "${PROJ}/.spectra/plan.md"
 
-# Compute again
-AFTER=$(sha256sum "${PROJ}/.spectra/plan.md" | cut -d' ' -f1)
+AFTER=$(structural_checksum "${PROJ}/.spectra/plan.md")
 
 if [[ "${INITIAL}" != "${AFTER}" ]]; then
-    echo "  PASS  checksum detects mutation (${INITIAL:0:8}... != ${AFTER:0:8}...)"
+    echo "  PASS  structural checksum detects definition mutation (${INITIAL:0:8}... != ${AFTER:0:8}...)"
     PASS=$((PASS + 1))
 else
-    echo "  FAIL  checksum did NOT detect mutation"
+    echo "  FAIL  structural checksum did NOT detect definition mutation"
     FAIL=$((FAIL + 1))
 fi
 
 # ══════════════════════════════════════════
-# Test 2: Plan checksum — stable on unchanged file
+# Test 2: Structural checksum — stable on checkbox-only mutation
 # ══════════════════════════════════════════
-echo "  Test: plan checksum stable on unchanged file"
+echo "  Test: structural checksum stable when checkbox changes"
 
-STABLE_PLAN="${tmp_dir}/stable-plan.md"
-echo "## Task 001: Stable" > "${STABLE_PLAN}"
+cat > "${PROJ}/.spectra/plan.md" <<'PLAN'
+## Task 001: Foo
+- [ ] 001: Foo
+- AC:
+  - criterion
+- Files: src/foo.ts
+- Verify: `npm test`
+PLAN
 
-CS1=$(sha256sum "${STABLE_PLAN}" | cut -d' ' -f1)
-CS2=$(sha256sum "${STABLE_PLAN}" | cut -d' ' -f1)
+CS_BEFORE=$(structural_checksum "${PROJ}/.spectra/plan.md")
 
-if [[ "${CS1}" == "${CS2}" ]]; then
-    echo "  PASS  checksum stable on unchanged file"
+# Mutate only checkbox ([ ] -> [x]) — this is what the loop does
+sed -i 's/\- \[ \] 001:/- [x] 001:/' "${PROJ}/.spectra/plan.md"
+
+CS_AFTER=$(structural_checksum "${PROJ}/.spectra/plan.md")
+
+if [[ "${CS_BEFORE}" == "${CS_AFTER}" ]]; then
+    echo "  PASS  structural checksum stable across checkbox mutation"
     PASS=$((PASS + 1))
 else
-    echo "  FAIL  checksum changed on unchanged file"
+    echo "  FAIL  structural checksum changed on checkbox mutation (${CS_BEFORE:0:8}... != ${CS_AFTER:0:8}...)"
+    FAIL=$((FAIL + 1))
+fi
+
+# ══════════════════════════════════════════
+# Test 2b: Structural checksum — stable on stuck marker mutation
+# ══════════════════════════════════════════
+echo "  Test: structural checksum stable when stuck marker set"
+
+cat > "${PROJ}/.spectra/plan.md" <<'PLAN'
+## Task 001: Foo
+- [ ] 001: Foo
+- AC:
+  - criterion
+- Files: src/foo.ts
+- Verify: `npm test`
+PLAN
+
+CS_BEFORE=$(structural_checksum "${PROJ}/.spectra/plan.md")
+
+# Mutate checkbox to stuck ([ ] -> [!])
+sed -i 's/\- \[ \] 001:/- [!] 001:/' "${PROJ}/.spectra/plan.md"
+
+CS_AFTER=$(structural_checksum "${PROJ}/.spectra/plan.md")
+
+if [[ "${CS_BEFORE}" == "${CS_AFTER}" ]]; then
+    echo "  PASS  structural checksum stable across stuck marker"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  structural checksum changed on stuck marker (${CS_BEFORE:0:8}... != ${CS_AFTER:0:8}...)"
     FAIL=$((FAIL + 1))
 fi
 
