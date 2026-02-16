@@ -688,6 +688,14 @@ SPECTRA agents can coordinate with external agents (codex-cli, claude-desktop, C
 | v5.0 | Feb 11, 2026 | Bash-native parallel architecture: replaced LLM coordinator (spectra-lead) with bash `&` + `wait`, <500 byte prompts, JSON checkpoint resume, oracle failure classifier (Haiku), removed Agent Teams dependency |
 | v5.1 | Feb 11, 2026 | Builder self-audit protocol (4 checks before every commit), automated wiring verification (`spectra-verify-wiring.sh` + `verify.yaml`), plan.md assertions generation, `spectra-init` verify.yaml scaffolding |
 
+## Known Limitations
+
+- **No CI-enforced test pipeline** — A manual test runner exists (`tests/run-tests.sh`, 23 tests) but no CI pipeline enforces it on push/PR.
+- **RECONCILE signal is interactive only** — In interactive mode, prompts user to re-run assessment and planning. In non-interactive mode, logs a warning and continues with the existing plan.
+- **No Level 4 (Enterprise) implementation** — The level table defines it but no sprint delivery logic exists in the loop scripts.
+- **spectra-scout auto-runs when discovery is missing** — The planner automatically invokes scout when `discovery.md` is absent. Manual flags (`--discover`, `--skip-discovery`) are also available.
+- **Wiring checks are Python-centric** — Dead import detection in `spectra-verify.sh` only covers `.py` files.
+
 ## Reference
 
 - Full methodology: [SPECTRA_METHOD.md](SPECTRA_METHOD.md)

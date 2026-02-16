@@ -1213,6 +1213,31 @@ if [[ -f "${SIGNALS_DIR}/STUCK" ]]; then
     exit 1
 fi
 
+# ── RECONCILE signal check (before parse_plan so re-planning updates disk plan first) ──
+if [[ -f "${SIGNALS_DIR}/RECONCILE" ]]; then
+    RECONCILE_MSG=$(cat "${SIGNALS_DIR}/RECONCILE" 2>/dev/null || echo "Assessment drift detected")
+    echo ""
+    echo "  RECONCILE signal: ${RECONCILE_MSG}"
+    echo ""
+    if [[ -t 0 ]]; then
+        # Interactive mode — ask user
+        read -r -p "  Re-run assessment to reconcile? [y/N] " RECONCILE_ANSWER
+        if [[ "${RECONCILE_ANSWER}" =~ ^[Yy] ]]; then
+            echo "  Re-running assessment..."
+            "${SPECTRA_HOME}/bin/spectra-assess.sh" || true
+            echo "  Re-running planning..."
+            "${SPECTRA_HOME}/bin/spectra-plan.sh" --level "${PROJECT_LEVEL}" || {
+                echo "  ERROR: Re-planning failed after reconciliation."
+                exit 1
+            }
+        fi
+    else
+        # Non-interactive — log warning and continue
+        echo "  (Non-interactive mode: continuing with existing plan)"
+    fi
+    rm -f "${SIGNALS_DIR}/RECONCILE"
+fi
+
 # ── Parse plan into arrays ──
 echo ""
 echo "  Parsing plan.md..."

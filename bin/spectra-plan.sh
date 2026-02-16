@@ -4,7 +4,7 @@ set -euo pipefail
 # SPECTRA Plan Generator (BMAD → Ralph Bridge)
 # Scans .spectra/stories/*.md OR BMAD artifacts and generates .spectra/plan.md
 # Model and tools defined in ~/.claude/agents/spectra-planner.md
-# Usage: spectra-plan [--from-bmad] [--bmad-dir PATH] [--dry-run]
+# Usage: spectra-plan [--from-bmad] [--bmad-dir PATH] [--dry-run] [--discover] [--skip-discovery]
 
 SPECTRA_HOME="${HOME}/.spectra"
 PLAN_VALIDATOR="${SPECTRA_HOME}/bin/spectra-plan-validate.sh"
@@ -14,6 +14,8 @@ FROM_BMAD=false
 BMAD_DIR=""
 DRY_RUN=false
 LEVEL_OVERRIDE=""
+DISCOVER=false
+SKIP_DISCOVERY=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -22,6 +24,8 @@ while [[ $# -gt 0 ]]; do
         --bmad-dir)     BMAD_DIR="$2"; FROM_BMAD=true; shift 2 ;;
         --dry-run)      DRY_RUN=true; shift ;;
         --level)        LEVEL_OVERRIDE="$2"; shift 2 ;;
+        --discover)     DISCOVER=true; shift ;;
+        --skip-discovery) SKIP_DISCOVERY=true; shift ;;
         -h|--help)
             cat <<EOF
 SPECTRA v5.0 Plan Generator
@@ -36,6 +40,8 @@ Options:
   --bmad-dir PATH   Explicit BMAD directory path (implies --from-bmad)
   --dry-run         Print generated plan to stdout, don't write file
   --level N         Override project level (0-4)
+  --discover        Force discovery phase (run spectra-scout before planning)
+  --skip-discovery  Skip discovery phase even if discovery.md is missing
   -h, --help        Show this help
 
 Modes:
@@ -61,6 +67,24 @@ if [[ -f "${SPECTRA_HOME}/.env" ]]; then
     set +u
     source "${SPECTRA_HOME}/.env"
     set -u
+fi
+
+# ══════════════════════════════════════════
+# DISCOVERY PHASE (optional)
+# ══════════════════════════════════════════
+
+SPECTRA_DIR=".spectra"
+if [[ "${DISCOVER}" == "true" ]] || { [[ "${SKIP_DISCOVERY}" != "true" ]] && [[ ! -f "${SPECTRA_DIR}/discovery.md" ]]; }; then
+    echo "  Running discovery phase (spectra-scout)..."
+    DISCOVERY_TMP="${SPECTRA_DIR}/discovery.md.tmp"
+    if timeout 120 claude --agent spectra-scout --output-format text -p \
+        "Investigate the codebase at $(pwd). Read key files, identify technical unknowns, risks, and implementation preferences. Output a discovery report." \
+        > "${DISCOVERY_TMP}" 2>/dev/null && [[ -s "${DISCOVERY_TMP}" ]]; then
+        mv "${DISCOVERY_TMP}" "${SPECTRA_DIR}/discovery.md"
+    else
+        echo "  Warning: Scout discovery timed out, failed, or produced empty output. Continuing without discovery."
+        rm -f "${DISCOVERY_TMP}" "${SPECTRA_DIR}/discovery.md"
+    fi
 fi
 
 # ══════════════════════════════════════════
@@ -336,6 +360,7 @@ ${READ_FILES}
 
 Generate a Level ${PROJECT_LEVEL} canonical plan.md from these $(if [[ "${FROM_BMAD}" == true ]]; then echo "BMAD artifacts"; else echo "stories"; fi).
 ${BMAD_INSTRUCTIONS}
+$(if [[ -f .spectra/discovery.md ]]; then echo "Discovery report available at .spectra/discovery.md — read it for codebase context."; fi)
 ## Project Level: ${PROJECT_LEVEL}
 
 ## Output Format

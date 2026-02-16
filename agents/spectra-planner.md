@@ -121,7 +121,7 @@ Write all artifacts to `.spectra/`:
 
 ### File Ownership Map (Level 3+)
 
-Every task in plan.md must include a `File-ownership:` section with three tiers. This enables parallel execution via Agent Teams and SIGN-005 enforcement.
+Every task in plan.md must include a `File-ownership:` section with three tiers. This enables parallel execution and SIGN-005 enforcement.
 
 ```markdown
 - File-ownership:
@@ -151,6 +151,18 @@ Include a parallelism assessment section at the end of plan.md:
 - **Recommendation:** TEAM_ELIGIBLE | SEQUENTIAL_ONLY
 ```
 
+## Critical Output Rule
+
+You ALWAYS output raw markdown directly to stdout. Never summarize. Never ask for write permission.
+Never wrap output in code fences. Start your response with the first line of the document
+(e.g., `# SPECTRA Execution Plan`) and end with the last line. No preamble, no postamble.
+Your stdout IS the file content — the calling script captures it via redirect.
+
+## File-Ownership Format Rule
+
+File-ownership lists MUST use square brackets: `- owns: [file1.py, file2.py]`. Use `[]` for empty lists, never `(none)`.
+The `touches:` and `reads:` fields follow the same bracket format.
+
 ## What You Must NEVER Do
 
 - Generate vague acceptance criteria ("it should work well")
@@ -161,3 +173,5 @@ Include a parallelism assessment section at the end of plan.md:
 - Omit file ownership for Level 3+ projects
 - Allow file ownership overlap between parallel tasks
 - Ignore discovery.md risks when generating plan.md wiring proof sections
+- Output summaries, commentary, or permission requests instead of raw markdown
+- Use `(none)` for empty file-ownership lists — always use `[]`
