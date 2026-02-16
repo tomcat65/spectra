@@ -261,8 +261,8 @@ SPECTRA v5.0 replaces the Agent Teams model with bash-native parallel orchestrat
 |------|------|
 | SIGN-004: Lead Drift | No team lead agent in v5.0 — bash script orchestrates, agents build. |
 | SIGN-005: File Collision | No two parallel builders may edit the same file. Task decomposition must assign file ownership. |
-| SIGN-006: Verification Parallelism | Verification is never parallel — single deterministic verifier only. |
-| SIGN-007: Orphaned Teammates | shutdown_request before TeamDelete (applies to any agent team context). |
+| SIGN-006: Stale Task | If task stays in-progress >10 minutes without output, loop must nudge or reassign. |
+| SIGN-007: Silent Failure | Worker errors must be surfaced via loop logs/signals. Silent swallowing is a system fault. |
 
 ### Constraints
 
@@ -300,6 +300,9 @@ Signs are hard-won lessons from SPECTRA execution failures. They live in `.spect
 
 ### SIGN-008: Research Before STUCK
 > "Before declaring STUCK on any external blocker (dependency install, build error, missing package, environment issue), the builder must spend at least one research cycle using web search or documentation lookup. Most tooling failures have known solutions — a 30-second search beats a full STUCK escalation."
+
+### SIGN-009: Test Ordering Pollution
+> "Tests that pass in isolation but fail in the full suite indicate test pollution — shared state leaking between test files."
 
 ---
 
@@ -350,7 +353,7 @@ project/
 | spectra-oracle.md | `~/.claude/agents/` + `~/.spectra/agents/` | Oracle agent definition (failure classifier) |
 | spectra-scout.md | `~/.claude/agents/` + `~/.spectra/agents/` | Scout agent definition (discovery phase) |
 | spectra-loop.sh | `~/.spectra/bin/` | v5.0 bash-native parallel orchestrator |
-| ~~spectra-loop-v3.sh~~ | *(deleted)* | Removed in v5.0 (Agent Teams architecture replaced) |
+| spectra-loop-v3.sh | `~/.spectra/bin/` | Symlink → `spectra-loop.sh` (compat alias) |
 | ~~spectra-team-prompt.sh~~ | *(deleted)* | Removed in v5.0 (bash-native orchestration replaces prompt generation) |
 | ~~spectra-loop-legacy.sh~~ | *(deleted)* | Removed in v5.0 (used deprecated CLI flags) |
 | spectra-init | `~/.local/bin/` | Project initialization |

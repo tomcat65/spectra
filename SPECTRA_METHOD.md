@@ -681,6 +681,24 @@ Signs are hard-won lessons from SPECTRA execution failures. They live in `.spect
 ### SIGN-003: Lessons must generalize, not just fix
 > "If the spec says A → B → C → D and your test skips B, you've written a unit test with extra steps — not an integration test."
 
+### SIGN-004: Lead Drift
+> "Team lead must not write code. If lead implements, escalate immediately."
+
+### SIGN-005: File Collision
+> "No two teammates may edit the same file. Task decomposition must assign file ownership."
+
+### SIGN-006: Stale Task
+> "If task stays in-progress >10 minutes without output, lead must nudge or reassign."
+
+### SIGN-007: Silent Failure
+> "Teammate errors must be surfaced to lead via mailbox. Silent swallowing is a system fault."
+
+### SIGN-008: Research Before STUCK
+> "Before declaring STUCK on any external blocker, the builder must spend at least one research cycle using web search or documentation lookup."
+
+### SIGN-009: Test Ordering Pollution
+> "Tests that pass in isolation but fail in the full suite indicate test pollution — shared state leaking between test files."
+
 New Signs are discovered through FAIL→FIX cycles and added to guardrails.md per project. Cross-project Signs are stored in the neural knowledge graph for institutional memory.
 
 ---
@@ -720,10 +738,10 @@ The v3.1 Agent Teams approach fed a 47KB prompt to an LLM "lead" agent that spen
 
 | Project Level | Execution Mode | Parallelism |
 |---------------|---------------|-------------|
-| Level 0-2 | **Sequential** (spectra-loop-v5.sh) | MAX_BATCH_SIZE forced to 1 |
-| Level 3+ | **Parallel** (spectra-loop-v5.sh) | Up to MAX_BATCH_SIZE independent tasks via `&` + `wait` |
+| Level 0-2 | **Sequential** (spectra-loop.sh) | MAX_BATCH_SIZE forced to 1 |
+| Level 3+ | **Parallel** (spectra-loop.sh) | Up to MAX_BATCH_SIZE independent tasks via `&` + `wait` |
 
-One script handles all levels. The `--sequential` flag forces batch size 1 for any level.
+One script handles all levels. The `--max-batch 1` flag forces sequential execution for any level.
 
 ### v5.0 Architecture
 
@@ -732,7 +750,7 @@ One script handles all levels. The `--sequential` flag forces batch size 1 for a
 │             SPECTRA v5.0 — Bash-Native Parallel               │
 ├─────────────────────────────────────────────────────────────┤
 │                                                               │
-│  spectra-loop-v5.sh (full orchestrator)                      │
+│  spectra-loop.sh (full orchestrator)                      │
 │    ├── parse_plan()     → bash arrays from plan.md           │
 │    ├── next_batch()     → independent tasks (dep + SIGN-005) │
 │    ├── build_prompt()   → <500 byte prompt per task          │
@@ -788,13 +806,13 @@ Resume is deterministic: read JSON → set arrays → continue from next incompl
 
 ### Key Signs
 
-- **SIGN-005: File Ownership Conflict** — No two builders may edit the same file simultaneously. `next_batch()` enforces this.
-- **SIGN-006: Verification Parallelism** — Verification is never parallel (Doctrine 5). Always sequential after parallel build.
+- **SIGN-005: File Collision** — No two builders may edit the same file simultaneously. `next_batch()` enforces this.
+- **SIGN-006: Stale Task** — If task stays in-progress >10 minutes without output, loop must nudge or reassign.
 
 ### Execution Flow (All Levels)
 
 ```
-spectra-loop-v5.sh
+spectra-loop.sh
   1. parse_plan() → load all tasks into arrays
   2. restore_checkpoint() → resume from JSON if --resume
   3. WHILE incomplete tasks remain:

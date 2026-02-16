@@ -362,8 +362,8 @@ Oracle classification replaces the v3.0 model where the team lead made retry dec
 |------|------|
 | SIGN-004: Lead Drift | No lead agent exists in v5.0. If any agent attempts orchestration logic, it is a bug. |
 | SIGN-005: File Collision | No two builders may edit the same file. Dependency graph enforces file ownership. |
-| SIGN-006: Verification Parallelism | Verification is always sequential — one verifier, one verdict, deterministic. |
-| SIGN-007: Orphaned Teammates | N/A in v5.0 (no Agent Teams). Agents are stateless CLI invocations. |
+| SIGN-006: Stale Task | If task stays in-progress >10 minutes without output, loop must nudge or reassign. |
+| SIGN-007: Silent Failure | Worker errors must be surfaced via loop logs/signals. Silent swallowing is a system fault. |
 
 ### 7.6 Verification Is Never Parallel
 
