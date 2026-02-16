@@ -110,8 +110,7 @@ fi
 echo "  Spawning builder (Opus, single session)..."
 set +e
 claude --agent spectra-builder -p --permission-mode acceptEdits \
-    --prompt "${QUICK_PROMPT}" \
-    --max-turns 30 2>&1 | tail -15
+    "${QUICK_PROMPT}" 2>&1 | tail -15
 QUICK_EXIT=$?
 set -e
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  SPECTRA v5.0 Execution Loop — Bash-Native Parallel Architecture ║
-# ║  Heritage: spectra-loop-legacy.sh (proven sequential engine)     ║
+# ║  Heritage: v2.0 sequential engine (removed in v5.0)              ║
 # ║  New: parse_plan(), next_batch(), parallel_build(), checkpoint   ║
 # ║  Architecture: Bash orchestrates. LLMs are workers.              ║
 # ╚══════════════════════════════════════════════════════════════════╝

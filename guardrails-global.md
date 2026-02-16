@@ -25,3 +25,6 @@
 
 ### SIGN-008: Research Before STUCK
 > "Before declaring STUCK on any external blocker (dependency install, build error, missing package, environment issue), the builder must spend at least one research cycle using web search or documentation lookup. Most tooling failures have known solutions — a 30-second search beats a full STUCK escalation."
+
+### SIGN-009: Test Ordering Pollution
+> "Tests that pass in isolation but fail in the full suite indicate test pollution — shared state leaking between test files."

@@ -47,10 +47,9 @@ SPECTRA is installed globally at `~/.spectra/` and integrates with Claude Code v
     spectra-assess.sh               #   BMAD adapter (project assessment)
     spectra-plan.sh                 #   Plan generation (uses spectra-planner agent)
     spectra-plan-validate.sh        #   Canonical plan.md schema validation (v4)
-    spectra-loop.sh                 #   Main loop (symlink → spectra-loop-v5.sh)
-    spectra-loop-v5.sh              #   v5.0 bash-native parallel loop (all levels)
-    spectra-loop-v3.sh              #   Legacy v3 team-based loop (preserved for reference)
-    spectra-loop-legacy.sh          #   Legacy sequential loop (preserved for reference)
+    spectra-loop.sh                 #   Main loop — v5.0 bash-native parallel (all levels)
+    spectra-loop-v5.sh              #   Symlink → spectra-loop.sh
+    spectra-loop-v3.sh              #   Symlink → spectra-loop.sh
     spectra-preflight.sh            #   Token verification (runs once, then on .env change)
     spectra-quick.sh                #   Quick single-task execution
     spectra-verify.sh               #   Standalone verification

@@ -352,7 +352,7 @@ project/
 | spectra-verifier.md | `~/.claude/agents/` + `~/.spectra/agents/` | Verifier agent definition |
 | spectra-loop-v3.sh | `~/.spectra/bin/` | v3.0 thin launcher (Agent Teams) |
 | spectra-team-prompt.sh | `~/.spectra/bin/` | Team prompt generator |
-| spectra-loop-legacy.sh | `~/.spectra/bin/` | Legacy v2.0 execution loop (reference) |
+| ~~spectra-loop-legacy.sh~~ | *(deleted)* | Removed in v5.0 (used deprecated CLI flags) |
 | spectra-init | `~/.local/bin/` | Project initialization |
 | spectra-verify | `~/.local/bin/` | Standalone verification |
 | spectra-task-completed.sh | `~/.spectra/hooks/` | Agent Teams TaskCompleted hook |
