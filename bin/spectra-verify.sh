@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║  SPECTRA v1.2 Verification Gate                                  ║
+# ║  SPECTRA v5.1 Verification Gate                                  ║
 # ║  4-Step Audit: Verify → Regression → Evidence Chain → Wiring     ║
 # ║  Auto-logs PASS/FAIL to lessons-learned.md                       ║
 # ╚══════════════════════════════════════════════════════════════════╝
@@ -36,7 +36,7 @@ while [[ $# -gt 0 ]]; do
         --full-sweep)      FULL_SWEEP=true; shift ;;
         -h|--help)
             cat <<EOF
-SPECTRA v1.2 Verification Gate
+SPECTRA v5.1 Verification Gate
 
 Usage: spectra-verify [OPTIONS]
 

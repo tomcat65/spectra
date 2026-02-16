@@ -16,6 +16,7 @@ DRY_RUN=false
 LEVEL_OVERRIDE=""
 DISCOVER=false
 SKIP_DISCOVERY=false
+SHOW_PROMPT=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -26,9 +27,10 @@ while [[ $# -gt 0 ]]; do
         --level)        LEVEL_OVERRIDE="$2"; shift 2 ;;
         --discover)     DISCOVER=true; shift ;;
         --skip-discovery) SKIP_DISCOVERY=true; shift ;;
+        --show-prompt)  SHOW_PROMPT=true; shift ;;
         -h|--help)
             cat <<EOF
-SPECTRA v5.0 Plan Generator
+SPECTRA v5.1 Plan Generator
 
 Usage: spectra-plan [OPTIONS]
 
@@ -42,6 +44,7 @@ Options:
   --level N         Override project level (0-4)
   --discover        Force discovery phase (run spectra-scout before planning)
   --skip-discovery  Skip discovery phase even if discovery.md is missing
+  --show-prompt     Print assembled planner prompt and exit (no agent invocation)
   -h, --help        Show this help
 
 Modes:
@@ -424,6 +427,16 @@ Rules:
 - For Level 3+: owns = exclusive, touches = shared-modify, reads = read-only
 
 Output ONLY the markdown content, no code fences wrapping it."
+
+# ── Show-prompt mode: print prompt and exit without invoking agent ──
+if [[ "${SHOW_PROMPT}" == true ]]; then
+    echo "── Assembled planner prompt (${#PLAN_PROMPT} chars) ──"
+    echo ""
+    echo "${PLAN_PROMPT}"
+    echo ""
+    echo "── End of prompt ──"
+    exit 0
+fi
 
 echo "→ Generating plan from $(if [[ "${FROM_BMAD}" == true ]]; then echo "BMAD artifacts"; else echo "stories"; fi)..."
 
