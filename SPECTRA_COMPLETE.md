@@ -1,12 +1,12 @@
-# SPECTRA v3.0 — Complete Reference
+# SPECTRA v5.1 — Complete Reference
 
 **S**ystematic **P**lanning, **E**xecution via **C**lean-context loops, **T**racking & verification with **R**eal-time **A**gent orchestration
 
 > Plan like BMAD. Execute like Ralph. Orchestrate like Your Claude Engineer.
 
-**Version:** 3.0
-**Date:** February 9, 2026
-**Architecture:** All-Anthropic (Native Agent Teams via Claude Code Opus 4.6)
+**Version:** 5.1
+**Date:** February 16, 2026
+**Architecture:** All-Anthropic (Bash-native parallel orchestration via Claude Code Opus 4.6)
 **Heritage:** BMAD (planning) + Ralph Wiggum (execution) + YCE (orchestration)
 
 ---
@@ -26,15 +26,17 @@ Each source framework optimizes for a different bottleneck. SPECTRA unifies them
 
 ---
 
-## 2. Agent Roster (v1.2)
+## 2. Agent Roster (v5.1)
 
-| Agent | Model | Role | Tools |
-|-------|-------|------|-------|
-| spectra-planner | Opus | Generates constitution, PRD, architecture, stories, plan.md | Read, Grep, Glob, Bash |
-| spectra-reviewer | Sonnet | Cross-model validates planning artifacts; final PR review | Read, Grep, Glob, Bash, Write, Edit |
-| spectra-auditor | Haiku | Pre-flight guardrails scan for Sign violations | Read, Grep, Glob, Write, Edit |
-| spectra-builder | Opus | Implements one task per session from plan.md | Read, Edit, Write, Bash, Grep, Glob |
-| spectra-verifier | Opus | Independent 4-step verification audit (read-only) | Read, Bash, Grep, Glob, Write, Edit |
+| Agent | Model | Permission | Key Constraint |
+|-------|-------|------------|----------------|
+| spectra-planner | Opus | plan | Research only, 40 max turns |
+| spectra-builder | Opus | acceptEdits | 50 max turns |
+| spectra-verifier | Opus | plan | No Edit/Write, 30 max turns |
+| spectra-reviewer | Sonnet | plan | Cross-model assurance, 25 max turns |
+| spectra-auditor | Haiku | plan | 10 max turns, fast scan, no Bash |
+| spectra-scout | Haiku | plan | 15 max turns, discovery phase |
+| spectra-oracle | Haiku | plan | 3 max turns, failure classifier |
 
 ### Agent Definitions
 
@@ -48,12 +50,12 @@ Each source framework optimizes for a different bottleneck. SPECTRA unifies them
 - Cross-model validates planning artifacts (different architecture from planner)
 - Writes machine-readable verdicts: APPROVED, APPROVED_WITH_WARNINGS, REJECTED
 - Performs final PR review after all tasks pass
-- Provides genuine diversity of perspective (not same-weights self-validation)
+- Permission mode: plan (no Edit/Write — read-only cross-model assurance)
 
 **spectra-auditor (Haiku)**
 - Fast, cheap pre-flight scan before each build cycle
 - Checks codebase against active Signs in guardrails.md
-- Uses user-scope memory: violation patterns accumulate across all projects
+- Permission mode: plan (no Bash, no Edit/Write — advisory scan only)
 - Advisory only (does not block build), but findings passed to builder
 
 **spectra-builder (Opus)**
@@ -68,6 +70,16 @@ Each source framework optimizes for a different bottleneck. SPECTRA unifies them
 - Reports PASS/FAIL with failure type classification
 - Knows 3+ bug patterns (Signs) to check proactively
 
+**spectra-scout (Haiku)**
+- Discovery-phase agent for codebase exploration and dependency mapping
+- Runs before planning to gather project context
+- Permission mode: plan (15 max turns, lightweight discovery)
+
+**spectra-oracle (Haiku)**
+- Failure classification agent invoked on build/verify failures
+- Classifies failure type to route retry strategy
+- Permission mode: plan (3 max turns, fast triage)
+
 ---
 
 ## 3. Scale Assessment
@@ -77,8 +89,8 @@ Each source framework optimizes for a different bottleneck. SPECTRA unifies them
 | 0 | Micro-task / Bug Fix | < 1 hour | None — skip planning |
 | 1 | Small Feature | < 1 day | plan.md with checkboxes |
 | 2 | Medium Feature | 1-3 days | constitution.md + plan.md + stories |
-| 3 | Large Feature | 1-2 weeks | Full pipeline + File Ownership + Agent Teams eligible |
-| 4 | Enterprise | 2-4 weeks | Full pipeline + parallel execution streams + Agent Teams |
+| 3 | Large Feature | 1-2 weeks | Full pipeline + File Ownership + parallel execution eligible |
+| 4 | Enterprise | 2-4 weeks | Full pipeline + parallel execution streams |
 
 **Decision rule**: One sentence = Level 0-1. Needs a meeting = Level 2-3. Needs a slide deck = Level 4.
 
@@ -139,22 +151,19 @@ Explicit list of what the project must NOT do. Checked by verifier during audit 
 ## 5. Execution Pipeline
 
 ```
-spectra-loop-v3.sh (thin launcher)
-  └─→ claude -p "TEAM_PROMPT" --permission-mode delegate --max-turns 200
-        └─→ Team Lead orchestrates:
-              Plan → Review → [Lock] → For each task: Audit → Build → Verify
-              On FAIL: retry with diminishing budget
-              On COMPLETE: PR review → signal
-              On STUCK: halt immediately
+spectra-loop.sh (bash-native orchestrator)
+  └─→ parse_plan() → next_batch() → parallel_build() → verify (sequential)
+        On FAIL: oracle classification + diminishing retry budget
+        Checkpoint/resume via JSON state
 ```
 
-### Architecture (v3.0)
+### Architecture (v5.0)
 
-SPECTRA v3.0 uses a single Claude Code session with native Agent Teams instead of spawning 12+ separate CLI processes. The thin launcher (`spectra-loop-v3.sh`) generates a team prompt via `spectra-team-prompt.sh` and launches one Claude session as the team lead. All orchestration logic (retry loops, failure taxonomy, diminishing budgets, compound failure detection) is handled natively by the team lead via natural language instructions.
+v5.0 bash-native parallel architecture. `spectra-loop.sh` orchestrates: `parse_plan()` reads the plan and builds a dependency graph, `next_batch()` identifies independent tasks eligible for parallel execution, `parallel_build()` launches builder agents in parallel for non-overlapping tasks, and verification runs sequentially after each build. On FAIL: oracle classification determines failure type and routes retry strategy with a diminishing retry budget. Checkpoint/resume via JSON state file enables recovery from interrupted runs.
 
 ### Phase 1: Planning
-- Team lead spawns spectra-planner (Opus) teammate to generate artifacts
-- Team lead spawns spectra-reviewer (Sonnet) teammate to validate
+- `spectra-plan.sh` invokes spectra-planner (Opus) to generate artifacts
+- spectra-reviewer (Sonnet) validates artifacts cross-model
 - If REJECTED: planner revises once, reviewer re-evaluates. If re-rejected → STUCK.
 
 ### Phase 2: Plan Lock
@@ -163,20 +172,17 @@ SPECTRA v3.0 uses a single Claude Code session with native Agent Teams instead o
 - Plans are disposable. Running plans are not.
 
 ### Phase 3: Execution Loop
-For each unchecked task, the team lead coordinates:
-1. **Pre-flight audit** — spawn auditor (Haiku) teammate for Sign violations scan
-2. **Build** — spawn builder (Opus) teammate with diminishing token budget on retry
-3. **Verify** — spawn verifier (Opus) teammate for 4-step audit (never parallel)
-4. On PASS: check off task, commit, continue
-5. On FAIL: retry (up to max iterations per failure type)
+For each batch of independent tasks, the bash orchestrator coordinates:
+1. **Pre-flight audit** — invoke auditor (Haiku) for Sign violations scan
+2. **Build** — invoke builder (Opus) agents in parallel for non-overlapping tasks
+3. **Verify** — invoke verifier (Opus) sequentially for each completed task (never parallel)
+4. On PASS: check off task, commit, continue to next batch
+5. On FAIL: oracle (Haiku) classifies failure type, retry with diminishing budget
 6. On exhausted retries or compound failure: write STUCK signal
 
-For Level 3+ projects with TEAM_ELIGIBLE and non-overlapping file ownership, independent tasks may run with parallel builder teammates.
-
 ### Phase 4: Completion
-- Team lead spawns spectra-reviewer (Sonnet) teammate for final PR review
+- spectra-reviewer (Sonnet) performs final PR review
 - COMPLETE signal written
-- Slack notification sent (if configured)
 - Final report generated
 
 ---
@@ -192,7 +198,7 @@ For Level 3+ projects with TEAM_ELIGIBLE and non-overlapping file ownership, ind
 
 ### Verification Invariants
 
-- Verification is single-agent only — no Agent Teams in verification, ever
+- Verification is single-agent only — no parallel verification, ever
 - Verifier has no write access (tool allowlist enforced)
 - Results must be reproducible given the same inputs
 
@@ -213,32 +219,33 @@ For Level 3+ projects with TEAM_ELIGIBLE and non-overlapping file ownership, ind
 
 ---
 
-## 7. Agent Teams — Native Execution (v3.0)
+## 7. Bash-Native Parallel Execution (v5.0)
 
 ### Architecture
 
-SPECTRA v3.0 always uses Agent Teams. The thin launcher (`spectra-loop-v3.sh`) generates a comprehensive team prompt via `spectra-team-prompt.sh` and launches a single Claude Code session as team lead in delegate mode. The team lead spawns teammates for each SPECTRA role:
+SPECTRA v5.0 replaces the Agent Teams model with bash-native parallel orchestration. `spectra-loop.sh` parses the plan's dependency graph, identifies batches of independent tasks, and launches parallel builder agents as separate CLI processes. No team lead agent — the bash script is the orchestrator.
 
-| Role | Agent Type | Model | Purpose |
-|------|-----------|-------|---------|
-| Planner | spectra-planner | Opus | Generates planning artifacts |
-| Reviewer | spectra-reviewer | Sonnet | Cross-model validation, final PR review |
-| Auditor | spectra-auditor | Haiku | Pre-flight Sign violation scans |
-| Builder | spectra-builder | Opus | Implements tasks from plan.md |
-| Verifier | spectra-verifier | Opus | Independent 4-step audit (read-only) |
+| Role | Agent | Model | Invocation |
+|------|-------|-------|------------|
+| Planner | spectra-planner | Opus | `claude --agent spectra-planner -p "PROMPT"` |
+| Reviewer | spectra-reviewer | Sonnet | `claude --agent spectra-reviewer -p "PROMPT"` |
+| Auditor | spectra-auditor | Haiku | `claude --agent spectra-auditor -p "PROMPT"` |
+| Builder | spectra-builder | Opus | `claude --agent spectra-builder -p "PROMPT"` |
+| Verifier | spectra-verifier | Opus | `claude --agent spectra-verifier -p "PROMPT"` |
+| Scout | spectra-scout | Haiku | `claude --agent spectra-scout -p "PROMPT"` |
+| Oracle | spectra-oracle | Haiku | `claude --agent spectra-oracle -p "PROMPT"` |
 
 ### How It Works
 
-1. `spectra-loop-v3.sh` handles CLI args, branch isolation, and directory setup
-2. `spectra-team-prompt.sh` reads plan.md, guardrails.md, constitution.md, non-goals.md
-3. Prompt embeds SPECTRA doctrine, team roster, full plan, active Signs, failure handling rules
-4. Single session launched: `claude -p "TEAM_PROMPT" --permission-mode delegate --max-turns 200`
-5. Team lead creates tasks from plan.md and coordinates teammates
-6. Each teammate implements assigned tasks respecting file ownership boundaries
-7. TaskCompleted hook runs spectra-verify on completion
-8. TeammateIdle hook assigns next task if work remains
-9. On COMPLETE: launcher detects signal file and reports success
-10. On STUCK: launcher detects signal file and preserves branch for human
+1. `spectra-loop.sh` handles CLI args, branch isolation, and directory setup
+2. `parse_plan()` reads plan.md and builds a dependency graph
+3. `next_batch()` identifies tasks with no unresolved dependencies
+4. `parallel_build()` launches builder agents in parallel for non-overlapping tasks
+5. Verification runs sequentially after each build (never parallel)
+6. On FAIL: oracle agent classifies failure type, retry with diminishing budget
+7. Checkpoint/resume via JSON state file for recovery from interrupted runs
+8. On COMPLETE: final report generated, COMPLETE signal written
+9. On STUCK: STUCK signal written, branch preserved for human
 
 ### File Ownership Rules
 
@@ -248,28 +255,21 @@ SPECTRA v3.0 always uses Agent Teams. The thin launcher (`spectra-loop-v3.sh`) g
 4. **Test isolation** — Each task owns its own test files
 5. **Integration task last** — Final task may read all files but owns only integration-specific files
 
-### Hook Scripts
-
-| Hook | File | Trigger | Behavior |
-|------|------|---------|----------|
-| TaskCompleted | `~/.spectra/hooks/spectra-task-completed.sh` | Teammate marks task complete | Runs spectra-verify; exit 0 = allow, exit 2 = reject with feedback |
-| TeammateIdle | `~/.spectra/hooks/spectra-teammate-idle.sh` | Teammate goes idle | Checks remaining tasks, uncommitted changes, missing reports; exit 2 = assign next task |
-
-### Agent Teams Signs
+### Execution Signs
 
 | Sign | Rule |
 |------|------|
-| SIGN-004: Lead Drift | Team lead must not write code. If lead implements, escalate immediately. |
-| SIGN-005: File Collision | No two teammates may edit the same file. Task decomposition must assign file ownership. |
-| SIGN-006: Stale Task | If task stays in-progress >10 minutes without output, lead must nudge or reassign. |
-| SIGN-007: Silent Failure | Teammate errors must be surfaced to lead via mailbox. Silent swallowing is a system fault. |
+| SIGN-004: Lead Drift | No team lead agent in v5.0 — bash script orchestrates, agents build. |
+| SIGN-005: File Collision | No two parallel builders may edit the same file. Task decomposition must assign file ownership. |
+| SIGN-006: Verification Parallelism | Verification is never parallel — single deterministic verifier only. |
+| SIGN-007: Orphaned Teammates | shutdown_request before TeamDelete (applies to any agent team context). |
 
 ### Constraints
 
 - Verification is never parallel — single deterministic verifier only
-- Team Lead runs in delegate mode only (no direct coding)
-- If team session dies mid-run → loop reads git log, falls back to sequential
-- Cost ceiling enforcement: if parallel cost exceeds ceiling → disable teams, downgrade to sequential
+- Bash script is the orchestrator (no team lead agent)
+- If run dies mid-execution → JSON checkpoint enables resume from last completed task
+- Oracle classifies failures to route retry strategy efficiently
 
 ---
 
@@ -320,9 +320,6 @@ project/
 │   ├── non-goals.md                   # Explicit exclusions
 │   ├── lessons-learned.md             # Institutional memory
 │   ├── project.yaml                   # Project metadata + cost ceilings
-│   ├── hooks/                         # Agent Teams hook scripts
-│   │   ├── spectra-task-completed.sh
-│   │   └── spectra-teammate-idle.sh
 │   ├── signals/                       # Runtime signals
 │   │   ├── STATUS                     # Current run status
 │   │   ├── STUCK                      # Halt signal
@@ -350,13 +347,16 @@ project/
 | spectra-auditor.md | `~/.claude/agents/` + `~/.spectra/agents/` | Auditor agent definition |
 | spectra-builder.md | `~/.claude/agents/` + `~/.spectra/agents/` | Builder agent definition |
 | spectra-verifier.md | `~/.claude/agents/` + `~/.spectra/agents/` | Verifier agent definition |
-| spectra-loop-v3.sh | `~/.spectra/bin/` | v3.0 thin launcher (Agent Teams) |
-| spectra-team-prompt.sh | `~/.spectra/bin/` | Team prompt generator |
+| spectra-oracle.md | `~/.claude/agents/` + `~/.spectra/agents/` | Oracle agent definition (failure classifier) |
+| spectra-scout.md | `~/.claude/agents/` + `~/.spectra/agents/` | Scout agent definition (discovery phase) |
+| spectra-loop.sh | `~/.spectra/bin/` | v5.0 bash-native parallel orchestrator |
+| ~~spectra-loop-v3.sh~~ | *(deleted)* | Removed in v5.0 (Agent Teams architecture replaced) |
+| ~~spectra-team-prompt.sh~~ | *(deleted)* | Removed in v5.0 (bash-native orchestration replaces prompt generation) |
 | ~~spectra-loop-legacy.sh~~ | *(deleted)* | Removed in v5.0 (used deprecated CLI flags) |
 | spectra-init | `~/.local/bin/` | Project initialization |
 | spectra-verify | `~/.local/bin/` | Standalone verification |
-| spectra-task-completed.sh | `~/.spectra/hooks/` | Agent Teams TaskCompleted hook |
-| spectra-teammate-idle.sh | `~/.spectra/hooks/` | Agent Teams TeammateIdle hook |
+| ~~spectra-task-completed.sh~~ | *(deleted)* | Removed in v5.0 (bash-native orchestration replaces hooks) |
+| ~~spectra-teammate-idle.sh~~ | *(deleted)* | Removed in v5.0 (bash-native orchestration replaces hooks) |
 | settings.json | `~/.claude/` | Claude Code settings (env vars, permissions) |
 
 ---
@@ -402,9 +402,9 @@ Recurring bug class: "Unit Tests Green, Integration Wiring Missing" — agents w
 | spectra-auditor | Deployed |
 | spectra-builder | Deployed |
 | spectra-verifier | Deployed |
-| spectra-loop-v3.sh | Deployed (v3.0 native Agent Teams) |
-| spectra-team-prompt.sh | Deployed (v3.0 prompt generator) |
-| Agent Teams hooks | Deployed |
+| spectra-loop.sh | Deployed (v5.0 bash-native parallel orchestrator) |
+| spectra-scout | Deployed (v5.0 discovery agent) |
+| spectra-oracle | Deployed (v5.0 failure classifier) |
 | spectra-init | Deployed |
 | spectra-doctor | Planned |
 
@@ -415,6 +415,7 @@ Recurring bug class: "Unit Tests Green, Integration Wiring Missing" — agents w
 - [x] Pre-flight auditor (Haiku)
 - [x] Agent Teams parallel execution (Level 3+)
 - [x] Native Agent Teams v3.0 (Opus 4.6, thin launcher architecture)
+- [x] Bash-native parallel orchestration v5.0 (replaces Agent Teams)
 - [ ] spectra-doctor (project health diagnostics)
 - [ ] Cost tracking integration (real-time token metering)
 - [ ] Multi-project orchestration
@@ -430,6 +431,6 @@ Recurring bug class: "Unit Tests Green, Integration Wiring Missing" — agents w
 
 ---
 
-*SPECTRA v3.0 — A unified AI software engineering methodology.*
+*SPECTRA v5.1 — A unified AI software engineering methodology.*
 *Combining the planning depth of BMAD, the execution simplicity of Ralph Wiggum, and the orchestration rigor of Your Claude Engineer.*
-*v3.0: Native Agent Teams architecture replacing bash-orchestrated multi-process model.*
+*v5.0: Bash-native parallel architecture replacing Agent Teams model.*

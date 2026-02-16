@@ -98,7 +98,7 @@ SPECTRA takes the best mechanism from each framework and wires them into a singl
 
 ### Phase 0: Scale Assessment (from BMAD)
 
-Before any work begins, assess project scale to right-size the process:
+Before any work begins, assess project scale to right-size the process. Run `spectra-assess` to automatically classify project level (0-4) based on scope description:
 
 ```
 Level 0 — Bug Fix / Hotfix
@@ -208,45 +208,21 @@ Step 2: Generate tasks.md (execution manifest)
 
 The core execution engine — a clean-context bash loop:
 
-**File: scripts/spectra-loop.sh**
-```bash
-#!/bin/bash
-# SPECTRA Execution Loop (Ralph Wiggum heritage)
-# Usage: ./scripts/spectra-loop.sh [max_iterations]
+**File: `~/.spectra/bin/spectra-loop.sh`** (v5.x — bash-native orchestrator)
 
-MAX_ITER=${1:-30}
-ITER=0
+The execution loop lives at `~/.spectra/bin/spectra-loop.sh` (invoked via `spectra-loop`). Core behavior:
 
-while [ $ITER -lt $MAX_ITER ]; do
-    ITER=$((ITER + 1))
-    echo "╔══════════════════════════════════════╗"
-    echo "║  SPECTRA Loop — Iteration $ITER/$MAX_ITER"
-    echo "╚══════════════════════════════════════╝"
-    
-    # Feed the execution prompt with full context
-    cat .spectra/PROMPT_build.md | claude -p \
-        --allowedTools "Bash(git*),Bash(npm*),Bash(npx*),Read,Write,Edit"
-    
-    EXIT_CODE=$?
-    
-    # Check for completion signal
-    if grep -q "SPECTRA_COMPLETE" .spectra/plan.md; then
-        echo "✅ All tasks complete. Exiting loop."
-        break
-    fi
-    
-    # Check for stuck signal (10 consecutive failures on same task)
-    if grep -q "STUCK:" .spectra/plan.md; then
-        echo "⚠️  Task stuck. Splitting into subtasks..."
-        cat .spectra/PROMPT_split.md | claude -p
-    fi
-    
-    echo "Loop $ITER complete. Restarting with fresh context..."
-    sleep 2
-done
-
-echo "SPECTRA loop finished after $ITER iterations."
 ```
+1. parse_plan() → load tasks from .spectra/plan.md into arrays
+2. next_batch() → select independent, unblocked tasks (respects SIGN-005)
+3. For each task: spawn builder agent via:
+     claude --agent spectra-builder -p --permission-mode acceptEdits "PROMPT"
+4. verify each completed task sequentially (SIGN-006)
+5. checkpoint progress to .spectra/signals/CHECKPOINT
+6. repeat until all tasks [x] or max iterations reached
+```
+
+See **Section 14** for the full v5.0 architecture and execution flow.
 
 **Why this works** (Ralph Wiggum insight):
 - Each iteration spawns a **fresh agent process** — no context overflow
@@ -349,14 +325,16 @@ project/
 │   │   ├── 001-1738900000.png
 │   │   └── 002-1738900100.png
 │   └── .linear_project.json           # Cloud state marker (from YCE)
-├── scripts/
-│   ├── spectra-loop.sh                # Main execution loop (Ralph heritage)
-│   ├── spectra-verify.sh              # Verification gate (YCE heritage)
-│   ├── spectra-plan.sh                # Generate plan from stories (BMAD→Ralph bridge)
-│   └── spectra-init.sh                # Project initialization
 ├── src/                               # Application source code
 ├── tests/                             # Test suites
 └── package.json
+
+~/.spectra/bin/                            # Global SPECTRA scripts (v5.x)
+├── spectra-loop.sh                    # Main execution loop (Ralph heritage)
+├── spectra-verify-wiring.sh           # Wiring verification gate
+├── spectra-plan.sh                    # Generate plan from stories (BMAD→Ralph bridge)
+├── spectra-init.sh                    # Project initialization
+└── spectra-assess.sh                  # Scale assessment (Level 0-4)
 ```
 
 ---
@@ -475,23 +453,12 @@ You verify that completed tasks meet their acceptance criteria.
 ### Minimum Viable SPECTRA (Level 1 — Solo Developer)
 
 ```bash
-# 1. Create project
+# 1. Create project and initialize SPECTRA
 mkdir my-project && cd my-project
 git init
+spectra-init --name "my-project" --level 1
 
-# 2. Initialize SPECTRA
-mkdir -p .spectra/stories .spectra/screenshots scripts
-
-# 3. Write a quick constitution
-cat > .spectra/constitution.md << 'EOF'
-# Constitution
-- Language: TypeScript
-- Framework: Next.js 15
-- Testing: Vitest
-- Style: Functional, minimal dependencies
-EOF
-
-# 4. Write your spec as a story
+# 2. Write your spec as a story
 cat > .spectra/stories/001-mvp.md << 'EOF'
 # Story 001: MVP Landing Page
 ## Acceptance Criteria
@@ -503,50 +470,27 @@ cat > .spectra/stories/001-mvp.md << 'EOF'
 `npm test && npm run build`
 EOF
 
-# 5. Generate plan from stories
-cat > .spectra/plan.md << 'EOF'
-# Execution Plan
-- [ ] 001: Initialize Next.js project with TypeScript and Vitest
-  - Verify: `npm run dev` starts without errors
-  - Max iterations: 5
-- [ ] 002: Build landing page with hero section
-  - Verify: `npm test` passes, screenshot captured
-  - Max iterations: 8
-- [ ] 003: Add contact form with API route
-  - Verify: `npm test -- --grep "contact"` passes
-  - Max iterations: 8
-EOF
+# 3. Generate plan from stories
+spectra-plan
 
-# 6. Copy the PROMPT_build.md (from Section 6 above)
-
-# 7. Run the loop
-./scripts/spectra-loop.sh 20
+# 4. Run the loop
+spectra-loop
 ```
 
 ### Full SPECTRA (Level 3+ — Team with Integrations)
 
 ```bash
-# 1. Install BMAD for planning
-npx bmad-method install --modules bmm --tools claude-code
+# 1. Initialize SPECTRA with scale assessment
+spectra-init --name "my-service" --level 3
 
-# 2. Run BMAD planning pipeline
-# (Analyst → PM → Architect → Scrum Master)
-claude "/bmad-help"  # Guided setup
-claude "/quick-spec"  # Or fast-track
+# 2. Run BMAD planning pipeline (or use existing BMAD artifacts)
+spectra-plan --from-bmad  # Converts BMAD stories → plan.md
 
-# 3. Bridge BMAD output to SPECTRA format
-./scripts/spectra-plan.sh  # Converts stories → plan.md
+# 3. Setup integrations (Linear, Slack, GitHub tokens)
+# Edit ~/.spectra/.env with your tokens
 
-# 4. Setup YCE integrations
-# Configure: Linear workspace, Arcade MCP Gateway, GitHub repo, Slack channel
-cp .env.example .env
-# Edit .env with your tokens
-
-# 5. Initialize cloud tracking
-./scripts/spectra-init.sh  # Creates Linear project + issues from plan.md
-
-# 6. Run SPECTRA loop with full orchestration
-./scripts/spectra-loop.sh 50  # With verification gates + Linear updates
+# 4. Run SPECTRA loop with full orchestration
+spectra-loop  # Parallel builders + verification gates + Linear updates
 ```
 
 ---
@@ -679,11 +623,13 @@ SPECTRA was validated through a meta-test project called **spectra-healthcheck**
 
 **5/5 tasks delivered. 57 tests. 7 commits. 2 FAILs caught and fixed within max iterations.**
 
-### Multi-Agent Execution
-- **Orchestrator** (claude-desktop): Greenlit tasks, enforced evidence chain, captured lessons
-- **Builder** (claude-cli): One task per fresh-context session, committed with `feat(task-N)` convention
-- **Verifier** (codex-cli): Independent audit — ran tests on separate machine, manual CLI checks
-- **Consultant** (ChatGPT): Reviewed spec, added forced failure requirement (non-negotiable)
+### Multi-Agent Execution (v5.x Roster)
+- **spectra-builder** (Opus, acceptEdits): One task per fresh-context session, committed with `feat(task-N)` convention
+- **spectra-verifier** (Opus, plan mode): Independent audit — runs tests, no Edit/Write access
+- **spectra-auditor** (Haiku, plan mode): Pre-flight scan, 10 max turns
+- **spectra-oracle** (Haiku, plan mode): Failure classifier, 3 max turns
+- **spectra-scout** (Haiku, plan mode): Discovery phase explorer, 15 max turns
+- **spectra-reviewer** (Sonnet, plan mode): Cross-model assurance review
 
 ### What SPECTRA Proved
 
@@ -803,6 +749,7 @@ One script handles all levels. The `--sequential` flag forces batch size 1 for a
 │  - spectra-verifier: Opus, plan mode, no Edit/Write          │
 │  - spectra-auditor:  Haiku, plan mode, 10 turns max          │
 │  - spectra-oracle:   Haiku, plan mode, 3 turns max           │
+│  - spectra-scout:    Haiku, plan mode, 15 turns max          │
 │  - spectra-reviewer: Sonnet, plan mode, cross-model review   │
 └─────────────────────────────────────────────────────────────┘
 ```

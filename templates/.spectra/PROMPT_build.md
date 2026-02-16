@@ -37,12 +37,9 @@ Before marking a task complete, verify ALL of the following:
 
 5. **Dependencies declared**: Every import in your source code must correspond to a dependency in requirements.txt / pyproject.toml / package.json. Run the CLI command in a clean environment if unsure.
 
-## Signs (Learned Lessons)
-These patterns have caused failures in past SPECTRA projects. Check for them:
-
-- SIGN-001: "Every integration test must invoke every pipeline step it imports — importing a module without calling it is dead code in a test."
-- SIGN-002: "CLI commands must have subprocess-level tests that prove real execution, not just class-level unit tests."
-- SIGN-003: "If the spec says A → B → C → D and your test skips B, you've written a unit test with extra steps — not an integration test."
+## Active Signs
+Read .spectra/guardrails.md for the full list of Sign patterns to avoid.
+If .spectra/guardrails.md does not exist, read ~/.spectra/guardrails-global.md instead.
 
 ## Exit
 After completing (or getting stuck on) your task, exit cleanly.

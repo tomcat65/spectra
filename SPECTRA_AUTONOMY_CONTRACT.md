@@ -1,12 +1,12 @@
-# SPECTRA v3.0 — AUTONOMY CONTRACT
+# SPECTRA v5.1 — AUTONOMY CONTRACT
 
 > **"Agents may reason. Only files may decide."**
 
 **Status:** Active — Non-Negotiable Guardrail
-**Applies To:** SPECTRA v3.0 autonomous execution
-**Audience:** Team Lead, Teammates, Verifier, Humans-in-Reserve
-**Last Updated:** February 9, 2026
-**Architecture:** All-Anthropic (Native Agent Teams via Claude Code Opus 4.6)
+**Applies To:** SPECTRA v5.1 autonomous execution
+**Audience:** Loop orchestrator, Agent workers, Humans-in-Reserve
+**Last Updated:** February 16, 2026
+**Architecture:** Bash-native orchestration (spectra-loop.sh) with Claude Code agent workers
 
 ---
 
@@ -33,7 +33,7 @@ SPECTRA is authorized to operate unattended **only within the following scope**.
 - Generate constitution.md, prd.md, plan.md from project description
 - Cross-model validate planning artifacts (Opus generates, Sonnet reviews)
 - Execute tasks defined in a locked plan.md
-- Spawn builder, verifier, reviewer, auditor, and planner as Agent Teams teammates
+- Invoke builder, verifier, reviewer, auditor, and planner agents via bash orchestration
 - Retry tasks within defined failure budgets (see Section 4)
 - Commit code to feature branches via git
 - Generate reports, logs, and signal files
@@ -171,15 +171,15 @@ This is a strong signal that the plan is wrong, not the code.
 
 ### 4.3 Diminishing Retry Budget
 
-Each retry gets fewer resources:
+Each retry gets fewer max turns:
 
-| Iteration | Token Budget | Rationale |
-|-----------|-------------|-----------|
-| 1 (initial) | 100% | Full capability |
-| 2 (first retry) | 70% | Should be a targeted fix |
-| 3 (final retry) | 50% | Last chance, must be surgical |
+| Iteration | Max Turns | Rationale |
+|-----------|-----------|-----------|
+| 1 (initial) | 50 | Full capability |
+| 2 (first retry) | 35 | Should be a targeted fix |
+| 3 (final retry) | 25 | Last chance, must be surgical |
 
-If the builder exceeds token budget on any iteration → kill and count as failed iteration.
+If the builder exhausts max turns on any iteration → kill and count as failed iteration.
 
 ### 4.4 STUCK Definition
 
@@ -204,7 +204,7 @@ The loop captures this in lessons-learned.md automatically.
 
 ### 4.6 Research Before STUCK (SIGN-008)
 
-Most external blockers are **researchable** — the answer exists on the web or in documentation. The v3.0 MrBeast puzzle run proved this: a z3-solver install hang caused immediate STUCK, but `pip install z3-solver --only-binary=:all: --no-cache-dir` would have fixed it in 30 seconds.
+Most external blockers are **researchable** — the answer exists on the web or in documentation. A previous run proved this: a z3-solver install hang caused immediate STUCK, but `pip install z3-solver --only-binary=:all: --no-cache-dir` would have fixed it in 30 seconds.
 
 **Mandatory research cycle before external_blocker STUCK:**
 
@@ -214,7 +214,7 @@ Most external blockers are **researchable** — the answer exists on the web or 
 4. **If fixed:** Continue the task, note the fix in build report
 5. **If still blocked:** NOW declare STUCK with research findings attached
 
-The builder agent definition includes the full research protocol. The team lead must include SIGN-008 instructions when spawning builders.
+The builder agent definition includes the full research protocol. The loop includes SIGN-008 context in builder prompts automatically.
 
 ---
 
@@ -222,7 +222,7 @@ The builder agent definition includes the full research protocol. The team lead 
 
 ### 5.1 Determinism
 
-- Verification is **single-agent only** — no Agent Teams in verification, ever
+- Verification is **single-agent only** — one verifier invocation per task, never parallel
 - The verifier has **no write access** — architecturally enforced via tool allowlist, not prompt instruction
 - Verifier tool allowlist: `Read, Bash, Grep, Glob` — no `Edit`, no `Write`
 - Verification results must be reproducible given the same inputs
@@ -282,12 +282,12 @@ Each project defines in `project.yaml`:
 cost:
   ceiling: 50.00          # USD, absolute maximum for this run
   per_task_budget: 10.00   # USD, per-task maximum (builder + verifier combined)
-  parallelism_budget: 0    # USD, additional budget for Agent Teams (0 = disabled)
+  parallelism_budget: 0    # USD, additional budget for parallel builds (0 = disabled)
 ```
 
 ### 6.3 Enforcement
 
-- If cumulative cost exceeds ceiling → Agent Teams disabled, downgrade to sequential
+- If cumulative cost exceeds ceiling → parallel builds disabled, downgrade to sequential
 - If sequential downgrade still exceeds → **STUCK**
 - Per-task budget exceeded → kill agent, count as failed iteration
 - Cost-per-task appended to lessons-learned.md after every cycle
@@ -308,59 +308,66 @@ Auditor pre-flights cost pennies. Use them liberally to avoid wasting Opus token
 
 ---
 
-## 7. Agent Teams — Native Execution (v3.0)
+## 7. Bash-Native Orchestration (v5.0)
 
-> **Implementation Status (Feb 9 2026):** SPECTRA v3.0 uses native Claude Code Agent Teams (Opus 4.6). The thin launcher (`spectra-loop-v3.sh`) spawns ONE Claude Code session as team lead in delegate mode. The team lead spawns teammates (planner, reviewer, auditor, builder, verifier) via the Task tool with shared task lists and mailbox messaging.
+> **Architecture (Feb 2026):** Bash is orchestrator. LLMs are workers. No lead agent. No Agent Teams API. `spectra-loop.sh` handles: plan parsing, batch scheduling, parallel builds, sequential verification, checkpoint/resume, and oracle classification.
 
 ### 7.1 Architecture
 
-SPECTRA v3.0 replaces the bash-orchestrated multi-process model with a single Claude Code session:
+SPECTRA v5.0 uses bash-native orchestration. The loop script is the orchestrator; agents are stateless workers invoked via CLI:
 
 ```
-spectra-loop-v3.sh (thin launcher)
-  └─→ claude -p "TEAM_PROMPT" --permission-mode delegate --max-turns 200
-        └─→ Team Lead (coordinates only, no coding)
-              ├─→ Planner (Opus, plan mode)
-              ├─→ Reviewer (Sonnet, plan mode)
-              ├─→ Auditor (Haiku, plan mode)
-              ├─→ Builder (Opus, acceptEdits mode)
-              └─→ Verifier (Opus, plan mode)
+spectra-loop.sh (bash orchestrator)
+  ├─→ claude --agent spectra-planner -p "PROMPT"       (plan generation)
+  ├─→ claude --agent spectra-reviewer -p "PROMPT"      (plan review)
+  ├─→ claude --agent spectra-auditor -p "PROMPT"       (preflight scan)
+  ├─→ claude --agent spectra-builder --permission-mode acceptEdits -p "PROMPT"  (build)
+  ├─→ claude --agent spectra-verifier -p "PROMPT"      (verification)
+  └─→ claude --agent spectra-oracle -p "PROMPT"        (failure classification)
 ```
 
-The team prompt is generated by `spectra-team-prompt.sh`, which reads plan.md, guardrails.md, constitution.md, and non-goals.md to produce comprehensive natural language instructions.
+The loop reads plan.md directly, builds a dependency graph, schedules tasks in batches (independent tasks run in parallel), and sequences verification after each build.
 
 ### 7.2 Activation
 
-Agent Teams are always active in v3.0. Parallel execution of independent tasks is permitted for Level 3+ projects where plan.md includes `TEAM_ELIGIBLE` and tasks have non-overlapping file ownership.
+Bash orchestration is always active. Parallel execution of independent tasks is permitted for Level 3+ projects where tasks have non-overlapping file ownership (determined by dependency graph analysis in the loop).
 
-### 7.3 Team Constraints
+### 7.3 Orchestration Constraints
 
-- Team Lead must run in **delegate mode** (coordinates only, no coding)
-- No two teammates may edit the same file (file ownership in task assignment)
-- Plan approval required before any teammate implements
-- Each teammate commits to feature branch after each task completion
-- The team lead manages all orchestration natively: retry loops, failure taxonomy, diminishing budgets, compound failure detection
-- If the session dies mid-run, the branch is preserved and `spectra-loop` can be re-run with `--skip-planning`
+- No lead agent exists — bash handles all coordination logic
+- No two builders may edit the same file (file ownership enforced by dependency graph)
+- Plan approval required before any builder is invoked
+- Each builder commits to feature branch after each task completion
+- The loop manages: retry loops, failure taxonomy, diminishing budgets, compound failure detection, checkpoint/resume
+- If the loop is interrupted mid-run, the branch is preserved and `spectra-loop.sh` can be re-run with `--skip-planning` to resume from last checkpoint
 
-**Hook Scripts (deployed):**
+v5.0 bash-native orchestration handles the task lifecycle directly — hook scripts like `spectra-task-completed.sh` and `spectra-teammate-idle.sh` from v3.0 no longer exist.
 
-| Hook | File | Trigger | Behavior |
-|------|------|---------|----------|
-| TaskCompleted | `~/.spectra/hooks/spectra-task-completed.sh` | Teammate marks task complete | Runs spectra-verify via `claude -p`; exit 0 = allow, exit 2 = reject |
-| TeammateIdle | `~/.spectra/hooks/spectra-teammate-idle.sh` | Teammate goes idle | Checks remaining tasks, uncommitted changes; exit 2 = assign next task |
+### 7.4 Oracle Classification
 
-### 7.4 Team Signs
+When a builder or verifier reports failure, the loop invokes `spectra-oracle` (Haiku, 3 turns max) to classify the failure:
+
+| Classification | Meaning | Loop Action |
+|---------------|---------|-------------|
+| `FLAKY` | Non-deterministic test failure | Auto-retry (counts toward retry budget) |
+| `ENV` | Environment or dependency issue | Research cycle, then retry |
+| `LOGIC` | Code logic error | Retry with failure context |
+| `STUCK` | Unresolvable by builder | Immediate STUCK signal |
+
+Oracle classification replaces the v3.0 model where the team lead made retry decisions.
+
+### 7.5 Signs
 
 | Sign | Rule |
 |------|------|
-| SIGN-004: Lead Drift | Team lead must not write code. If lead implements, escalate immediately. |
-| SIGN-005: File Collision | No two teammates may edit the same file. Task decomposition must assign file ownership. |
-| SIGN-006: Stale Task | If task stays in-progress >10 minutes without output, lead must nudge or reassign. |
-| SIGN-007: Silent Failure | Teammate errors must be surfaced to lead via mailbox. Silent swallowing is a system fault. |
+| SIGN-004: Lead Drift | No lead agent exists in v5.0. If any agent attempts orchestration logic, it is a bug. |
+| SIGN-005: File Collision | No two builders may edit the same file. Dependency graph enforces file ownership. |
+| SIGN-006: Verification Parallelism | Verification is always sequential — one verifier, one verdict, deterministic. |
+| SIGN-007: Orphaned Teammates | N/A in v5.0 (no Agent Teams). Agents are stateless CLI invocations. |
 
-### 7.5 Verification Is Never Parallel
+### 7.6 Verification Is Never Parallel
 
-Verification uses a single deterministic verifier subagent. Agent Teams are a build-phase tool, not a verification tool.
+Verification uses a single deterministic verifier invocation. Parallel builds are permitted; parallel verification is never permitted.
 
 ---
 
@@ -368,17 +375,13 @@ Verification uses a single deterministic verifier subagent. Agent Teams are a bu
 
 ### 8.1 Purpose
 
-> **Implementation Status (Feb 9 2026):** `spectra-auditor.md` agent deployed to both `~/.claude/agents/` and `~/.spectra/agents/`. In v3.0, the team lead spawns the auditor as a Haiku teammate before each build cycle.
-
-Before every build cycle, the team lead spawns the spectra-auditor (Haiku) as a teammate for a fast guardrails scan. This catches obvious Sign violations before wasting Opus tokens on a builder that would fail.
+Before every build cycle, the loop invokes spectra-auditor (Haiku) for a fast guardrails scan. This catches obvious Sign violations before wasting Opus tokens on a builder that would fail.
 
 ### 8.2 Execution
 
-In v3.0, the team lead spawns the auditor via the Task tool:
-```
-Task tool: subagent_type=spectra-auditor, model=haiku, mode=plan
-Prompt: "Scan codebase for active Sign violations before Task N build. Report to .spectra/logs/task-N-preflight.md"
-Max turns: 10
+The loop invokes the auditor via CLI:
+```bash
+claude --agent spectra-auditor -p "Scan codebase for active Sign violations before Task N build. Report to .spectra/logs/task-N-preflight.md"
 ```
 
 ### 8.3 Gate Behavior
@@ -529,7 +532,7 @@ Every agent writes structured logs to `.spectra/logs/`:
 After deployment (all levels):
 - Loop writes `.spectra/signals/COMPLETE`
 - Slack notification sent with run summary
-- Neural entity observations updated with institutional memory
+- Lessons-learned.md updated with institutional memory
 - Cost and timing data appended to lessons-learned.md
 
 ---
