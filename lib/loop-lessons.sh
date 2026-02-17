@@ -136,15 +136,27 @@ validate_lesson_entry() {
         return 1
     fi
 
-    # Reject entries containing XML tags in any field
+    # Reject entries containing XML tags in any field (including fingerprint)
     if echo "${entry}" | grep -qiP '<(system|assistant|user|human|antml:)'; then
         return 1
     fi
 
-    # Reject entries with shell injection patterns
+    # Reject entries with shell injection patterns in any field
     # RATIONALE: single quotes intentional — matching literal shell patterns, not expanding
     # shellcheck disable=SC2016
     if echo "${entry}" | grep -qP '\$\(|`.*`|;\s*(rm|curl|wget|eval)\b'; then
+        return 1
+    fi
+
+    # Reject entries with prompt injection patterns in fingerprint or any field
+    if echo "${entry}" | grep -qiP 'ignore (all |previous |prior |above )*instructions?'; then
+        return 1
+    fi
+
+    # Reject fingerprints longer than 200 chars (normal: ~30-60)
+    local fp
+    fp=$(echo "${entry}" | grep -oP '"fingerprint":"\K[^"]*' || echo "")
+    if [[ ${#fp} -gt 200 ]]; then
         return 1
     fi
 
@@ -164,6 +176,10 @@ lessons_for_propagation() {
         SIGN)      status_regex="SIGN" ;;
         *)         status_regex="CONFIRMED|PROMOTED|SIGN" ;;
     esac
+
+    # Collect entries, dedup by fingerprint (keep highest-status record)
+    local dedup_dir
+    dedup_dir=$(mktemp -d)
 
     for project_dir in "${LESSONS_HOME}/projects"/*/; do
         local snapshot="${project_dir}lessons.snapshot"
@@ -186,9 +202,30 @@ lessons_for_propagation() {
                 continue
             fi
 
-            echo "${entry}"
+            # Dedup by fingerprint: keep highest-status entry
+            local fp fp_hash existing_status
+            fp=$(echo "${entry}" | grep -oP '"fingerprint":"\K[^"]+' || echo "")
+            [[ -z "${fp}" ]] && continue
+            fp_hash=$(echo "${fp}" | md5sum | cut -d' ' -f1)
+
+            if [[ -f "${dedup_dir}/${fp_hash}" ]]; then
+                existing_status=$(grep -oP '"status":"\K[^"]+' "${dedup_dir}/${fp_hash}" || echo "")
+                # Status priority: SIGN > PROMOTED > CONFIRMED
+                local existing_rank=0 new_rank=0
+                case "${existing_status}" in CONFIRMED) existing_rank=1 ;; PROMOTED) existing_rank=2 ;; SIGN) existing_rank=3 ;; esac
+                case "${status}" in CONFIRMED) new_rank=1 ;; PROMOTED) new_rank=2 ;; SIGN) new_rank=3 ;; esac
+                [[ ${new_rank} -le ${existing_rank} ]] && continue
+            fi
+            echo "${entry}" > "${dedup_dir}/${fp_hash}"
         done < "${source}"
-    done | sort -u  # dedup across projects
+    done
+
+    # Emit deduplicated entries
+    for fp_file in "${dedup_dir}"/*; do
+        [[ -f "${fp_file}" ]] || continue
+        cat "${fp_file}"
+    done
+    rm -rf "${dedup_dir}"
 }
 
 # ── JSONL append with flock ──
@@ -586,18 +623,36 @@ lesson_check_ttl() {
     local fingerprint="$1"
     local project="$2"
 
+    # Read from snapshot (effective state with persisted psl), fall back to JSONL
+    local snapshot_file="${LESSONS_HOME}/projects/${project}/lessons.snapshot"
     local jsonl_file="${LESSONS_HOME}/projects/${project}/lessons.jsonl"
-    [[ -f "${jsonl_file}" ]] || return 0
+    local effective_entry=""
 
-    # Get the create entry for this fingerprint
-    local create_entry
-    create_entry=$(grep "\"action\":\"create\".*\"fingerprint\":\"${fingerprint}\"" "${jsonl_file}" 2>/dev/null | head -1 || echo "")
-    [[ -z "${create_entry}" ]] && return 0
+    if [[ -f "${snapshot_file}" ]]; then
+        effective_entry=$(grep "\"fingerprint\":\"${fingerprint}\"" "${snapshot_file}" 2>/dev/null | head -1 || echo "")
+        if [[ -z "${effective_entry}" ]]; then
+            # Snapshot exists but entry is absent — check if it was ever created
+            if [[ -f "${jsonl_file}" ]] && grep -q "\"action\":\"create\".*\"fingerprint\":\"${fingerprint}\"" "${jsonl_file}" 2>/dev/null; then
+                # Entry was created but expired during compaction
+                echo "EXPIRED"
+                return 0
+            fi
+            return 0  # never existed
+        fi
+    elif [[ -f "${jsonl_file}" ]]; then
+        effective_entry=$(grep "\"action\":\"create\".*\"fingerprint\":\"${fingerprint}\"" "${jsonl_file}" 2>/dev/null | head -1 || echo "")
+    fi
+    [[ -z "${effective_entry}" ]] && return 0
+
+    local status
+    status=$(echo "${effective_entry}" | grep -oP '"status":"\K[^"]+' || echo "TEMP")
+    # Already expired in snapshot
+    [[ "${status}" == "EXPIRED" ]] && { echo "EXPIRED"; return 0; }
 
     local ttl_base severity recurrence_count
-    ttl_base=$(echo "${create_entry}" | grep -oP '"ttl_base":\K[0-9]+' || echo "5")
-    severity=$(echo "${create_entry}" | grep -oP '"severity":"\K[^"]+' || echo "medium")
-    recurrence_count=$(echo "${create_entry}" | grep -oP '"recurrence_count":\K[0-9]+' || echo "1")
+    ttl_base=$(echo "${effective_entry}" | grep -oP '"ttl_base":\K[0-9]+' || echo "5")
+    severity=$(echo "${effective_entry}" | grep -oP '"severity":"\K[^"]+' || echo "medium")
+    recurrence_count=$(echo "${effective_entry}" | grep -oP '"recurrence_count":\K[0-9]+' || echo "1")
 
     # Adaptive TTL: base + extension per recurrence
     local extension_per
@@ -611,7 +666,7 @@ lesson_check_ttl() {
 
     local effective_ttl=$((ttl_base + (recurrence_count - 1) * extension_per))
     local projects_since
-    projects_since=$(echo "${create_entry}" | grep -oP '"projects_since_last":\K[0-9]+' || echo "0")
+    projects_since=$(echo "${effective_entry}" | grep -oP '"projects_since_last":\K[0-9]+' || echo "0")
 
     if [[ ${projects_since} -ge ${effective_ttl} ]]; then
         echo "EXPIRED"

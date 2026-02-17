@@ -147,8 +147,10 @@ if [[ "$LEVEL" -ge 1 ]]; then
                 fp=$(echo "${lesson_entry}" | grep -oP '"fingerprint":"\K[^"]+' || echo "unknown")
                 detail=$(echo "${lesson_entry}" | grep -oP '"detail":"\K[^"]*' || echo "")
                 status=$(echo "${lesson_entry}" | grep -oP '"status":"\K[^"]+' || echo "")
-                # Sanitize before writing to project guardrails
+                # Sanitize ALL fields before writing to project guardrails
+                fp=$(sanitize_for_propagation "${fp}")
                 detail=$(sanitize_for_propagation "${detail}")
+                status=$(echo "${status}" | grep -oP '^(CONFIRMED|PROMOTED|SIGN)$' || echo "UNKNOWN")
                 echo "- **[${status}]** \`${fp}\`: ${detail}" >> ".spectra/guardrails.md"
                 lesson_count=$((lesson_count + 1))
             done < <(lessons_for_propagation "CONFIRMED")
