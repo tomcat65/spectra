@@ -57,7 +57,30 @@ SPECTRA is installed globally at `~/.spectra/` and integrates with Claude Code v
     spectra-verify.sh               #   Standalone verification
     spectra-verify-wiring.sh        #   Automated wiring verification (v5.1)
     spectra-status.sh               #   Observability dashboard (--json, --watch)
-  hooks/                            # Claude Code lifecycle hooks (reserved)
+  lib/                              # Sourced modules (extracted from spectra-loop.sh)
+    loop-signals.sh                 #   Signal/status file management
+    loop-retry.sh                   #   Retry budgets and signs propagation
+    loop-wiring.sh                  #   Wiring gate for pre-commit verification
+    loop-git.sh                     #   Branch isolation and commit management
+    loop-checkpoint.sh              #   Checkpoint save/restore and plan checksum
+    loop-build.sh                   #   Build prompts and parallel build orchestration
+    loop-verify.sh                  #   Verify prompts and oracle failure classifier
+  hooks/                            # Git lifecycle hooks
+    pre-commit                      #   Wiring verification gate (auto-installed by loop)
+  tests/                            # Test suites (127 tests across 11 suites)
+    run-tests.sh                    #   Test runner (aggregates all suites)
+    test-plan-validate.sh           #   Plan schema validation
+    test-assess.sh                  #   Assessment YAML validation
+    test-loop-unit.sh               #   Loop unit tests (checksum, timeout, signals)
+    test-plan-extract.sh            #   Plan extraction + JSON bridge
+    test-phase3-enforcement.sh      #   Wiring enforcement (pre-commit, no --no-verify)
+    test-phase4-ci.sh               #   CI parity (workflow structure, fixtures)
+    test-phase5-ratchet.sh          #   ShellCheck ratchet behavior
+    test-phase6-modular.sh          #   Module extraction (anti-drift, golden behavior)
+    test-phase7-shellcheck.sh       #   ShellCheck burn-down (0 warnings, RATIONALE policy)
+    test-phase8-behavior.sh         #   Behavior parity (timeout, infra-fail, oracle fallback)
+  .github/workflows/
+    spectra-ci.yml                  #   CI pipeline (Lint, Tests, Wiring jobs)
   templates/                        # Project scaffolding templates
     discovery.md.tmpl               #   Scout discovery output template
     negotiate.md.tmpl               #   Negotiation prompt template
@@ -220,6 +243,12 @@ Complex BMAD stories are split into multiple plan tasks (1:N ratio) — one task
 
 These examples walk through SPECTRA from simplest to most complex. Start with Example 1 — you can stop reading at any point and still have enough to use SPECTRA.
 
+> **PATH setup:** SPECTRA scripts live in `~/.spectra/bin/`. Add it to your PATH for bare command usage:
+> ```bash
+> export PATH="$HOME/.spectra/bin:$PATH"
+> ```
+> Or invoke with full paths (e.g., `~/.spectra/bin/spectra-loop`).
+
 ### Example 1: Fix a Bug (Level 0)
 
 The simplest case. You found a bug and want an AI agent to fix it.
@@ -269,7 +298,7 @@ spectra-loop
 spectra-status
 ```
 
-For a Level 0 fix, `spectra-loop` runs a single agent that reads the plan, makes the fix, and verifies it. If the verification command passes, you're done. If it fails, the agent retries (up to `Max-iterations` times).
+For a Level 0 fix, `spectra-loop` runs a single builder agent that reads the plan, makes the fix, and runs verification. If verification passes, you're done. If it fails, the oracle classifier categorizes the failure type and the builder retries (up to the type-specific retry budget — see Example 5).
 
 **What gets created:**
 - `.spectra/plan.md` — one task with your bug description, files to change, and a verify command
@@ -278,7 +307,7 @@ For a Level 0 fix, `spectra-loop` runs a single agent that reads the plan, makes
 
 ### Example 2: Build a Small Feature (Level 1)
 
-Adding a dark mode toggle to an existing app. This needs 2-3 stories and a few iterations.
+Adding a dark mode toggle to an existing app. This needs 2-3 stories and sequential build/verify iterations.
 
 ```bash
 cd my-web-app
@@ -323,7 +352,7 @@ spectra-plan
 
 spectra-loop
 # → Runs sequential loop: build task 001, verify, build task 002, verify
-# → Level 1 uses 3-5 iterations per task
+# → Each task retries based on failure type (test_failure: up to 3, wiring_gap: up to 2)
 
 # Watch progress
 spectra-status
@@ -332,11 +361,18 @@ spectra-status
 Expected `spectra-status` output during execution:
 
 ```
-SPECTRA Status
+  SPECTRA Status
+  ────────────────────────────────────
+  Project:  dark-mode
+  Level:    1
+  Branch:   spectra/dark-mode
   Phase:    executing
   Agent:    spectra-builder
+  ────────────────────────────────────
+  Tasks:    1/2 complete
+  Remaining: 1
+  Stuck:    0
   Progress: 1/2 tasks (0 stuck)
-  Current:  Task 002: Dark mode CSS variables
 ```
 
 ### Example 3: Build from BMAD Artifacts (Level 2-3)
@@ -378,7 +414,7 @@ spectra-loop
 spectra-status --watch
 ```
 
-At Level 3, SPECTRA spawns multiple builders in parallel (`&` + `wait`) on independent tasks with no file ownership overlap, then verifies each task sequentially.
+At Level 3, SPECTRA spawns multiple builders in parallel (`&` + `wait`) on independent tasks with no file ownership overlap, then verifies each task sequentially with the full 4-step audit (including wiring proof).
 
 ### Example 4: Monitor a Running Build
 
@@ -391,12 +427,20 @@ spectra-status
 
 Output:
 ```
-SPECTRA Status
+  SPECTRA Status
+  ────────────────────────────────────
+  Project:  my-api
+  Level:    3
+  Branch:   spectra/my-api
   Phase:    executing
   Agent:    spectra-builder
+  ────────────────────────────────────
+  Tasks:    3/5 complete
+  Remaining: 1
+  Stuck:    1
   Progress: 3/5 tasks (1 stuck)
-  Current:  Task 004: Add payment validation
-  Stuck:    Task 003 — "test timeout after 30s"
+  ────────────────────────────────────
+  STUCK: Task 003 — test timeout after 30s
 ```
 
 ```bash
@@ -406,7 +450,22 @@ spectra-status --json
 
 Output:
 ```json
-{"phase":"executing","agent":"spectra-builder","total":5,"done":3,"stuck":1}
+{
+  "project": "my-api",
+  "level": 3,
+  "phase": "executing",
+  "agent": "spectra-builder",
+  "branch": "spectra/my-api",
+  "tasks": {
+    "total": 5,
+    "done": 3,
+    "stuck": 1,
+    "remaining": 1
+  },
+  "complete": false,
+  "stuck_signal": "Task 003 — test timeout after 30s",
+  "timestamp": "2026-02-17T06:00:00Z"
+}
 ```
 
 ```bash
@@ -417,19 +476,30 @@ spectra-status --watch
 **What the signals mean:**
 - **Phase: executing** — agents are actively working
 - **Phase: complete** — all tasks done, COMPLETE signal written
-- **Phase: stuck** — a task hit Max-iterations without passing verification
+- **Phase: stuck** — a task exhausted its retry budget and was marked stuck
 - **Progress: 3/5 (1 stuck)** — 3 tasks passed verification, 1 failed permanently, 1 remaining
-- **RECONCILE signal** — the plan used different settings than assessment recommended (informational, no action needed in v4.0)
+- **RECONCILE signal** — the plan used different settings than assessment recommended (informational)
 
 ### Example 5: When Things Go Wrong
 
-**A task fails verification** — the builder retries automatically up to `Max-iterations` times (default varies by task complexity: 3 for trivial, 5 for setup, 8 for features, 10 for complex). You don't need to do anything.
+**A task fails verification** — the oracle classifier (Haiku, 3 turns) categorizes the failure, and the builder retries based on the type-specific budget:
 
-**A task gets stuck** (exhausted all retries):
+| Failure Type | Retry Budget | Typical Cause |
+|---|---|---|
+| `test_failure` | 3 retries | Tests don't pass, assertions wrong |
+| `missing_dependency` | 3 retries | Import errors, package not installed |
+| `wiring_gap` | 2 retries | Code exists but isn't connected to runtime |
+| `architecture_mismatch` | 0 (STUCK) | Wrong approach — needs human guidance |
+| `ambiguous_spec` | 0 (STUCK) | Requirements unclear — needs clarification |
+| `external_blocker` | 0 (STUCK) | Dependency on external service/team |
+
+You don't need to do anything during retries — they happen automatically.
+
+**A task gets stuck** (exhausted retries or hit a non-retryable failure):
 ```
-# spectra-status shows:
   Progress: 4/5 tasks (1 stuck)
-  Stuck:    Task 003 — "npm test -- auth fails: ECONNREFUSED"
+  ────────────────────────────────────
+  STUCK: Task 003 — npm test auth fails: ECONNREFUSED
 ```
 
 The `[!]` stuck state is written to `plan.md`. Check what happened:
@@ -438,6 +508,9 @@ The `[!]` stuck state is written to `plan.md`. Check what happened:
 # See the stuck signal
 cat .spectra/signals/STUCK
 
+# Check the verification report
+cat .spectra/logs/task-003-verify.md
+
 # Check lessons learned (the agent writes what it tried)
 cat .spectra/lessons-learned.md
 ```
@@ -445,7 +518,7 @@ cat .spectra/lessons-learned.md
 To fix manually and continue:
 1. Fix the underlying issue (maybe a missing env var, a database that's down, etc.)
 2. Edit `.spectra/plan.md` — change `[!]` back to `[ ]` for the stuck task
-3. Run `spectra-loop` again — it picks up where it left off
+3. Run `spectra-loop --resume` — it picks up from the checkpoint
 
 **Common mistakes and what they mean:**
 
@@ -603,6 +676,20 @@ spectra-verify-wiring . --verbose --fix-hints
 
 The planner auto-generates `Assertions` blocks in plan.md tasks. These are machine-checkable rules (`GREP`, `CALLSITE`, `COUNT`, `NOT_EXISTS`) that `spectra-verify-wiring.sh` enforces during verification.
 
+## CI Pipeline
+
+SPECTRA includes a GitHub Actions CI pipeline (`.github/workflows/spectra-ci.yml`) that runs on every push and PR to `main`. Three parallel jobs:
+
+| Job | What It Checks |
+|-----|---------------|
+| **Lint** | `bash -n` syntax, module anti-drift, ShellCheck errors, ShellCheck ratchet (per-file warning budget), suppress-rationale guard (every `# shellcheck disable=` needs a `# RATIONALE:` comment), actionlint |
+| **Tests** | Full test suite via `tests/run-tests.sh` (127 tests across 11 suites) |
+| **Wiring** | Anti-bypass guard (`SPECTRA_SKIP_WIRING` blocked in CI), wiring verification against pass/fail fixtures |
+
+The **ShellCheck ratchet** enforces a per-file, per-rule warning baseline (`shellcheck-baseline.json`). New warnings must be fixed before merge — the baseline can only decrease, never increase. Run `bin/spectra-shellcheck-ratchet.sh --update` locally to regenerate after fixing warnings.
+
+The **module anti-drift** check ensures every expected `lib/loop-*.sh` module exists, is sourced by `spectra-loop.sh`, has no duplicates, and no wildcard sourcing.
+
 ## Core Principles
 
 1. **No Done without evidence.** Every task needs test results AND proof. The verification gate is non-negotiable.
@@ -624,13 +711,14 @@ Signs are hard-won lessons from execution failures — things that went wrong an
 | SIGN-001 | Integration tests must invoke what they import |
 | SIGN-002 | CLI commands need subprocess-level tests |
 | SIGN-003 | Lessons must generalize, not just fix |
-| SIGN-004 | Lead must never edit source files |
-| SIGN-005 | No two builders on the same file simultaneously |
-| SIGN-006 | Verification is never parallel |
-| SIGN-007 | Always shutdown_request before TeamDelete |
-| SIGN-008 | Research before declaring STUCK on external blockers |
+| SIGN-004 | Lead Drift — team lead must not write code |
+| SIGN-005 | File Collision — no two builders on the same file simultaneously |
+| SIGN-006 | Stale Task — nudge or reassign after 10 minutes without output |
+| SIGN-007 | Silent Failure — teammate errors must be surfaced, not swallowed |
+| SIGN-008 | Research Before STUCK — web search before declaring external blockers |
+| SIGN-009 | Test Ordering Pollution — tests must pass in isolation and full suite |
 
-New Signs are discovered through FAIL -> FIX cycles. Cross-project Signs propagate via the verifier's `user`-scoped memory and the neural knowledge graph.
+New Signs are discovered through FAIL -> FIX cycles. Cross-project Signs propagate via `propagate_signs()` in the loop's retry module.
 
 ## Integration Tokens
 
@@ -640,7 +728,7 @@ Integration tokens live in `~/.spectra/.env` (chmod 600):
 |-------|---------|---------|
 | `LINEAR_API_KEY` | spectra-init.sh | Create Linear projects/issues |
 | `LINEAR_TEAM_ID` | spectra-init.sh | Target Linear team |
-| `SLACK_WEBHOOK_URL` | spectra-loop-v5.sh, spectra-verify.sh, spectra-init.sh | Notifications |
+| `SLACK_WEBHOOK_URL` | spectra-loop.sh, spectra-verify.sh, spectra-init.sh | Notifications |
 | `GITHUB_TOKEN` | Fallback (gh CLI handles its own auth) | GitHub API |
 
 ### Preflight Verification
@@ -689,10 +777,10 @@ SPECTRA agents can coordinate with external agents (codex-cli, claude-desktop, C
 | v4.1 | Feb 10, 2026 | Dynamic max_turns, incomplete exit detection, level fallback chain, file-ownership format fallback |
 | v5.0 | Feb 11, 2026 | Bash-native parallel architecture: replaced LLM coordinator (spectra-lead) with bash `&` + `wait`, <500 byte prompts, JSON checkpoint resume, oracle failure classifier (Haiku), removed Agent Teams dependency |
 | v5.1 | Feb 11, 2026 | Builder self-audit protocol (4 checks before every commit), automated wiring verification (`spectra-verify-wiring.sh` + `verify.yaml`), plan.md assertions generation, `spectra-init` verify.yaml scaffolding |
+| v5.2 | Feb 17, 2026 | CI pipeline (Lint, Tests, Wiring jobs), pre-commit wiring enforcement, ShellCheck ratchet (0 warnings across 20 files), loop modularization (7 sourced modules), plan.json typed bridge, DAG cycle validation, oracle failure classifier with type-specific retry budgets, 127 tests across 11 suites |
 
 ## Known Limitations
 
-- **No CI-enforced test pipeline** — A manual test runner exists (`tests/run-tests.sh`, 23 tests) but no CI pipeline enforces it on push/PR.
 - **RECONCILE signal is interactive only** — In interactive mode, prompts user to re-run assessment and planning. In non-interactive mode, logs a warning and continues with the existing plan.
 - **No Level 4 (Enterprise) implementation** — The level table defines it but no sprint delivery logic exists in the loop scripts.
 - **spectra-scout auto-runs when discovery is missing** — The planner automatically invokes scout when `discovery.md` is absent. Manual flags (`--discover`, `--skip-discovery`) are also available.
