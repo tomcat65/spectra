@@ -146,6 +146,24 @@ TOTAL_FAIL=$((TOTAL_FAIL + phase4_fail))
 [[ ${phase4_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
 
 # ══════════════════════════════════════════
+# Suite 7: Phase 5 ShellCheck ratchet tests
+# ══════════════════════════════════════════
+echo "=== Suite: phase5-ratchet ==="
+set +e
+output=$("${SCRIPT_DIR}/test-phase5-ratchet.sh" 2>&1)
+phase5_exit=$?
+set -e
+echo "${output}"
+echo ""
+
+# Parse pass/fail counts from the sub-test output
+phase5_pass=$(echo "${output}" | grep -oP 'phase5-ratchet: \K[0-9]+(?= passed)' || echo "0")
+phase5_fail=$(echo "${output}" | grep -oP 'passed, \K[0-9]+(?= failed)' || echo "0")
+TOTAL_PASS=$((TOTAL_PASS + phase5_pass))
+TOTAL_FAIL=$((TOTAL_FAIL + phase5_fail))
+[[ ${phase5_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
+
+# ══════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════
 echo "==============================="

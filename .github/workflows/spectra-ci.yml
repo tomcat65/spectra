@@ -34,10 +34,18 @@ jobs:
           done
           exit $failed
 
-      - name: ShellCheck (errors only)
+      - name: Install ShellCheck (pinned)
         run: |
-          sudo apt-get -qq install -y shellcheck > /dev/null 2>&1
-          shellcheck --severity=error bin/*.sh
+          curl -sL https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz | tar -xJ
+          sudo mv shellcheck-v0.10.0/shellcheck /usr/local/bin/shellcheck
+          rm -rf shellcheck-v0.10.0
+          shellcheck --version | head -2
+
+      - name: ShellCheck (errors only — fast fail)
+        run: shellcheck --severity=error bin/*.sh hooks/pre-commit
+
+      - name: ShellCheck ratchet (warnings)
+        run: bin/spectra-shellcheck-ratchet.sh --check
 
       - name: actionlint
         run: |
