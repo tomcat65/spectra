@@ -93,16 +93,15 @@ jobs:
           for f in bin/*.sh lib/*.sh hooks/pre-commit; do
             [[ -f "$f" ]] || continue
             [[ -L "$f" ]] && continue
-            prev_line=""
-            while IFS= read -r line; do
-              if echo "$line" | grep -q '# shellcheck disable='; then
-                if ! echo "$prev_line" | grep -q '# RATIONALE:'; then
-                  echo "FAIL: $(basename "$f"): disable without RATIONALE: $line"
-                  failed=1
-                fi
+            while IFS=: read -r lineno _; do
+              prev=$((lineno - 1))
+              prev_text=$(sed -n "${prev}p" "$f")
+              line_text=$(sed -n "${lineno}p" "$f")
+              if ! echo "$prev_text" | grep -q '# RATIONALE:'; then
+                echo "FAIL: $(basename "$f"):${lineno}: disable without RATIONALE: $line_text"
+                failed=1
               fi
-              prev_line="$line"
-            done < "$f"
+            done < <(grep -n '# shellcheck disable=' "$f" || true)
           done
           if [[ $failed -eq 0 ]]; then
             echo "PASS: all shellcheck disables have preceding RATIONALE comment"
