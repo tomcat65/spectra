@@ -1,0 +1,98 @@
+{
+  "shellcheck_version": "0.10.0",
+  "generated_at": "2026-02-17T04:26:13Z",
+  "files": {
+    "bin/plan-extract.sh": {
+      "total": 3,
+      "rules": {
+        "SC2034": 3
+      }
+    },
+    "bin/spectra-assess.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "bin/spectra-init.sh": {
+      "total": 1,
+      "rules": {
+        "SC2034": 1
+      }
+    },
+    "bin/spectra-loop-v3.sh": {
+      "total": 10,
+      "rules": {
+        "SC1010": 1,
+        "SC2034": 1,
+        "SC2046": 4,
+        "SC2155": 4
+      }
+    },
+    "bin/spectra-loop-v5.sh": {
+      "total": 10,
+      "rules": {
+        "SC1010": 1,
+        "SC2034": 1,
+        "SC2046": 4,
+        "SC2155": 4
+      }
+    },
+    "bin/spectra-loop.sh": {
+      "total": 10,
+      "rules": {
+        "SC1010": 1,
+        "SC2034": 1,
+        "SC2046": 4,
+        "SC2155": 4
+      }
+    },
+    "bin/spectra-plan-validate.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "bin/spectra-plan.sh": {
+      "total": 1,
+      "rules": {
+        "SC2034": 1
+      }
+    },
+    "bin/spectra-preflight.sh": {
+      "total": 1,
+      "rules": {
+        "SC1090": 1
+      }
+    },
+    "bin/spectra-quick.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "bin/spectra-shellcheck-ratchet.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "bin/spectra-status.sh": {
+      "total": 1,
+      "rules": {
+        "SC2034": 1
+      }
+    },
+    "bin/spectra-verify-wiring.sh": {
+      "total": 3,
+      "rules": {
+        "SC2034": 2,
+        "SC2053": 1
+      }
+    },
+    "bin/spectra-verify.sh": {
+      "total": 2,
+      "rules": {
+        "SC2034": 1,
+        "SC2038": 1
+      }
+    },
+    "hooks/pre-commit": {
+      "total": 0,
+      "rules": {}
+    }
+  },
+  "total": 42
+}
