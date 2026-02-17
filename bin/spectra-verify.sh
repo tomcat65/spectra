@@ -21,7 +21,6 @@ PLAN_VALIDATOR="${SPECTRA_HOME}/bin/spectra-plan-validate.sh"
 USE_LINEAR=false
 USE_SLACK=false
 USE_WIRING_PROOF=true
-GRADUATED=false
 FULL_SWEEP=false
 TASK_OVERRIDE=""
 
@@ -32,7 +31,6 @@ while [[ $# -gt 0 ]]; do
         --linear)          USE_LINEAR=true; shift ;;
         --slack)           USE_SLACK=true; shift ;;
         --no-wiring-proof) USE_WIRING_PROOF=false; shift ;;
-        --graduated)       GRADUATED=true; shift ;;
         --full-sweep)      FULL_SWEEP=true; shift ;;
         -h|--help)
             cat <<EOF
@@ -45,8 +43,7 @@ Options:
   --linear             Update Linear on PASS/FAIL
   --slack              Send Slack notification on PASS/FAIL
   --no-wiring-proof    Skip wiring proof checks (not recommended)
-  --graduated          Auto-determine verification depth by task position
-  --full-sweep         Full 4-step audit + cross-task wiring proof (final task)
+  --full-sweep         Full 4-step audit + cross-task wiring proof
   -h, --help           Show this help
 
 4-Step Audit:
@@ -156,51 +153,8 @@ if [[ -z "${TASK_SECTION}" ]]; then
     exit 1
 fi
 
-# ── Graduated verification: determine depth ──
+# ── Verification depth ──
 VERIFICATION_DEPTH="full"
-if [[ "$GRADUATED" == true ]]; then
-    TOTAL_TASKS=$(grep -cE '^## Task [0-9]{3}:' "${PLAN_FILE}" 2>/dev/null || echo "0")
-    # Find position of current task among all task headers.
-    TASK_POSITION=$(awk -v id="${TASK_ID}" '
-        /^## Task [0-9]{3}:/ {
-            n++
-            task=$3
-            sub(":", "", task)
-            if (task == id) {
-                print n
-                exit
-            }
-        }
-    ' "${PLAN_FILE}" 2>/dev/null || echo "")
-    TASK_POSITION="${TASK_POSITION:-$TOTAL_TASKS}"
-
-    if [[ "$TASK_POSITION" -eq "$TOTAL_TASKS" ]]; then
-        VERIFICATION_DEPTH="full-sweep"
-        FULL_SWEEP=true
-    else
-        # Check if this task modifies files also modified by prior tasks (owns + touches)
-        TASK_FILES=$(echo "${TASK_SECTION}" | grep -oP '(owns|touches):\s*\[\K[^]]*' 2>/dev/null | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' | xargs || echo "")
-        FILE_OVERLAP=false
-        HEADER_LINE=$(find_task_header_line "${TASK_ID}")
-        PRIOR_TEXT=""
-        if [[ -n "${HEADER_LINE}" ]] && [[ "${HEADER_LINE}" -gt 1 ]]; then
-            PRIOR_TEXT=$(sed -n "1,$((HEADER_LINE - 1))p" "${PLAN_FILE}" 2>/dev/null || true)
-        fi
-        for f in ${TASK_FILES}; do
-            # Check if any prior completed task also owns this file
-            if [[ -n "${PRIOR_TEXT}" ]] && echo "${PRIOR_TEXT}" | grep -Fq "${f}" 2>/dev/null; then
-                FILE_OVERLAP=true
-                break
-            fi
-        done
-        if [[ "$FILE_OVERLAP" == true ]]; then
-            VERIFICATION_DEPTH="full"
-        else
-            VERIFICATION_DEPTH="graduated"
-            USE_WIRING_PROOF=false
-        fi
-    fi
-fi
 
 if [[ "$FULL_SWEEP" == true ]]; then
     VERIFICATION_DEPTH="full-sweep"

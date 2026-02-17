@@ -940,7 +940,7 @@ build_prompt() {
 
 verify_prompt() {
     local idx="$1"
-    local verify_depth="${2:-graduated}"
+    local verify_depth="${2:-full}"
     local task_id="${TASK_IDS[$idx]}"
 
     local prompt="Verify Task ${task_id}. Read CLAUDE.md and .spectra/plan.md section '## Task ${task_id}' for context. Output your verification report with 'Result: PASS' or 'Result: FAIL' and 'Failure Type:' if applicable. Depth: ${verify_depth}."
@@ -1484,6 +1484,17 @@ echo "  Dry Run:      ${DRY_RUN}"
 echo "  Resume:       ${RESUME}"
 echo ""
 
+# ── Install pre-commit hook (idempotent, skip in dry-run) ──
+if [[ "$DRY_RUN" == false ]] && git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+    HOOK_SRC="${SPECTRA_HOME}/hooks/pre-commit"
+    HOOK_DST=".git/hooks/pre-commit"
+    if [[ -f "$HOOK_SRC" ]] && [[ ! -e "$HOOK_DST" ]]; then
+        mkdir -p .git/hooks
+        ln -s "$HOOK_SRC" "$HOOK_DST" 2>/dev/null || true
+        echo "  Installed pre-commit hook: ${HOOK_DST} -> ${HOOK_SRC}"
+    fi
+fi
+
 # Generate initial CLAUDE.md (skip in dry-run)
 if [[ "$DRY_RUN" == false ]]; then
     refresh_claude_md
@@ -1633,12 +1644,8 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
 
         write_status "${task_id}" "${task_title}" "${iteration}" "${max_iter}" "verifier" "${PASS_HISTORY}"
 
-        # Determine verification depth
-        read _TOTAL _DONE _REMAINING _STUCK <<< $(count_tasks)
-        verify_depth="graduated"
-        if [[ $_REMAINING -le 1 ]]; then
-            verify_depth="full"
-        fi
+        # Full verification on every task (Phase 3: no graduated mode)
+        verify_depth="full"
 
         echo "    Verifying Task ${task_id} (${verify_depth})..."
         set +e
@@ -1661,7 +1668,38 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
         fi
 
         if [[ "${RESULT^^}" == "PASS" ]]; then
-            # ── PASS ──
+            # ── Wiring gate (runs BEFORE marking task complete) ──
+            WIRING_OK=true
+            if [[ -f ".spectra/verify.yaml" ]] && git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+                echo "    Running wiring proof for Task ${task_id}..."
+                git add -A 2>/dev/null || true
+                set +e
+                "${SPECTRA_HOME}/bin/spectra-verify-wiring.sh" . \
+                    > "${LOGS_DIR}/task-${task_id}-wiring.log" 2>&1
+                WIRING_EXIT=$?
+                set -e
+
+                if [[ "${SPECTRA_SKIP_WIRING:-0}" == "1" ]]; then
+                    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] WIRING BYPASS: Task ${task_id} on branch ${BRANCH_NAME} — SPECTRA_SKIP_WIRING=1" \
+                        >> "${LOGS_DIR}/task-${task_id}-wiring.log"
+                    echo "    WARNING: Wiring proof bypassed (SPECTRA_SKIP_WIRING=1)"
+                elif [[ $WIRING_EXIT -ne 0 ]]; then
+                    WIRING_OK=false
+                    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] WIRING FAILED: Task ${task_id} on branch ${BRANCH_NAME}" \
+                        >> "${LOGS_DIR}/task-${task_id}-wiring.log"
+                    echo "    WIRING FAILED: Task ${task_id} — routing to retry (wiring_gap)"
+                fi
+            fi
+
+            if [[ "$WIRING_OK" == false ]]; then
+                # Wiring failure: do NOT mark complete — treat as FAIL with wiring_gap type
+                RESULT="FAIL"
+                FAILURE_TYPE="wiring_gap"
+            fi
+        fi
+
+        if [[ "${RESULT^^}" == "PASS" ]]; then
+            # ── PASS (verifier + wiring both passed) ──
             echo "    Task ${task_id} PASSED (iteration ${iteration})"
             TASK_STATUS[$idx]="complete"
 
@@ -1681,7 +1719,7 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
             # Git commit
             if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
                 git add -A 2>/dev/null || true
-                git commit -m "feat(task-${task_id}): ${task_title}" --no-verify 2>/dev/null || true
+                git commit -m "feat(task-${task_id}): ${task_title}" 2>/dev/null || true
             fi
 
             generate_task_summary "${task_id}" "${task_title}" "PASS" "${iteration}"
@@ -1732,6 +1770,15 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
                 TASK_STATUS[$idx]="stuck"
                 write_checkpoint
                 signal_stuck "Non-retryable failure on Task ${task_id}: ${FAILURE_TYPE}"
+            elif [[ "$iteration" -ge "$allowed_retries" ]]; then
+                # Type-specific retry budget exhausted
+                task_line="${TASK_LINES[$idx]}"
+                if [[ "$task_line" -gt 0 ]]; then
+                    sed_inplace "${task_line}s/\- \[ \]/- [!]/" "${SPECTRA_DIR}/plan.md"
+                fi
+                TASK_STATUS[$idx]="stuck"
+                write_checkpoint
+                signal_stuck "Task ${task_id} exhausted ${FAILURE_TYPE} retry budget (${allowed_retries} attempts)."
             fi
 
             # Check if max iterations exceeded

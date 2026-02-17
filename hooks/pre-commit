@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# SPECTRA pre-commit hook — wiring proof gate
+# Auto-installed by spectra-loop.sh. Safe to re-install (idempotent).
+set -euo pipefail
+
+SPECTRA_HOME="${SPECTRA_HOME:-${HOME}/.spectra}"
+
+# Graceful degradation: no verify.yaml means no wiring rules to check
+if [[ ! -f ".spectra/verify.yaml" ]]; then
+    exit 0
+fi
+
+# Emergency bypass
+if [[ "${SPECTRA_SKIP_WIRING:-0}" == "1" ]]; then
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] WIRING BYPASS: pre-commit hook — SPECTRA_SKIP_WIRING=1" >&2
+    exit 0
+fi
+
+# Run wiring proof (fail-closed: missing verifier blocks commit)
+if [[ ! -x "${SPECTRA_HOME}/bin/spectra-verify-wiring.sh" ]]; then
+    echo "[SPECTRA] Pre-commit hook: spectra-verify-wiring.sh not found or not executable — commit blocked" >&2
+    echo "[SPECTRA] Install SPECTRA or set SPECTRA_SKIP_WIRING=1 to bypass" >&2
+    exit 1
+fi
+
+"${SPECTRA_HOME}/bin/spectra-verify-wiring.sh" . || {
+    echo "[SPECTRA] Pre-commit hook: wiring proof FAILED — commit blocked" >&2
+    exit 1
+}
