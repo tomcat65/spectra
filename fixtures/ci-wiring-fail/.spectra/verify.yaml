@@ -1,0 +1,13 @@
+project:
+  source_dirs: ["src/"]
+  test_dirs: ["tests/"]
+  entry_points: ["src/app.py"]
+  language: python
+rules:
+  wiring:
+    enabled: true
+    ignore_patterns: ["_*", "test_*", "__*", "main"]
+  framework_checks: []
+  constants: []
+  write_guard:
+    enabled: false

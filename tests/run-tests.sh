@@ -128,6 +128,24 @@ TOTAL_FAIL=$((TOTAL_FAIL + phase3_fail))
 [[ ${phase3_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
 
 # ══════════════════════════════════════════
+# Suite 6: Phase 4 CI parity tests
+# ══════════════════════════════════════════
+echo "=== Suite: phase4-ci ==="
+set +e
+output=$("${SCRIPT_DIR}/test-phase4-ci.sh" 2>&1)
+phase4_exit=$?
+set -e
+echo "${output}"
+echo ""
+
+# Parse pass/fail counts from the sub-test output
+phase4_pass=$(echo "${output}" | grep -oP 'phase4-ci: \K[0-9]+(?= passed)' || echo "0")
+phase4_fail=$(echo "${output}" | grep -oP 'passed, \K[0-9]+(?= failed)' || echo "0")
+TOTAL_PASS=$((TOTAL_PASS + phase4_pass))
+TOTAL_FAIL=$((TOTAL_FAIL + phase4_fail))
+[[ ${phase4_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
+
+# ══════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════
 echo "==============================="
