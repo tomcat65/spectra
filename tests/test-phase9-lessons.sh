@@ -887,6 +887,27 @@ test_ttl_check_reads_snapshot() {
     teardown_test_env
 }
 
+test_ttl_check_confirmed_stays_alive() {
+    setup_test_env
+    # CONFIRMED lessons should never expire via TTL — only TEMP does
+    lesson_write "ttlconf-proj" "build" "err" "file.ts" "" "" "low" "run-1" "task-1" "" ""
+    lesson_promote "build/err/file.ts" "TEMP" "CONFIRMED" "test" "ttlconf-proj"
+
+    # Compact 6 times — well past low TTL=3
+    for _ in 1 2 3 4 5 6; do
+        compact_snapshot "ttlconf-proj"
+    done
+
+    local result
+    result=$(lesson_check_ttl "build/err/file.ts" "ttlconf-proj")
+    if [[ "${result}" == "ALIVE" ]]; then
+        pass "ttl_check_confirmed_stays_alive"
+    else
+        fail "ttl_check_confirmed_stays_alive" "CONFIRMED lesson should stay ALIVE, got ${result}"
+    fi
+    teardown_test_env
+}
+
 # ══════════════════════════════════════════
 # TEST GROUP 16c: Fingerprint injection rejection
 # ══════════════════════════════════════════
@@ -1055,6 +1076,7 @@ test_lesson_search_not_found
 # Group 15b: TTL check effective state
 echo "--- TTL Check Effective State ---"
 test_ttl_check_reads_snapshot
+test_ttl_check_confirmed_stays_alive
 
 # Group 15c: Fingerprint injection
 echo "--- Fingerprint Injection ---"

@@ -648,6 +648,8 @@ lesson_check_ttl() {
     status=$(echo "${effective_entry}" | grep -oP '"status":"\K[^"]+' || echo "TEMP")
     # Already expired in snapshot
     [[ "${status}" == "EXPIRED" ]] && { echo "EXPIRED"; return 0; }
+    # TTL expiry only applies to TEMP entries — CONFIRMED/PROMOTED/SIGN are retained
+    [[ "${status}" != "TEMP" ]] && { echo "ALIVE"; return 0; }
 
     local ttl_base severity recurrence_count
     ttl_base=$(echo "${effective_entry}" | grep -oP '"ttl_base":\K[0-9]+' || echo "5")
