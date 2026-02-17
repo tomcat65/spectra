@@ -398,15 +398,32 @@ compact_snapshot() {
                         echo "${stored}" > "${state_dir}/${fp_hash}"
                     fi
                     ;;
+                ttl_advance)
+                    # Restore persisted projects_since_last from prior compaction
+                    if [[ -f "${state_dir}/${fp_hash}" ]]; then
+                        local stored psl_event
+                        stored=$(cat "${state_dir}/${fp_hash}")
+                        psl_event=$(echo "${line}" | grep -oP '"projects_since_last":\K[0-9]+' || echo "0")
+                        # RATIONALE: bash ${//} unreliable with JSON special chars; sed is safer here
+                        # shellcheck disable=SC2001
+                        stored=$(echo "${stored}" | sed "s/\"projects_since_last\":[0-9]*/\"projects_since_last\":${psl_event}/")
+                        echo "${stored}" > "${state_dir}/${fp_hash}"
+                    fi
+                    ;;
             esac
         done < "${jsonl_file}"
 
         # Write compacted entries: advance projects_since_last, check TTL, exclude EXPIRED
+        # Collect ttl_advance events to persist psl progression in JSONL
+        local ttl_events_file="${snapshot_file}.ttl_events.$$"
+        true > "${ttl_events_file}"
+
         for fp_file in "${state_dir}"/*; do
             [[ -f "${fp_file}" ]] || continue
-            local entry status severity_val ttl_base_val recurrence_val psl_val
+            local entry status severity_val ttl_base_val recurrence_val psl_val fp_in_entry
             entry=$(cat "${fp_file}")
             status=$(echo "${entry}" | grep -oP '"status":"\K[^"]+' || echo "TEMP")
+            fp_in_entry=$(echo "${entry}" | grep -oP '"fingerprint":"\K[^"]+' || echo "")
 
             # Skip already expired
             [[ "${status}" == "EXPIRED" ]] && continue
@@ -443,10 +460,24 @@ compact_snapshot() {
             fi
 
             echo "${entry}" >> "${tmp_snapshot}"
+
+            # Record ttl_advance event to persist psl in JSONL for next compaction
+            if [[ -n "${fp_in_entry}" ]]; then
+                local advance_ts
+                advance_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+                printf '{"action":"ttl_advance","fingerprint":"%s","projects_since_last":%d,"timestamp":"%s"}\n' \
+                    "${fp_in_entry}" "${psl_val}" "${advance_ts}" >> "${ttl_events_file}"
+            fi
         done
 
         rm -rf "${state_dir}"
         mv "${tmp_snapshot}" "${snapshot_file}"
+
+        # Append ttl_advance events to JSONL so next replay picks up psl progression
+        if [[ -s "${ttl_events_file}" ]]; then
+            cat "${ttl_events_file}" >> "${jsonl_file}"
+        fi
+        rm -f "${ttl_events_file}"
     ) 200>"${lock_file}"
 }
 

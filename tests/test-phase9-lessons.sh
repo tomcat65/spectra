@@ -295,23 +295,30 @@ test_json_escape_helper() {
 
 test_ttl_advances_in_compaction() {
     setup_test_env
-    lesson_write "ttl-test" "build" "err" "file.ts" "" "" "low" "run-1" "task-1" "" ""
-
-    # Compact (should increment projects_since_last from 0 to 1)
-    compact_snapshot "ttl-test"
+    # Use medium severity (TTL=5) so entry doesn't expire before psl=3
+    lesson_write "ttl-test" "build" "err" "file.ts" "" "" "medium" "run-1" "task-1" "" ""
 
     local snapshot="${TEST_LESSONS_HOME}/projects/ttl-test/lessons.snapshot"
-    if [[ -f "${snapshot}" ]]; then
-        local psl
-        psl=$(grep -oP '"projects_since_last":\K[0-9]+' "${snapshot}" | head -1)
-        if [[ "${psl}" == "1" ]]; then
-            pass "ttl_advances_in_compaction"
+    local ok=true
+
+    # Compact 3 times — psl must monotonically advance: 1, 2, 3
+    for expected_psl in 1 2 3; do
+        compact_snapshot "ttl-test"
+        if [[ -f "${snapshot}" ]]; then
+            local psl
+            psl=$(grep -oP '"projects_since_last":\K[0-9]+' "${snapshot}" | head -1)
+            if [[ "${psl}" != "${expected_psl}" ]]; then
+                fail "ttl_advances_in_compaction" "run ${expected_psl}: expected psl=${expected_psl}, got ${psl}"
+                ok=false
+                break
+            fi
         else
-            fail "ttl_advances_in_compaction" "expected projects_since_last=1 after compaction, got ${psl}"
+            fail "ttl_advances_in_compaction" "snapshot not created on run ${expected_psl}"
+            ok=false
+            break
         fi
-    else
-        fail "ttl_advances_in_compaction" "snapshot not created"
-    fi
+    done
+    [[ "${ok}" == "true" ]] && pass "ttl_advances_in_compaction"
     teardown_test_env
 }
 
