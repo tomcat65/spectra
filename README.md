@@ -1,5 +1,7 @@
 # SPECTRA
 
+[![SPECTRA CI](https://github.com/tomcat65/spectra/actions/workflows/spectra-ci.yml/badge.svg)](https://github.com/tomcat65/spectra/actions/workflows/spectra-ci.yml)
+
 **S**ystematic **P**lanning, **E**xecution via **C**lean-context loops, **T**racking & verification with **R**eal-time **A**gent orchestration.
 
 > Plan like BMAD. Execute like Ralph Wiggum. Orchestrate like Your Claude Engineer.

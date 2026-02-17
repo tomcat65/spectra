@@ -1,0 +1,98 @@
+name: SPECTRA CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bash syntax check
+        run: |
+          failed=0
+          for script in bin/*.sh; do
+            if bash -n "$script" 2>/dev/null; then
+              echo "PASS  $(basename "$script")"
+            else
+              echo "FAIL  $(basename "$script")"
+              failed=1
+            fi
+          done
+          exit $failed
+
+      - name: ShellCheck (errors only)
+        run: |
+          sudo apt-get -qq install -y shellcheck > /dev/null 2>&1
+          shellcheck --severity=error bin/*.sh
+
+      - name: actionlint
+        run: |
+          bash <(curl -sS https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run test suite
+        run: bash tests/run-tests.sh 2>&1 | tee test-output.log
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: test-output.log
+
+  wiring:
+    name: Wiring
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Anti-bypass guard
+        run: |
+          if [[ "${SPECTRA_SKIP_WIRING:-0}" == "1" ]]; then
+            echo "ERROR: SPECTRA_SKIP_WIRING is not allowed in CI"
+            exit 1
+          fi
+
+      - name: Initialize fixture git repos
+        run: |
+          for fixture in fixtures/ci-wiring-pass fixtures/ci-wiring-fail; do
+            (cd "$fixture" && git init && git add -A && git commit -m "fixture" --quiet)
+          done
+
+      - name: Wiring check — pass fixture (expect exit 0)
+        run: bin/spectra-verify-wiring.sh fixtures/ci-wiring-pass
+
+      - name: Wiring check — fail fixture (expect exit 1)
+        run: |
+          set +e
+          bin/spectra-verify-wiring.sh fixtures/ci-wiring-fail
+          exit_code=$?
+          set -e
+          if [[ $exit_code -eq 1 ]]; then
+            echo "PASS: fail fixture correctly detected wiring violations (exit 1)"
+          else
+            echo "FAIL: fail fixture should have exited 1, got $exit_code"
+            exit 1
+          fi
