@@ -200,6 +200,24 @@ TOTAL_FAIL=$((TOTAL_FAIL + phase7_fail))
 [[ ${phase7_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
 
 # ══════════════════════════════════════════
+# Suite 10: Phase 8 behavior parity tests
+# ══════════════════════════════════════════
+echo "=== Suite: phase8-behavior ==="
+set +e
+output=$("${SCRIPT_DIR}/test-phase8-behavior.sh" 2>&1)
+phase8_exit=$?
+set -e
+echo "${output}"
+echo ""
+
+# Parse pass/fail counts from the sub-test output
+phase8_pass=$(echo "${output}" | grep -oP 'phase8-behavior: \K[0-9]+(?= passed)' || echo "0")
+phase8_fail=$(echo "${output}" | grep -oP 'passed, \K[0-9]+(?= failed)' || echo "0")
+TOTAL_PASS=$((TOTAL_PASS + phase8_pass))
+TOTAL_FAIL=$((TOTAL_FAIL + phase8_fail))
+[[ ${phase8_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
+
+# ══════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════
 echo "==============================="
