@@ -258,14 +258,133 @@ else
 fi
 
 # ══════════════════════════════════════════
-# Test 13: CI anti-drift step exists in workflow
+# Test 13: CI anti-drift uses explicit expected module list (not glob-only)
 # ══════════════════════════════════════════
 CI_WORKFLOW="${SPECTRA_HOME}/.github/workflows/spectra-ci.yml"
-if [[ -f "$CI_WORKFLOW" ]] && grep -q 'Module anti-drift' "$CI_WORKFLOW" 2>/dev/null; then
-    assert_pass "CI workflow has module anti-drift step"
+if [[ -f "$CI_WORKFLOW" ]] \
+   && grep -q 'Module anti-drift' "$CI_WORKFLOW" 2>/dev/null \
+   && grep -q 'EXPECTED_MODULES=' "$CI_WORKFLOW" 2>/dev/null; then
+    assert_pass "CI anti-drift uses explicit expected module list"
 else
-    assert_fail "CI workflow has module anti-drift step"
+    assert_fail "CI anti-drift uses explicit expected module list"
 fi
+
+# ══════════════════════════════════════════
+# Test 14: Non-dry-run golden behavior — write_signal produces signal file
+# ══════════════════════════════════════════
+TMPDIR_T14=$(mktemp -d)
+set +e
+SIG_OUT=$(bash -c '
+set -euo pipefail
+SPECTRA_HOME="'"${SPECTRA_HOME}"'"
+SIGNALS_DIR="'"${TMPDIR_T14}"'/signals"
+SPECTRA_DIR="'"${TMPDIR_T14}"'"
+BRANCH_NAME="test-branch"
+PASS_HISTORY=""
+LOGS_DIR="'"${TMPDIR_T14}"'/logs"
+SLACK_WEBHOOK_URL=""
+START_TIME=$(date +%s)
+
+elapsed() { echo "0m00s"; }
+elapsed_seconds() { echo "0"; }
+
+mkdir -p "$SIGNALS_DIR" "$LOGS_DIR"
+source "${SPECTRA_HOME}/lib/loop-signals.sh"
+
+# Actually write a signal (non-dry-run behavior)
+write_signal "TEST_SIGNAL" "golden behavior test"
+
+# Verify signal file was created with correct content
+if [[ -f "${SIGNALS_DIR}/TEST_SIGNAL" ]]; then
+    content=$(cat "${SIGNALS_DIR}/TEST_SIGNAL")
+    echo "SIGNAL_EXISTS=true"
+    echo "SIGNAL_CONTENT=${content}"
+else
+    echo "SIGNAL_EXISTS=false"
+fi
+' 2>&1)
+SIG_EXIT=$?
+set -e
+
+if [[ $SIG_EXIT -eq 0 ]] && echo "$SIG_OUT" | grep -q 'SIGNAL_EXISTS=true'; then
+    assert_pass "non-dry-run: write_signal produces signal file"
+else
+    assert_fail "non-dry-run: write_signal produces signal file (exit=$SIG_EXIT)"
+fi
+rm -rf "$TMPDIR_T14"
+
+# ══════════════════════════════════════════
+# Test 15: Non-dry-run golden behavior — write_checkpoint produces valid JSON
+# ══════════════════════════════════════════
+TMPDIR_T15=$(mktemp -d)
+set +e
+CKPT_OUT=$(bash -c '
+set -euo pipefail
+SPECTRA_HOME="'"${SPECTRA_HOME}"'"
+SIGNALS_DIR="'"${TMPDIR_T15}"'/signals"
+SPECTRA_DIR="'"${TMPDIR_T15}"'"
+BRANCH_NAME="test-branch"
+PASS_HISTORY="001"
+LOGS_DIR="'"${TMPDIR_T15}"'/logs"
+CHECKPOINT_FILE="'"${TMPDIR_T15}"'/signals/CHECKPOINT"
+PLAN_CHECKSUM=""
+ELAPSED_OFFSET=0
+SLACK_WEBHOOK_URL=""
+START_TIME=$(date +%s)
+
+elapsed() { echo "0m00s"; }
+elapsed_seconds() { echo "0"; }
+
+declare -a TASK_IDS=("001" "002")
+declare -a TASK_STATUS=("complete" "pending")
+declare -a RETRY_COUNTS=(0 1)
+declare -a FAILURE_TYPES=("" "test_failure")
+
+mkdir -p "$SIGNALS_DIR" "$LOGS_DIR"
+source "${SPECTRA_HOME}/lib/loop-signals.sh"
+source "${SPECTRA_HOME}/lib/loop-checkpoint.sh"
+
+# Actually write checkpoint (non-dry-run behavior)
+write_checkpoint
+
+# Verify checkpoint was created and is valid JSON
+if [[ -f "$CHECKPOINT_FILE" ]]; then
+    echo "CKPT_EXISTS=true"
+    if command -v jq &>/dev/null; then
+        version=$(jq -r ".version" "$CHECKPOINT_FILE" 2>/dev/null || echo "")
+        completed=$(jq -r ".completed[0]" "$CHECKPOINT_FILE" 2>/dev/null || echo "")
+        branch=$(jq -r ".branch" "$CHECKPOINT_FILE" 2>/dev/null || echo "")
+        echo "VERSION=${version}"
+        echo "COMPLETED=${completed}"
+        echo "BRANCH=${branch}"
+    else
+        echo "VERSION=skip"
+        echo "COMPLETED=skip"
+        echo "BRANCH=skip"
+    fi
+else
+    echo "CKPT_EXISTS=false"
+fi
+' 2>&1)
+CKPT_EXIT=$?
+set -e
+
+CKPT_EXISTS=$(echo "$CKPT_OUT" | grep '^CKPT_EXISTS=' | cut -d= -f2)
+CKPT_VERSION=$(echo "$CKPT_OUT" | grep '^VERSION=' | cut -d= -f2)
+CKPT_COMPLETED=$(echo "$CKPT_OUT" | grep '^COMPLETED=' | cut -d= -f2)
+CKPT_BRANCH=$(echo "$CKPT_OUT" | grep '^BRANCH=' | cut -d= -f2)
+
+if [[ $CKPT_EXIT -eq 0 ]] && [[ "$CKPT_EXISTS" == "true" ]]; then
+    if [[ "$CKPT_VERSION" == "skip" ]] || \
+       ( [[ "$CKPT_VERSION" == "5.0" ]] && [[ "$CKPT_COMPLETED" == "001" ]] && [[ "$CKPT_BRANCH" == "test-branch" ]] ); then
+        assert_pass "non-dry-run: write_checkpoint produces valid JSON (v=$CKPT_VERSION, completed=$CKPT_COMPLETED)"
+    else
+        assert_fail "non-dry-run: checkpoint content wrong (v=$CKPT_VERSION, completed=$CKPT_COMPLETED, branch=$CKPT_BRANCH)"
+    fi
+else
+    assert_fail "non-dry-run: write_checkpoint failed (exit=$CKPT_EXIT, exists=$CKPT_EXISTS)"
+fi
+rm -rf "$TMPDIR_T15"
 
 # ══════════════════════════════════════════
 # Summary
