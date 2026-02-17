@@ -93,6 +93,104 @@ json_escape() {
     echo "${str}"
 }
 
+# ── Prompt injection guard (SIGN-010 candidate) ──
+# Lessons flow: project → framework → new projects → agent context.
+# A malicious lesson could embed prompt injection to hijack agent behavior.
+# This function strips dangerous patterns before propagation.
+
+sanitize_for_propagation() {
+    local text="$1"
+    # Strip XML-like tags that could inject system/assistant/user context
+    text=$(echo "${text}" | sed -E 's/<\/?system-reminder[^>]*>//g')
+    text=$(echo "${text}" | sed -E 's/<\/?system[^>]*>//g')
+    text=$(echo "${text}" | sed -E 's/<\/?assistant[^>]*>//g')
+    text=$(echo "${text}" | sed -E 's/<\/?user[^>]*>//g')
+    text=$(echo "${text}" | sed -E 's/<\/?human[^>]*>//g')
+    text=$(echo "${text}" | sed -E 's/<\/?tool_use[^>]*>//g')
+    text=$(echo "${text}" | sed -E 's/<\/?antml:[^>]*>//g')
+    # Strip common prompt injection patterns
+    text=$(echo "${text}" | sed -E 's/[Ii]gnore (all |previous |prior |above )*instructions?//g')
+    text=$(echo "${text}" | sed -E 's/[Yy]ou are now //g')
+    text=$(echo "${text}" | sed -E 's/[Nn]ew (system )?prompt://g')
+    text=$(echo "${text}" | sed -E 's/IMPORTANT:.*[Oo]verride//g')
+    # Strip shell injection patterns (backticks, $(), eval)
+    # RATIONALE: single quotes intentional — we match literal backticks, not expansions
+    # shellcheck disable=SC2016
+    text=$(echo "${text}" | sed -E 's/`[^`]*`/[CODE_STRIPPED]/g')
+    text=$(echo "${text}" | sed -E 's/\$\([^)]*\)/[CMD_STRIPPED]/g')
+    text="${text//eval /}"
+    # Cap length to prevent context flooding
+    text=$(echo "${text}" | cut -c1-500)
+    echo "${text}"
+}
+
+# Validate a JSONL lesson entry is safe for propagation
+# Returns 0 if safe, 1 if rejected
+validate_lesson_entry() {
+    local entry="$1"
+
+    # Reject entries with suspiciously long fields (>500 chars per field)
+    local detail
+    detail=$(echo "${entry}" | grep -oP '"detail":"\K[^"]*' || echo "")
+    if [[ ${#detail} -gt 500 ]]; then
+        return 1
+    fi
+
+    # Reject entries containing XML tags in any field
+    if echo "${entry}" | grep -qiP '<(system|assistant|user|human|antml:)'; then
+        return 1
+    fi
+
+    # Reject entries with shell injection patterns
+    # RATIONALE: single quotes intentional — matching literal shell patterns, not expanding
+    # shellcheck disable=SC2016
+    if echo "${entry}" | grep -qP '\$\(|`.*`|;\s*(rm|curl|wget|eval)\b'; then
+        return 1
+    fi
+
+    return 0
+}
+
+# Read lessons safe for propagation (filtered + sanitized)
+lessons_for_propagation() {
+    local min_status="${1:-CONFIRMED}"  # CONFIRMED, PROMOTED, or SIGN
+
+    ensure_lessons_dir
+
+    local status_regex
+    case "${min_status}" in
+        CONFIRMED) status_regex="CONFIRMED|PROMOTED|SIGN" ;;
+        PROMOTED)  status_regex="PROMOTED|SIGN" ;;
+        SIGN)      status_regex="SIGN" ;;
+        *)         status_regex="CONFIRMED|PROMOTED|SIGN" ;;
+    esac
+
+    for project_dir in "${LESSONS_HOME}/projects"/*/; do
+        local snapshot="${project_dir}lessons.snapshot"
+        local jsonl="${project_dir}lessons.jsonl"
+        local source="${snapshot}"
+        [[ -f "${source}" ]] || source="${jsonl}"
+        [[ -f "${source}" ]] || continue
+
+        while IFS= read -r entry; do
+            # Only entries at or above minimum status
+            local status
+            status=$(echo "${entry}" | grep -oP '"status":"\K[^"]+' || echo "")
+            if ! echo "${status}" | grep -qP "^(${status_regex})$"; then
+                continue
+            fi
+
+            # Validate entry is safe
+            if ! validate_lesson_entry "${entry}"; then
+                echo "  WARN: Rejected suspicious lesson entry (prompt injection guard)" >&2
+                continue
+            fi
+
+            echo "${entry}"
+        done < "${source}"
+    done | sort -u  # dedup across projects
+}
+
 # ── JSONL append with flock ──
 
 lesson_flock_append() {
