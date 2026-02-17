@@ -100,6 +100,16 @@ discover_targets() {
             targets+=("$f")
         fi
     done
+    # Pass 3: lib/*.sh modules (no symlinks expected)
+    for f in "${SPECTRA_HOME}"/lib/*.sh; do
+        [[ -f "$f" ]] || continue
+        local real
+        real=$(realpath "$f" 2>/dev/null || readlink -f "$f" 2>/dev/null || echo "$f")
+        if [[ -z "${seen_realpaths[$real]+x}" ]]; then
+            seen_realpaths["$real"]=1
+            targets+=("$f")
+        fi
+    done
     if [[ -f "${SPECTRA_HOME}/hooks/pre-commit" ]]; then
         local real
         real=$(realpath "${SPECTRA_HOME}/hooks/pre-commit" 2>/dev/null || echo "${SPECTRA_HOME}/hooks/pre-commit")

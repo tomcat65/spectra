@@ -1,6 +1,6 @@
 {
   "shellcheck_version": "0.10.0",
-  "generated_at": "2026-02-17T05:34:52Z",
+  "generated_at": "2026-02-17T05:48:44Z",
   "files": {
     "bin/plan-extract.sh": {
       "total": 0,
@@ -47,6 +47,26 @@
       "rules": {}
     },
     "bin/spectra-verify.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "lib/loop-checkpoint.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "lib/loop-git.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "lib/loop-retry.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "lib/loop-signals.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "lib/loop-wiring.sh": {
       "total": 0,
       "rules": {}
     },

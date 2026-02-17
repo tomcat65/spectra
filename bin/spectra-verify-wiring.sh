@@ -52,7 +52,10 @@ rules:
   write_guard:
     enabled: false
 F
-    set +e; OUT=$("$0" "$T" --verbose 2>&1); set -e
+    set +e; OUT=$("$0" "$T" --verbose 2>&1)
+    # RATIONALE: EC is used via eval in check() assertion: '[[ "$EC" -eq 1 ]]'
+    # shellcheck disable=SC2034
+    EC=$?; set -e
     PASS=0; FAIL=0
     check() { if eval "$1"; then printf "${GREEN}[self-test] PASS: $2${NC}\n"; PASS=$((PASS+1))
               else printf "${RED}[self-test] FAIL: $2${NC}\n"; FAIL=$((FAIL+1)); echo "$OUT"; fi; }

@@ -7,7 +7,7 @@ set -euo pipefail
 # ║  Auto-logs PASS/FAIL to lessons-learned.md                       ║
 # ╚══════════════════════════════════════════════════════════════════╝
 #
-# Usage: spectra-verify [--task N] [--linear] [--slack] [--no-wiring-proof]
+# Usage: spectra-verify [--task N] [--slack] [--no-wiring-proof]
 #
 # This script provides automated verification as a complement to the
 # spectra-verifier subagent. It can run standalone or as a pre-check.
@@ -38,7 +38,6 @@ Usage: spectra-verify [OPTIONS]
 
 Options:
   --task N             Verify specific task number
-  --linear             Update Linear on PASS/FAIL
   --slack              Send Slack notification on PASS/FAIL
   --no-wiring-proof    Skip wiring proof checks (not recommended)
   --full-sweep         Full 4-step audit + cross-task wiring proof
