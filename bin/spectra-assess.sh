@@ -259,6 +259,42 @@ case "${TRACK}" in
 esac
 
 # ══════════════════════════════════════════
+# BROWNFIELD HEURISTIC FLOOR (Phase 9, FIX-4)
+# If project has high test count or module count, floor Level at 3.
+# ══════════════════════════════════════════
+
+BROWNFIELD_FLOOR_APPLIED=false
+if [[ "${LEVEL}" -lt 3 ]]; then
+    # Count test files (common patterns across languages)
+    TEST_FILE_COUNT=0
+    for pattern in "test_*.py" "*_test.py" "*_test.go" "*.test.ts" "*.test.js" "*.spec.ts" "*.spec.js" "Test*.java" "*Test.java" "*_test.sh"; do
+        count=$(find . -name "${pattern}" -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l)
+        TEST_FILE_COUNT=$((TEST_FILE_COUNT + count))
+    done
+
+    # Count source modules (top-level directories with code)
+    MODULE_COUNT=0
+    for dir in */; do
+        dir_name="${dir%/}"
+        # Skip common non-source dirs
+        case "${dir_name}" in
+            node_modules|.git|.spectra|dist|build|coverage|.cache|vendor|__pycache__) continue ;;
+        esac
+        # Count as module if it contains source files
+        if find "${dir}" \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.java" -o -name "*.sh" -o -name "*.rs" \) -not -path '*/node_modules/*' 2>/dev/null | head -1 | grep -q .; then
+            MODULE_COUNT=$((MODULE_COUNT + 1))
+        fi
+    done
+
+    if [[ ${TEST_FILE_COUNT} -gt 500 ]] || [[ ${MODULE_COUNT} -gt 8 ]]; then
+        LEVEL=3
+        EXEC_MODE="teams"
+        BROWNFIELD_FLOOR_APPLIED=true
+        MAPPING_REASON="${MAPPING_REASON} (brownfield floor: test_count=${TEST_FILE_COUNT}, module_count=${MODULE_COUNT})"
+    fi
+fi
+
+# ══════════════════════════════════════════
 # RISK SCORE CALCULATION
 # ══════════════════════════════════════════
 
@@ -426,6 +462,9 @@ echo "  Verification: ${VERIFICATION_INTENSITY}"
 echo "  Wiring:       ${WIRING_DEPTH}"
 echo "  Retry Budget: ${RETRY_BUDGET}"
 echo "  Risk Score:   ${RISK_SCORE}"
+if [[ "${BROWNFIELD_FLOOR_APPLIED}" == true ]]; then
+    echo "  Brownfield:   Floor applied (tests=${TEST_FILE_COUNT}, modules=${MODULE_COUNT})"
+fi
 echo "  ────────────────────────────────"
 echo "  Output: ${OUTPUT_FILE}"
 if [[ ${#WARNINGS[@]} -gt 0 ]]; then
