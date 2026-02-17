@@ -38,6 +38,18 @@ source "${SPECTRA_HOME}/lib/loop-git.sh"
 source "${SPECTRA_HOME}/lib/loop-checkpoint.sh"
 source "${SPECTRA_HOME}/lib/loop-build.sh"
 source "${SPECTRA_HOME}/lib/loop-verify.sh"
+source "${SPECTRA_HOME}/lib/loop-lessons.sh"
+
+# ── Guard: CLAUDECODE env var (FIX-1, Phase 9) ──
+# When running inside Claude Code, CLAUDECODE is set and blocks nested `claude` CLI.
+# Fail fast with clear instructions rather than silently producing zero work.
+if [[ -n "${CLAUDECODE:-}" ]]; then
+    echo "ERROR: CLAUDECODE environment variable detected." >&2
+    echo "  spectra-loop cannot spawn nested 'claude' CLI agents inside Claude Code." >&2
+    echo "  Workaround: Run spectra-loop from a standalone terminal, or use the" >&2
+    echo "  Claude Code Task tool to delegate agent invocations." >&2
+    exit 1
+fi
 
 # ── Defaults ──
 PLAN_ONLY=false
@@ -53,6 +65,7 @@ MAX_TASKS=50
 BUILDER_TIMEOUT=600  # seconds per builder invocation (default 10 min)
 START_TIME=$(date +%s)
 ELAPSED_OFFSET=0
+SPECTRA_RUN_ID="spectra-run-$(date +%Y%m%d-%H%M%S)"
 
 # ── Plan arrays (populated by parse_plan) ──
 TASK_IDS=()
@@ -802,8 +815,14 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
                     ;;
                 APPROVED_WITH_WARNINGS)
                     echo "  Plan approved with warnings."
-                    sed -n '/### Warnings/,/### /p' "${SIGNALS_DIR}/plan-review.md" | \
-                        grep '^\-' >> "${SPECTRA_DIR}/guardrails.md" 2>/dev/null || true
+                    # Phase 9: Dedup warnings before appending to guardrails
+                    while IFS= read -r warning_line; do
+                        if guardrails_dedup_check "${warning_line}" "${SPECTRA_DIR}/guardrails.md"; then
+                            echo "${warning_line}" >> "${SPECTRA_DIR}/guardrails.md"
+                        else
+                            echo "  Skipped duplicate warning: ${warning_line:0:60}..."
+                        fi
+                    done < <(sed -n '/### Warnings/,/### /p' "${SIGNALS_DIR}/plan-review.md" | grep '^\-' 2>/dev/null || true)
                     ;;
                 REJECTED)
                     echo "  Plan rejected. Attempting one revision..."
@@ -1213,16 +1232,24 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
 - Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 FAILEOF
 
-            # Append to lessons-learned
-            {
-                echo ""
-                echo "### LESSON-$(date +%Y%m%d%H%M%S)"
-                echo "- **State:** TEMP"
-                echo "- **Pattern:** Task ${task_id} failed verification (${FAILURE_TYPE})"
-                echo "- **Fix:** Pending builder retry (iteration $((iteration + 1)))"
-                echo "- **Projects Seen:** [$(basename "$(pwd)")]"
-                echo "- **TTL Remaining:** 5 projects"
-            } >> "${SPECTRA_DIR}/lessons-learned.md" 2>/dev/null || true
+            # Write structured lesson via JSONL (Phase 9)
+            verifier_summary=""
+            if [[ -f "${LOGS_DIR}/task-${task_id}-verify.md" ]]; then
+                verifier_summary=$(grep -m1 -iP '(FAIL|ERROR|Assert)' "${LOGS_DIR}/task-${task_id}-verify.md" 2>/dev/null | head -c 200 || echo "")
+            fi
+            lesson_write \
+                "$(basename "$(pwd)")" \
+                "${FAILURE_TYPE:-unknown}" \
+                "${FAILURE_TYPE:-unknown}" \
+                "task-${task_id}" \
+                "" \
+                "Task ${task_id} failed verification, pending retry (iteration $((iteration + 1)))" \
+                "medium" \
+                "${SPECTRA_RUN_ID}" \
+                "${task_id}" \
+                "${verifier_summary}" \
+                "${FAILURE_TYPE:-unknown}" \
+                2>/dev/null || true
 
             propagate_signs
         fi
@@ -1292,8 +1319,31 @@ if [[ $REMAINING -eq 0 ]] && [[ $TOTAL -gt 0 ]]; then
     if [[ "$DRY_RUN" == false ]]; then
         echo "  Spawning spectra-reviewer (Sonnet) for final PR review..."
         claude --agent spectra-reviewer -p --permission-mode plan \
-            "Perform a final PR review. Read .spectra/logs/ for all task reports. Review the git diff. Check lessons-learned.md for patterns worth promoting to Signs. Output your review." \
+            "Perform a final PR review. Read .spectra/logs/ for all task reports. Review the git diff. Check the JSONL lessons in ~/.spectra/lessons/projects/ for patterns worth promoting. Output your review." \
             2>&1 | tee "${LOGS_DIR}/pr-review-session.log" "${LOGS_DIR}/pr-review.md" || true
+    fi
+
+    # Phase 9: Post-run lesson compaction + promotion check
+    if [[ "$DRY_RUN" == false ]]; then
+        PROJECT_NAME_P9=$(basename "$(pwd)")
+        echo "  Compacting lesson snapshot for ${PROJECT_NAME_P9}..."
+        compact_snapshot "${PROJECT_NAME_P9}" 2>/dev/null || true
+
+        # Check all fingerprints in this project for promotion eligibility
+        PROJECT_JSONL_P9="${LESSONS_HOME}/projects/${PROJECT_NAME_P9}/lessons.jsonl"
+        if [[ -f "${PROJECT_JSONL_P9}" ]]; then
+            while IFS= read -r fp; do
+                [[ -z "${fp}" ]] && continue
+                ELIGIBLE_P9=$(lesson_check_promotion "${fp}")
+                if [[ "${ELIGIBLE_P9}" == "CONFIRMED" ]]; then
+                    # Check if already promoted
+                    if ! grep -q "\"fingerprint\":\"${fp}\".*\"to\":\"CONFIRMED\"" "${PROJECT_JSONL_P9}" 2>/dev/null; then
+                        echo "  Promoting lesson ${fp} → CONFIRMED (cross-project recurrence)"
+                        lesson_promote "${fp}" "TEMP" "CONFIRMED" "auto_cross_project" "${PROJECT_NAME_P9}"
+                    fi
+                fi
+            done < <(grep -oP '"fingerprint":"\K[^"]+' "${PROJECT_JSONL_P9}" 2>/dev/null | sort -u || true)
+        fi
     fi
 
     if [[ "$DRY_RUN" == false ]]; then

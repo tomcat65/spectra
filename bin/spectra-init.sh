@@ -134,6 +134,33 @@ if [[ "$LEVEL" -ge 1 ]]; then
         echo "→ Global Signs propagated to local guardrails.md"
     fi
     hydrate "${TEMPLATE_DIR}/lessons-learned.md.tmpl" ".spectra/lessons-learned.md"
+
+    # Phase 9: Propagate CONFIRMED+ lessons from global store
+    if [[ -d "${SPECTRA_HOME}/lessons/projects" ]]; then
+        source "${SPECTRA_HOME}/lib/loop-lessons.sh" 2>/dev/null || true
+        if declare -f lessons_for_propagation > /dev/null 2>&1; then
+            lesson_count=0
+            echo "→ Propagating cross-project lessons (CONFIRMED+)..."
+            while IFS= read -r lesson_entry; do
+                [[ -z "${lesson_entry}" ]] && continue
+                fp=""; detail=""
+                fp=$(echo "${lesson_entry}" | grep -oP '"fingerprint":"\K[^"]+' || echo "unknown")
+                detail=$(echo "${lesson_entry}" | grep -oP '"detail":"\K[^"]*' || echo "")
+                status=$(echo "${lesson_entry}" | grep -oP '"status":"\K[^"]+' || echo "")
+                # Sanitize ALL fields before writing to project guardrails
+                fp=$(sanitize_for_propagation "${fp}")
+                detail=$(sanitize_for_propagation "${detail}")
+                status=$(echo "${status}" | grep -oP '^(CONFIRMED|PROMOTED|SIGN)$' || echo "UNKNOWN")
+                echo "- **[${status}]** \`${fp}\`: ${detail}" >> ".spectra/guardrails.md"
+                lesson_count=$((lesson_count + 1))
+            done < <(lessons_for_propagation "CONFIRMED")
+            if [[ ${lesson_count} -gt 0 ]]; then
+                echo "  ${lesson_count} lesson(s) propagated to project guardrails."
+            else
+                echo "  No cross-project lessons to propagate."
+            fi
+        fi
+    fi
 fi
 
 # ── Wiring Verification Setup ──

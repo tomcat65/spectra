@@ -218,6 +218,24 @@ TOTAL_FAIL=$((TOTAL_FAIL + phase8_fail))
 [[ ${phase8_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
 
 # ══════════════════════════════════════════
+# Suite 11: Phase 9 continuous learning tests
+# ══════════════════════════════════════════
+echo "=== Suite: phase9-lessons ==="
+set +e
+output=$("${SCRIPT_DIR}/test-phase9-lessons.sh" 2>&1)
+phase9_exit=$?
+set -e
+echo "${output}"
+echo ""
+
+# Parse pass/fail counts from the sub-test output
+phase9_pass=$(echo "${output}" | grep -oP 'phase9-lessons: \K[0-9]+(?= passed)' || echo "0")
+phase9_fail=$(echo "${output}" | grep -oP 'passed, \K[0-9]+(?= failed)' || echo "0")
+TOTAL_PASS=$((TOTAL_PASS + phase9_pass))
+TOTAL_FAIL=$((TOTAL_FAIL + phase9_fail))
+[[ ${phase9_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
+
+# ══════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════
 echo "==============================="

@@ -1,6 +1,6 @@
 {
   "shellcheck_version": "0.10.0",
-  "generated_at": "2026-02-17T06:15:00Z",
+  "generated_at": "2026-02-17T18:59:51Z",
   "files": {
     "bin/plan-extract.sh": {
       "total": 0,
@@ -59,6 +59,10 @@
       "rules": {}
     },
     "lib/loop-git.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "lib/loop-lessons.sh": {
       "total": 0,
       "rules": {}
     },
