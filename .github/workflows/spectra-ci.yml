@@ -24,7 +24,7 @@ jobs:
       - name: Bash syntax check
         run: |
           failed=0
-          for script in bin/*.sh; do
+          for script in bin/*.sh lib/*.sh; do
             if bash -n "$script" 2>/dev/null; then
               echo "PASS  $(basename "$script")"
             else
@@ -32,6 +32,33 @@ jobs:
               failed=1
             fi
           done
+          exit $failed
+
+      - name: Module anti-drift
+        run: |
+          failed=0
+          # Every lib/loop-*.sh must be sourced in spectra-loop.sh
+          for mod in lib/loop-*.sh; do
+            mod_name=$(basename "$mod")
+            if ! grep -q "source.*lib/${mod_name}" bin/spectra-loop.sh; then
+              echo "FAIL: ${mod_name} exists but is not sourced in spectra-loop.sh"
+              failed=1
+            fi
+          done
+          # No duplicate source lines
+          dups=$(grep -E '^source.*lib/loop-' bin/spectra-loop.sh | sort | uniq -d)
+          if [[ -n "$dups" ]]; then
+            echo "FAIL: duplicate source lines: $dups"
+            failed=1
+          fi
+          # No wildcard sourcing
+          if grep -qE 'source.*lib/loop-\*' bin/spectra-loop.sh; then
+            echo "FAIL: wildcard sourcing detected (must use explicit list)"
+            failed=1
+          fi
+          if [[ $failed -eq 0 ]]; then
+            echo "PASS: all lib/loop-*.sh modules sourced, no duplicates, no wildcards"
+          fi
           exit $failed
 
       - name: Install ShellCheck (pinned)
@@ -42,7 +69,7 @@ jobs:
           shellcheck --version | head -2
 
       - name: ShellCheck (errors only — fast fail)
-        run: shellcheck --severity=error bin/*.sh hooks/pre-commit
+        run: shellcheck --severity=error bin/*.sh lib/*.sh hooks/pre-commit
 
       - name: ShellCheck ratchet (warnings)
         run: bin/spectra-shellcheck-ratchet.sh --check
