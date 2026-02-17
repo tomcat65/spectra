@@ -1,6 +1,6 @@
 {
   "shellcheck_version": "0.10.0",
-  "generated_at": "2026-02-17T05:48:44Z",
+  "generated_at": "2026-02-17T06:15:00Z",
   "files": {
     "bin/plan-extract.sh": {
       "total": 0,
@@ -50,6 +50,10 @@
       "total": 0,
       "rules": {}
     },
+    "lib/loop-build.sh": {
+      "total": 0,
+      "rules": {}
+    },
     "lib/loop-checkpoint.sh": {
       "total": 0,
       "rules": {}
@@ -63,6 +67,10 @@
       "rules": {}
     },
     "lib/loop-signals.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "lib/loop-verify.sh": {
       "total": 0,
       "rules": {}
     },

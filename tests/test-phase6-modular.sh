@@ -24,7 +24,7 @@ assert_fail() {
 # ══════════════════════════════════════════
 # Test 1: All lib/loop-*.sh modules exist
 # ══════════════════════════════════════════
-EXPECTED_MODULES=(loop-signals loop-retry loop-wiring loop-git loop-checkpoint)
+EXPECTED_MODULES=(loop-signals loop-retry loop-wiring loop-git loop-checkpoint loop-build loop-verify)
 MISSING=0
 for mod in "${EXPECTED_MODULES[@]}"; do
     if [[ ! -f "${SPECTRA_HOME}/lib/${mod}.sh" ]]; then
@@ -51,7 +51,7 @@ for mod_file in "${SPECTRA_HOME}"/lib/loop-*.sh; do
         echo "    Syntax error: $(basename "$mod_file")"
     fi
 done
-if [[ $SYNTAX_ERR -eq 0 ]] && [[ $SYNTAX_OK -ge 5 ]]; then
+if [[ $SYNTAX_ERR -eq 0 ]] && [[ $SYNTAX_OK -ge 7 ]]; then
     assert_pass "all lib/loop-*.sh modules pass bash -n ($SYNTAX_OK files)"
 else
     assert_fail "all lib/loop-*.sh modules pass bash -n ($SYNTAX_ERR errors)"
@@ -135,7 +135,9 @@ EXTRACTED_FUNCS=(write_signal write_progress write_status write_batch_status
                  run_wiring_gate
                  setup_branch commit_task install_precommit_hook
                  write_checkpoint restore_checkpoint
-                 compute_plan_structure_checksum verify_plan_checksum)
+                 compute_plan_structure_checksum verify_plan_checksum
+                 build_prompt preflight_prompt parallel_build
+                 verify_prompt oracle_classify)
 
 DUPED=0
 for func in "${EXTRACTED_FUNCS[@]}"; do
@@ -152,15 +154,25 @@ else
 fi
 
 # ══════════════════════════════════════════
-# Test 9: Source order correctness — signals before checkpoint
+# Test 9: Source order correctness — signals before checkpoint, build before verify
 # ══════════════════════════════════════════
 # loop-checkpoint.sh calls write_signal(), so loop-signals.sh must be sourced first.
+# loop-build.sh should come before loop-verify.sh (build runs first in loop).
 SIGNALS_LINE=$(grep -n 'source.*loop-signals.sh' "$LOOP" 2>/dev/null | head -1 | cut -d: -f1)
 CHECKPOINT_LINE=$(grep -n 'source.*loop-checkpoint.sh' "$LOOP" 2>/dev/null | head -1 | cut -d: -f1)
-if [[ -n "$SIGNALS_LINE" ]] && [[ -n "$CHECKPOINT_LINE" ]] && [[ "$SIGNALS_LINE" -lt "$CHECKPOINT_LINE" ]]; then
-    assert_pass "source order: signals before checkpoint"
+BUILD_LINE=$(grep -n 'source.*loop-build.sh' "$LOOP" 2>/dev/null | head -1 | cut -d: -f1)
+VERIFY_LINE=$(grep -n 'source.*loop-verify.sh' "$LOOP" 2>/dev/null | head -1 | cut -d: -f1)
+ORDER_OK=true
+if [[ -z "$SIGNALS_LINE" ]] || [[ -z "$CHECKPOINT_LINE" ]] || [[ "$SIGNALS_LINE" -ge "$CHECKPOINT_LINE" ]]; then
+    ORDER_OK=false
+fi
+if [[ -z "$BUILD_LINE" ]] || [[ -z "$VERIFY_LINE" ]] || [[ "$BUILD_LINE" -ge "$VERIFY_LINE" ]]; then
+    ORDER_OK=false
+fi
+if [[ "$ORDER_OK" == true ]]; then
+    assert_pass "source order: signals before checkpoint, build before verify"
 else
-    assert_fail "source order: signals before checkpoint (signals=$SIGNALS_LINE, checkpoint=$CHECKPOINT_LINE)"
+    assert_fail "source order: signals=$SIGNALS_LINE, checkpoint=$CHECKPOINT_LINE, build=$BUILD_LINE, verify=$VERIFY_LINE"
 fi
 
 # ══════════════════════════════════════════
@@ -211,6 +223,8 @@ source "${SPECTRA_HOME}/lib/loop-retry.sh"
 source "${SPECTRA_HOME}/lib/loop-wiring.sh"
 source "${SPECTRA_HOME}/lib/loop-git.sh"
 source "${SPECTRA_HOME}/lib/loop-checkpoint.sh"
+source "${SPECTRA_HOME}/lib/loop-build.sh"
+source "${SPECTRA_HOME}/lib/loop-verify.sh"
 
 # Verify all exported functions are callable
 type write_signal >/dev/null 2>&1 && echo "OK:write_signal"
@@ -223,15 +237,20 @@ type write_checkpoint >/dev/null 2>&1 && echo "OK:write_checkpoint"
 type restore_checkpoint >/dev/null 2>&1 && echo "OK:restore_checkpoint"
 type verify_plan_checksum >/dev/null 2>&1 && echo "OK:verify_plan_checksum"
 type propagate_signs >/dev/null 2>&1 && echo "OK:propagate_signs"
+type build_prompt >/dev/null 2>&1 && echo "OK:build_prompt"
+type preflight_prompt >/dev/null 2>&1 && echo "OK:preflight_prompt"
+type parallel_build >/dev/null 2>&1 && echo "OK:parallel_build"
+type verify_prompt >/dev/null 2>&1 && echo "OK:verify_prompt"
+type oracle_classify >/dev/null 2>&1 && echo "OK:oracle_classify"
 ' 2>&1)
 GOLDEN_EXIT=$?
 set -e
 
 OK_COUNT=$(echo "$GOLDEN_OUT" | grep -c '^OK:' || echo "0")
-if [[ $GOLDEN_EXIT -eq 0 ]] && [[ $OK_COUNT -ge 10 ]]; then
-    assert_pass "golden behavior: all modules source and export functions ($OK_COUNT/10)"
+if [[ $GOLDEN_EXIT -eq 0 ]] && [[ $OK_COUNT -ge 15 ]]; then
+    assert_pass "golden behavior: all modules source and export functions ($OK_COUNT/15)"
 else
-    assert_fail "golden behavior: modules source failed (exit=$GOLDEN_EXIT, funcs=$OK_COUNT/10)"
+    assert_fail "golden behavior: modules source failed (exit=$GOLDEN_EXIT, funcs=$OK_COUNT/15)"
 fi
 
 # ══════════════════════════════════════════

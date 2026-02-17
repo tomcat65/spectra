@@ -38,7 +38,7 @@ jobs:
         run: |
           failed=0
           # Explicit expected module list (update when adding/removing modules)
-          EXPECTED_MODULES="loop-signals loop-retry loop-wiring loop-git loop-checkpoint"
+          EXPECTED_MODULES="loop-signals loop-retry loop-wiring loop-git loop-checkpoint loop-build loop-verify"
           # 1. Every expected module must exist AND be sourced
           for mod in $EXPECTED_MODULES; do
             if [[ ! -f "lib/${mod}.sh" ]]; then
@@ -94,9 +94,14 @@ jobs:
             [[ -f "$f" ]] || continue
             [[ -L "$f" ]] && continue
             while IFS=: read -r lineno _; do
+              line_text=$(sed -n "${lineno}p" "$f")
+              if [[ "$lineno" -le 1 ]]; then
+                echo "FAIL: $(basename "$f"):${lineno}: disable on first line cannot have preceding RATIONALE: $line_text"
+                failed=1
+                continue
+              fi
               prev=$((lineno - 1))
               prev_text=$(sed -n "${prev}p" "$f")
-              line_text=$(sed -n "${lineno}p" "$f")
               if ! echo "$prev_text" | grep -q '# RATIONALE:'; then
                 echo "FAIL: $(basename "$f"):${lineno}: disable without RATIONALE: $line_text"
                 failed=1
