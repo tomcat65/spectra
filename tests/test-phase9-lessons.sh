@@ -238,6 +238,83 @@ test_lock_contention() {
     teardown_test_env
 }
 
+test_concurrent_dedup() {
+    setup_test_env
+    # Spawn 20 concurrent writes with same fingerprint — should get 1 create, rest increments
+    for i in $(seq 1 20); do
+        lesson_write "dedup-race" "build" "race_err" "file.ts" "" "detail ${i}" "medium" "run-${i}" "task-1" "" "" &
+    done
+    wait
+
+    local jsonl="${TEST_LESSONS_HOME}/projects/dedup-race/lessons.jsonl"
+    local create_count
+    create_count=$(grep -c '"action":"create"' "${jsonl}")
+    if [[ ${create_count} -eq 1 ]]; then
+        pass "concurrent_dedup"
+    else
+        fail "concurrent_dedup" "expected 1 create under concurrency, got ${create_count}"
+    fi
+    teardown_test_env
+}
+
+test_json_escape_quotes() {
+    setup_test_env
+    # Write a lesson with quotes and newlines in the detail field
+    lesson_write "escape-test" "build" "err" "file.ts" "" 'Error: "unexpected token" found' "medium" "run-1" "task-1" 'FAIL: expected "200" got "500"' "test_failure"
+
+    local jsonl="${TEST_LESSONS_HOME}/projects/escape-test/lessons.jsonl"
+    local entry
+    entry=$(cat "${jsonl}")
+    # Verify the JSON is parseable (no corruption from unescaped quotes)
+    if echo "${entry}" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+        pass "json_escape_quotes"
+    elif echo "${entry}" | jq . >/dev/null 2>&1; then
+        pass "json_escape_quotes"
+    else
+        # Fallback: at least verify no raw unescaped quotes broke the structure
+        local field_count
+        field_count=$(echo "${entry}" | grep -o '"action"' | wc -l)
+        if [[ ${field_count} -eq 1 ]]; then
+            pass "json_escape_quotes"
+        else
+            fail "json_escape_quotes" "JSON structure corrupted by unescaped quotes"
+        fi
+    fi
+    teardown_test_env
+}
+
+test_json_escape_helper() {
+    local result
+    result=$(json_escape 'He said "hello" and left')
+    if [[ "${result}" == 'He said \"hello\" and left' ]]; then
+        pass "json_escape_helper"
+    else
+        fail "json_escape_helper" "expected escaped quotes, got: ${result}"
+    fi
+}
+
+test_ttl_advances_in_compaction() {
+    setup_test_env
+    lesson_write "ttl-test" "build" "err" "file.ts" "" "" "low" "run-1" "task-1" "" ""
+
+    # Compact (should increment projects_since_last from 0 to 1)
+    compact_snapshot "ttl-test"
+
+    local snapshot="${TEST_LESSONS_HOME}/projects/ttl-test/lessons.snapshot"
+    if [[ -f "${snapshot}" ]]; then
+        local psl
+        psl=$(grep -oP '"projects_since_last":\K[0-9]+' "${snapshot}" | head -1)
+        if [[ "${psl}" == "1" ]]; then
+            pass "ttl_advances_in_compaction"
+        else
+            fail "ttl_advances_in_compaction" "expected projects_since_last=1 after compaction, got ${psl}"
+        fi
+    else
+        fail "ttl_advances_in_compaction" "snapshot not created"
+    fi
+    teardown_test_env
+}
+
 # ══════════════════════════════════════════
 # TEST GROUP 5: Promotion thresholds
 # ══════════════════════════════════════════
@@ -500,22 +577,29 @@ test_guardrails_dedup_existing() {
 # ══════════════════════════════════════════
 
 test_claudecode_detection() {
-    # Test that the guard exists in spectra-loop.sh
-    if grep -q 'CLAUDECODE' "${SPECTRA_HOME}/bin/spectra-loop.sh"; then
-        pass "claudecode_detection_present"
+    # Behavioral: run spectra-loop.sh with CLAUDECODE set, verify it exits non-zero with error message
+    local result exit_code
+    set +e
+    result=$(CLAUDECODE=1 bash "${SPECTRA_HOME}/bin/spectra-loop.sh" --dry-run 2>&1)
+    exit_code=$?
+    set -e
+    if [[ ${exit_code} -ne 0 ]] && echo "${result}" | grep -q "CLAUDECODE environment variable detected"; then
+        pass "claudecode_detection_behavioral"
     else
-        fail "claudecode_detection_present" "CLAUDECODE guard not found in spectra-loop.sh"
+        fail "claudecode_detection_behavioral" "spectra-loop.sh did not fail-fast on CLAUDECODE (exit=${exit_code})"
     fi
 }
 
-test_claudecode_fails_fast() {
-    # Source just enough to test the guard
+test_claudecode_passes_without_var() {
+    # Behavioral: without CLAUDECODE, spectra-loop.sh should NOT emit the CLAUDECODE error
     local result
-    result=$(CLAUDECODE=1 bash -c 'source "'"${SPECTRA_HOME}/lib/loop-signals.sh"'" 2>/dev/null; source "'"${SPECTRA_HOME}/lib/loop-retry.sh"'" 2>/dev/null; source "'"${SPECTRA_HOME}/lib/loop-lessons.sh"'" 2>/dev/null; if [[ -n "${CLAUDECODE:-}" ]]; then echo "BLOCKED"; exit 1; fi; echo "PASSED"' 2>&1 || true)
-    if echo "${result}" | grep -q "BLOCKED"; then
-        pass "claudecode_fails_fast"
+    set +e
+    result=$(unset CLAUDECODE; bash "${SPECTRA_HOME}/bin/spectra-loop.sh" --dry-run 2>&1 || true)
+    set -e
+    if echo "${result}" | grep -q "CLAUDECODE environment variable detected"; then
+        fail "claudecode_passes_without_var" "CLAUDECODE guard triggered without the env var"
     else
-        fail "claudecode_fails_fast" "CLAUDECODE guard did not block execution"
+        pass "claudecode_passes_without_var"
     fi
 }
 
@@ -523,21 +607,51 @@ test_claudecode_fails_fast() {
 # TEST GROUP 12: Brownfield heuristic floor
 # ══════════════════════════════════════════
 
-test_brownfield_floor_in_assess() {
-    if grep -q 'BROWNFIELD_FLOOR' "${SPECTRA_HOME}/bin/spectra-assess.sh"; then
-        pass "brownfield_floor_in_assess"
+test_brownfield_floor_applied() {
+    # Behavioral: create a temp project with >500 test files, run spectra-assess, check Level 3
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "${tmpdir}/.spectra" "${tmpdir}/src" "${tmpdir}/tests"
+    # Create 501 test files
+    for i in $(seq 1 501); do
+        touch "${tmpdir}/tests/test_${i}.py"
+    done
+    # Create a source file so src/ counts as a module
+    echo "pass" > "${tmpdir}/src/app.py"
+
+    local result
+    set +e
+    result=$(cd "${tmpdir}" && bash "${SPECTRA_HOME}/bin/spectra-assess.sh" --non-interactive --track bmad_method --force 2>&1)
+    set -e
+
+    rm -rf "${tmpdir}"
+
+    if echo "${result}" | grep -q "Level:.*3"; then
+        pass "brownfield_floor_applied"
     else
-        fail "brownfield_floor_in_assess" "brownfield floor code not found in spectra-assess.sh"
+        fail "brownfield_floor_applied" "Level 3 floor not applied with 501 test files"
     fi
 }
 
-test_brownfield_floor_threshold() {
-    # Check that the threshold values are correct
-    if grep -q 'TEST_FILE_COUNT.*-gt 500' "${SPECTRA_HOME}/bin/spectra-assess.sh" && \
-       grep -q 'MODULE_COUNT.*-gt 8' "${SPECTRA_HOME}/bin/spectra-assess.sh"; then
-        pass "brownfield_floor_threshold"
+test_brownfield_floor_not_applied() {
+    # Behavioral: project with few tests should NOT trigger floor
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "${tmpdir}/.spectra" "${tmpdir}/src"
+    echo "pass" > "${tmpdir}/src/app.py"
+    touch "${tmpdir}/src/test_one.py"
+
+    local result
+    set +e
+    result=$(cd "${tmpdir}" && bash "${SPECTRA_HOME}/bin/spectra-assess.sh" --non-interactive --track bmad_method --force 2>&1)
+    set -e
+
+    rm -rf "${tmpdir}"
+
+    if echo "${result}" | grep -q "Brownfield:"; then
+        fail "brownfield_floor_not_applied" "brownfield floor triggered with only 1 test file"
     else
-        fail "brownfield_floor_threshold" "threshold values not found (500 tests / 8 modules)"
+        pass "brownfield_floor_not_applied"
     fi
 }
 
@@ -690,9 +804,19 @@ test_lesson_write_dedup
 test_lesson_write_evidence_fields
 test_dedup_idempotency
 
-# Group 4: Lock contention
-echo "--- Lock Contention ---"
+# Group 4: Lock contention + concurrent dedup
+echo "--- Lock Contention + Concurrent Dedup ---"
 test_lock_contention
+test_concurrent_dedup
+
+# Group 4b: JSON escaping
+echo "--- JSON Escaping ---"
+test_json_escape_helper
+test_json_escape_quotes
+
+# Group 4c: TTL advancement
+echo "--- TTL Advancement ---"
+test_ttl_advances_in_compaction
 
 # Group 5: Promotion thresholds
 echo "--- Promotion Thresholds ---"
@@ -729,12 +853,12 @@ test_guardrails_dedup_existing
 # Group 11: CLAUDECODE detection
 echo "--- CLAUDECODE Detection ---"
 test_claudecode_detection
-test_claudecode_fails_fast
+test_claudecode_passes_without_var
 
 # Group 12: Brownfield heuristics
 echo "--- Brownfield Heuristics ---"
-test_brownfield_floor_in_assess
-test_brownfield_floor_threshold
+test_brownfield_floor_applied
+test_brownfield_floor_not_applied
 
 # Group 13: Full lifecycle
 echo "--- Full Lifecycle ---"

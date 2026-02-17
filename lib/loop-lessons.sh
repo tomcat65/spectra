@@ -82,6 +82,17 @@ sanitize_lesson() {
     echo "${text}"
 }
 
+json_escape() {
+    local str="$1"
+    # Escape backslashes first, then quotes, then control chars
+    str="${str//\\/\\\\}"
+    str="${str//\"/\\\"}"
+    str="${str//$'\n'/\\n}"
+    str="${str//$'\r'/\\r}"
+    str="${str//$'\t'/\\t}"
+    echo "${str}"
+}
+
 # ── JSONL append with flock ──
 
 lesson_flock_append() {
@@ -116,23 +127,15 @@ lesson_write() {
     local fingerprint
     fingerprint=$(compute_fingerprint "${area}" "${error_code}" "${primary_file}")
 
-    # Sanitize detail and verifier output
-    detail=$(sanitize_lesson "${detail}")
-    verifier_output=$(sanitize_lesson "${verifier_output}")
+    # Sanitize and JSON-escape all string fields
+    detail=$(json_escape "$(sanitize_lesson "${detail}")")
+    verifier_output=$(json_escape "$(sanitize_lesson "${verifier_output}")")
+    command=$(json_escape "${command}")
 
     local project_dir="${LESSONS_HOME}/projects/${project}"
     mkdir -p "${project_dir}"
     local jsonl_file="${project_dir}/lessons.jsonl"
-
-    # Dedup: check if fingerprint already exists in this project
-    if [[ -f "${jsonl_file}" ]] && grep -q "\"fingerprint\":\"${fingerprint}\"" "${jsonl_file}" 2>/dev/null; then
-        # Increment recurrence instead of duplicating
-        local increment_line
-        increment_line=$(printf '{"action":"increment","fingerprint":"%s","timestamp":"%s","run_id":"%s"}' \
-            "${fingerprint}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${run_id}")
-        lesson_flock_append "${jsonl_file}" "${increment_line}"
-        return 0
-    fi
+    local lock_file="${jsonl_file}.lock"
 
     # Compute adaptive TTL
     local ttl
@@ -147,14 +150,23 @@ lesson_write() {
     local timestamp
     timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-    local json_line
-    json_line=$(printf '{"action":"create","fingerprint":"%s","status":"TEMP","severity":"%s","area":"%s","error_code":"%s","command":"%s","primary_file":"%s","detail":"%s","recurrence_count":1,"distinct_projects":["%s"],"prevention_count":0,"false_positive_count":0,"ttl":%d,"ttl_base":%d,"projects_since_last":0,"timestamp":"%s","evidence":{"source_run_id":"%s","project":"%s","task_id":"%s","verifier_output":"%s","oracle_class":"%s"}}' \
-        "${fingerprint}" "${severity}" "${area}" "${error_code}" "${command}" \
-        "${primary_file}" "${detail}" "${project}" \
-        "${ttl}" "${ttl}" "${timestamp}" \
-        "${run_id}" "${project}" "${task_id}" "${verifier_output}" "${oracle_class}")
+    # Dedup + write inside single flock critical section to prevent race
+    (
+        flock -x -w 10 200 || { echo "ERROR: Could not acquire lock on ${lock_file}" >&2; return 1; }
 
-    lesson_flock_append "${jsonl_file}" "${json_line}"
+        if [[ -f "${jsonl_file}" ]] && grep -q "\"fingerprint\":\"${fingerprint}\"" "${jsonl_file}" 2>/dev/null; then
+            # Increment recurrence instead of duplicating
+            printf '{"action":"increment","fingerprint":"%s","timestamp":"%s","run_id":"%s"}\n' \
+                "${fingerprint}" "${timestamp}" "${run_id}" >> "${jsonl_file}"
+        else
+            # Create new entry
+            printf '{"action":"create","fingerprint":"%s","status":"TEMP","severity":"%s","area":"%s","error_code":"%s","command":"%s","primary_file":"%s","detail":"%s","recurrence_count":1,"distinct_projects":["%s"],"prevention_count":0,"false_positive_count":0,"ttl":%d,"ttl_base":%d,"projects_since_last":0,"timestamp":"%s","evidence":{"source_run_id":"%s","project":"%s","task_id":"%s","verifier_output":"%s","oracle_class":"%s"}}\n' \
+                "${fingerprint}" "${severity}" "${area}" "${error_code}" "${command}" \
+                "${primary_file}" "${detail}" "${project}" \
+                "${ttl}" "${ttl}" "${timestamp}" \
+                "${run_id}" "${project}" "${task_id}" "${verifier_output}" "${oracle_class}" >> "${jsonl_file}"
+        fi
+    ) 200>"${lock_file}"
 
     # Cross-project correlation: check other projects for same fingerprint
     local match_count=0
@@ -291,15 +303,48 @@ compact_snapshot() {
             esac
         done < "${jsonl_file}"
 
-        # Write compacted entries (exclude DEMOTED and EXPIRED)
+        # Write compacted entries: advance projects_since_last, check TTL, exclude EXPIRED
         for fp_file in "${state_dir}"/*; do
             [[ -f "${fp_file}" ]] || continue
-            local entry status
+            local entry status severity_val ttl_base_val recurrence_val psl_val
             entry=$(cat "${fp_file}")
             status=$(echo "${entry}" | grep -oP '"status":"\K[^"]+' || echo "TEMP")
-            if [[ "${status}" != "EXPIRED" ]]; then
-                echo "${entry}" >> "${tmp_snapshot}"
+
+            # Skip already expired
+            [[ "${status}" == "EXPIRED" ]] && continue
+
+            # Advance projects_since_last counter
+            psl_val=$(echo "${entry}" | grep -oP '"projects_since_last":\K[0-9]+' || echo "0")
+            psl_val=$((psl_val + 1))
+            # RATIONALE: bash ${//} unreliable with JSON special chars; sed is safer here
+            # shellcheck disable=SC2001
+            entry=$(echo "${entry}" | sed "s/\"projects_since_last\":[0-9]*/\"projects_since_last\":${psl_val}/")
+
+            # Check adaptive TTL for TEMP entries
+            if [[ "${status}" == "TEMP" ]]; then
+                severity_val=$(echo "${entry}" | grep -oP '"severity":"\K[^"]+' || echo "medium")
+                ttl_base_val=$(echo "${entry}" | grep -oP '"ttl_base":\K[0-9]+' || echo "5")
+                recurrence_val=$(echo "${entry}" | grep -oP '"recurrence_count":\K[0-9]+' || echo "1")
+
+                local ext_per effective_ttl
+                case "${severity_val}" in
+                    low)      ext_per=1 ;;
+                    medium)   ext_per=2 ;;
+                    high)     ext_per=3 ;;
+                    critical) ext_per=999 ;;
+                    *)        ext_per=2 ;;
+                esac
+                effective_ttl=$((ttl_base_val + (recurrence_val - 1) * ext_per))
+
+                if [[ ${psl_val} -ge ${effective_ttl} ]]; then
+                    # RATIONALE: bash ${//} unreliable with JSON special chars; sed is safer here
+                    # shellcheck disable=SC2001
+                    entry=$(echo "${entry}" | sed 's/"status":"TEMP"/"status":"EXPIRED"/')
+                    continue  # skip expired entries from snapshot
+                fi
             fi
+
+            echo "${entry}" >> "${tmp_snapshot}"
         done
 
         rm -rf "${state_dir}"
