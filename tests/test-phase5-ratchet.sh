@@ -264,6 +264,20 @@ else
 fi
 
 # ══════════════════════════════════════════
+# Test 7b: --allow-increase rejects empty rationale
+# ══════════════════════════════════════════
+set +e
+SPECTRA_HOME="$TMPDIR" "$RATCHET" --update-baseline --allow-increase "" > /dev/null 2>&1
+EMPTY_EXIT=$?
+set -e
+
+if [[ $EMPTY_EXIT -eq 1 ]]; then
+    assert_pass "--allow-increase rejects empty rationale string"
+else
+    assert_fail "--allow-increase rejects empty rationale string (got exit $EMPTY_EXIT)"
+fi
+
+# ══════════════════════════════════════════
 # Test 8: Version mismatch between runtime and baseline fails --check
 # ══════════════════════════════════════════
 TMPDIR="${TMPDIR_BASE}/test8"

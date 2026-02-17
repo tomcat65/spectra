@@ -50,6 +50,12 @@ while [[ $# -gt 0 ]]; do
                 echo "ERROR: --allow-increase requires a non-empty rationale string" >&2
                 exit 1
             fi
+            # Reject empty or whitespace-only rationale
+            trimmed=$(echo "$2" | tr -d '[:space:]')
+            if [[ -z "$trimmed" ]]; then
+                echo "ERROR: --allow-increase rationale must not be empty or whitespace-only" >&2
+                exit 1
+            fi
             INCREASE_RATIONALE="$2"
             shift 2
             ;;
