@@ -52,7 +52,7 @@ rules:
   write_guard:
     enabled: false
 F
-    set +e; OUT=$("$0" "$T" --verbose 2>&1); EC=$?; set -e
+    set +e; OUT=$("$0" "$T" --verbose 2>&1); set -e
     PASS=0; FAIL=0
     check() { if eval "$1"; then printf "${GREEN}[self-test] PASS: $2${NC}\n"; PASS=$((PASS+1))
               else printf "${RED}[self-test] FAIL: $2${NC}\n"; FAIL=$((FAIL+1)); echo "$OUT"; fi; }
@@ -146,10 +146,14 @@ if [[ "$WIRING" == "true" && -n "$FDEF" && -n "$SRC_DIRS" ]]; then
                 [[ -z "$ml" ]] && continue
                 fn=$(echo "$ml" | fname_extract); [[ -z "$fn" ]] && continue
                 skip=false; while IFS= read -r pat; do
-                    [[ -z "$pat" ]] && continue; [[ "$fn" == ${pat} ]] && skip=true
+                    [[ -z "$pat" ]] && continue
+                    # RATIONALE: ${pat} is intentionally unquoted — IGNORES contains glob patterns (e.g. test_*)
+                    # shellcheck disable=SC2053
+                    [[ "$fn" == ${pat} ]] && skip=true
                 done <<< "$IGNORES"; [[ "$skip" == true ]] && continue
                 hits=0; while IFS= read -r s2; do
                     [[ -z "$s2" ]] && continue; s2p="$PROJECT_ROOT/${s2%/}"; [[ -d "$s2p" ]] || continue
+                    # RATIONALE: $TEXCL is intentionally unquoted — contains multiple --exclude flags for grep
                     # shellcheck disable=SC2086
                     c=$( (grep -rn --include="*.${EXT}" $TEXCL "$fn" "$s2p" 2>/dev/null \
                         | grep -v "^${sf}:" | grep -v "def ${fn}" | grep -v "class ${fn}" \
@@ -187,7 +191,7 @@ parse_fw() { local n="" p="" s="" m="" ps=""
 FW=$(parse_fw "$CFG")
 if [[ -n "$FW" ]]; then
     echo "[spectra-verify] Section 2: Framework checks"
-    while IFS='|' read -r name pat sev msg paths; do
+    while IFS='|' read -r name pat _sev msg paths; do
         [[ -z "$name" ]] && continue; sp_arr=()
         if [[ -n "$paths" ]]; then IFS=',' read -ra _pa <<< "$paths"; for p in "${_pa[@]}"; do
             p="${p## }"; p="${p%% }"; [[ -z "$p" ]] && continue; t="$PROJECT_ROOT/${p%/}"
@@ -210,6 +214,7 @@ if [[ "$(yv 'rules.write_guard.enabled' "$CFG")" == "true" ]]; then
     XA=""; while IFS= read -r ef; do [[ -n "$ef" ]] && XA="$XA --exclude=$ef"; done <<< "$WX"
     if [[ -n "$WP" ]]; then while IFS= read -r sd; do
         [[ -z "$sd" ]] && continue; sp="$PROJECT_ROOT/${sd%/}"; [[ -d "$sp" ]] || continue
+        # RATIONALE: $XA is intentionally unquoted — contains multiple --exclude flags for grep
         # shellcheck disable=SC2086
         raw=$(grep -rnE "$WP" $XA "$sp" 2>/dev/null || true)
         [[ -n "$raw" && -n "$WA" ]] && raw=$(echo "$raw" | grep -v "$WA" || true)

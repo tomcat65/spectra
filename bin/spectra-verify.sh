@@ -18,7 +18,6 @@ LOGS_DIR="${SPECTRA_DIR}/logs"
 PLAN_FILE="${SPECTRA_DIR}/plan.md"
 PLAN_VALIDATOR="${SPECTRA_HOME}/bin/spectra-plan-validate.sh"
 
-USE_LINEAR=false
 USE_SLACK=false
 USE_WIRING_PROOF=true
 FULL_SWEEP=false
@@ -28,7 +27,6 @@ TASK_OVERRIDE=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         --task)            TASK_OVERRIDE="$2"; shift 2 ;;
-        --linear)          USE_LINEAR=true; shift ;;
         --slack)           USE_SLACK=true; shift ;;
         --no-wiring-proof) USE_WIRING_PROOF=false; shift ;;
         --full-sweep)      FULL_SWEEP=true; shift ;;
@@ -330,8 +328,8 @@ if [[ "$USE_WIRING_PROOF" == true ]]; then
     # ── 4d: Dependency verification ──
     if [[ -f "requirements.txt" ]]; then
         # Quick check: try importing all source modules
-        SRC_IMPORTS=$(find . -name "*.py" -not -path "./tests/*" -not -path "./.spectra/*" -not -name "test_*" 2>/dev/null | \
-            xargs grep -hoP '^import\s+\K\w+|^from\s+\K\w+' 2>/dev/null | sort -u || true)
+        SRC_IMPORTS=$(find . -name "*.py" -not -path "./tests/*" -not -path "./.spectra/*" -not -name "test_*" -print0 2>/dev/null | \
+            xargs -0 grep -hoP '^import\s+\K\w+|^from\s+\K\w+' 2>/dev/null | sort -u || true)
         for MOD in $SRC_IMPORTS; do
             # Skip stdlib
             if python3 -c "import ${MOD}" 2>/dev/null; then continue; fi

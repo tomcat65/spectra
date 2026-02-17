@@ -71,7 +71,6 @@ if [[ -z "$PROJECT_NAME" ]]; then
 fi
 
 DATE=$(date +%Y-%m-%d)
-TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 echo "╔══════════════════════════════════════════╗"
 echo "║  SPECTRA v5.1 Project Initializer         ║"

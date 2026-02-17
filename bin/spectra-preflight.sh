@@ -38,8 +38,11 @@ echo "║        SPECTRA Preflight Check            ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 
-# Source env
-set +u; source "${ENV_FILE}"; set -u
+set +u
+# RATIONALE: ENV_FILE is user-configured path to .spectra/.env — cannot be a constant
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
+set -u
 
 PASS=0
 FAIL=0

@@ -74,12 +74,25 @@ if [[ -z "$MODE" ]]; then
     exit 1
 fi
 
-# ── Discover target files (dedup symlinks by realpath) ──
+# ── Discover target files (dedup symlinks by realpath, prefer canonical paths) ──
 discover_targets() {
     local targets=()
     local -A seen_realpaths=()
+    # Pass 1: non-symlinks first (canonical paths take priority in dedup)
     for f in "${SPECTRA_HOME}"/bin/*.sh; do
         [[ -f "$f" ]] || continue
+        [[ -L "$f" ]] && continue
+        local real
+        real=$(realpath "$f" 2>/dev/null || readlink -f "$f" 2>/dev/null || echo "$f")
+        if [[ -z "${seen_realpaths[$real]+x}" ]]; then
+            seen_realpaths["$real"]=1
+            targets+=("$f")
+        fi
+    done
+    # Pass 2: symlinks (skipped if canonical already seen)
+    for f in "${SPECTRA_HOME}"/bin/*.sh; do
+        [[ -f "$f" ]] || continue
+        [[ -L "$f" ]] || continue
         local real
         real=$(realpath "$f" 2>/dev/null || readlink -f "$f" 2>/dev/null || echo "$f")
         if [[ -z "${seen_realpaths[$real]+x}" ]]; then

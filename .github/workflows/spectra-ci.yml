@@ -87,6 +87,28 @@ jobs:
       - name: ShellCheck ratchet (warnings)
         run: bin/spectra-shellcheck-ratchet.sh --check
 
+      - name: Suppress rationale guard
+        run: |
+          failed=0
+          for f in bin/*.sh lib/*.sh hooks/pre-commit; do
+            [[ -f "$f" ]] || continue
+            [[ -L "$f" ]] && continue
+            prev_line=""
+            while IFS= read -r line; do
+              if echo "$line" | grep -q '# shellcheck disable='; then
+                if ! echo "$prev_line" | grep -q '# RATIONALE:'; then
+                  echo "FAIL: $(basename "$f"): disable without RATIONALE: $line"
+                  failed=1
+                fi
+              fi
+              prev_line="$line"
+            done < "$f"
+          done
+          if [[ $failed -eq 0 ]]; then
+            echo "PASS: all shellcheck disables have preceding RATIONALE comment"
+          fi
+          exit $failed
+
       - name: actionlint
         run: |
           bash <(curl -sS https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
