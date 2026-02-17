@@ -45,14 +45,12 @@ if [[ ! -d "${SPECTRA_DIR}" ]]; then
 fi
 
 display_status() {
-    local phase agent progress project_name project_level
+    local phase agent project_name project_level
     local total=0 done=0 stuck=0 remaining=0
 
     # Read signal files
     phase=$(cat "${SIGNALS_DIR}/PHASE" 2>/dev/null || echo "unknown")
     agent=$(cat "${SIGNALS_DIR}/AGENT" 2>/dev/null || echo "unknown")
-    progress=$(cat "${SIGNALS_DIR}/PROGRESS" 2>/dev/null || echo "no data")
-
     # Read project info
     project_name="unknown"
     project_level="unknown"

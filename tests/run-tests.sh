@@ -182,6 +182,24 @@ TOTAL_FAIL=$((TOTAL_FAIL + phase6_fail))
 [[ ${phase6_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
 
 # ══════════════════════════════════════════
+# Suite 9: Phase 7 ShellCheck burn-down tests
+# ══════════════════════════════════════════
+echo "=== Suite: phase7-shellcheck ==="
+set +e
+output=$("${SCRIPT_DIR}/test-phase7-shellcheck.sh" 2>&1)
+phase7_exit=$?
+set -e
+echo "${output}"
+echo ""
+
+# Parse pass/fail counts from the sub-test output
+phase7_pass=$(echo "${output}" | grep -oP 'phase7-shellcheck: \K[0-9]+(?= passed)' || echo "0")
+phase7_fail=$(echo "${output}" | grep -oP 'passed, \K[0-9]+(?= failed)' || echo "0")
+TOTAL_PASS=$((TOTAL_PASS + phase7_pass))
+TOTAL_FAIL=$((TOTAL_FAIL + phase7_fail))
+[[ ${phase7_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
+
+# ══════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════
 echo "==============================="

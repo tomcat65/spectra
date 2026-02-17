@@ -26,6 +26,8 @@ SPECTRA_DIR=".spectra"
 SIGNALS_DIR="${SPECTRA_DIR}/signals"
 LOGS_DIR="${SPECTRA_DIR}/logs"
 PLAN_VALIDATOR="${SPECTRA_HOME}/bin/spectra-plan-validate.sh"
+# RATIONALE: CHECKPOINT_FILE is read by write_checkpoint()/restore_checkpoint() in loop-checkpoint module
+# shellcheck disable=SC2034
 CHECKPOINT_FILE="${SIGNALS_DIR}/CHECKPOINT"
 
 # ── Source modules (explicit ordered list — no wildcards) ──
@@ -159,13 +161,15 @@ sed_inplace() {
 }
 
 elapsed() {
-    local now=$(date +%s)
+    local now
+    now=$(date +%s)
     local diff=$(( (now - START_TIME) + ELAPSED_OFFSET ))
     printf '%02d:%02d:%02d' $((diff/3600)) $(((diff%3600)/60)) $((diff%60))
 }
 
 elapsed_seconds() {
-    local now=$(date +%s)
+    local now
+    now=$(date +%s)
     echo $(( (now - START_TIME) + ELAPSED_OFFSET ))
 }
 
@@ -246,22 +250,22 @@ EOF
 ## propagate_signs(), generate_task_summary(), max_retries_for()
 
 count_tasks() {
-    local total done stuck remaining
+    local total completed stuck remaining
     total=$(grep -cE '^\- \[[ xX!]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
     total=${total:-0}
-    done=$(grep -cE '^\- \[[xX]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
-    done=${done:-0}
+    completed=$(grep -cE '^\- \[[xX]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
+    completed=${completed:-0}
     stuck=$(grep -cE '^\- \[!\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
     stuck=${stuck:-0}
     if [[ "$total" -eq 0 ]]; then
         total=$(grep -c '^\- \[.\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
         total=${total:-0}
-        done=$(grep -c '^\- \[[xX]\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
-        done=${done:-0}
+        completed=$(grep -c '^\- \[[xX]\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
+        completed=${completed:-0}
         stuck=0
     fi
-    remaining=$((total - done - stuck))
-    echo "${total} ${done} ${remaining} ${stuck}"
+    remaining=$((total - completed - stuck))
+    echo "${total} ${completed} ${remaining} ${stuck}"
 }
 
 # ══════════════════════════════════════════════════════════════
@@ -1077,7 +1081,7 @@ if [[ "$DRY_RUN" == false ]]; then
 fi
 
 # ── Display banner ──
-read TOTAL DONE REMAINING STUCK_COUNT <<< $(count_tasks)
+read TOTAL DONE REMAINING STUCK_COUNT <<< "$(count_tasks)"
 echo ""
 echo "  SPECTRA v5.0 Execution Loop"
 echo "  ────────────────────────────────────"
@@ -1110,7 +1114,7 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
     # Get next batch of independent tasks
     BATCH_STR=$(next_batch)
     if [[ -z "$BATCH_STR" ]]; then
-        read _TOTAL _DONE _REMAINING _STUCK <<< $(count_tasks)
+        read _TOTAL _DONE _REMAINING _STUCK <<< "$(count_tasks)"
         if [[ $_REMAINING -gt 0 ]]; then
             if [[ "$DRY_RUN" == false ]]; then
                 signal_stuck "Dependency deadlock: ${_REMAINING} task(s) remain but none are ready. Check Dependency Graph and task statuses."
@@ -1183,7 +1187,6 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
     BATCH_START_TIME=$(date +%s)
     set +e
     parallel_build "${BATCH[@]}"
-    BUILD_EXIT=$?
     set -e
     BATCH_END_TIME=$(date +%s)
     BATCH_ELAPSED=$((BATCH_END_TIME - BATCH_START_TIME))
@@ -1403,7 +1406,7 @@ FAILEOF
         refresh_claude_md
     fi
 
-    read TOTAL DONE REMAINING STUCK_COUNT <<< $(count_tasks)
+    read TOTAL DONE REMAINING STUCK_COUNT <<< "$(count_tasks)"
     echo ""
     echo "  Progress: ${DONE}/${TOTAL} tasks complete (${REMAINING} remaining)"
 
@@ -1427,7 +1430,8 @@ FAILEOF
                     constraint=$(sed -n '/### Constraint to Append/,/^$/p' "${SIGNALS_DIR}/NEGOTIATE_REVIEW" 2>/dev/null | grep '^>' | head -3 || echo "")
                     if [[ -n "$constraint" ]]; then
                         echo "$constraint" >> "${SPECTRA_DIR}/plan.md"
-                        # Recompute trusted checksum after approved constraint append
+                        # RATIONALE: PLAN_CHECKSUM is used by verify_plan_checksum() in sourced lib/loop-checkpoint.sh
+                        # shellcheck disable=SC2034
                         PLAN_CHECKSUM=$(compute_plan_structure_checksum)
                     fi
                     ;;
@@ -1449,7 +1453,7 @@ done
 # PHASE 5: COMPLETION
 # ══════════════════════════════════════════════════════════════
 
-read TOTAL DONE REMAINING STUCK_COUNT <<< $(count_tasks)
+read TOTAL DONE REMAINING STUCK_COUNT <<< "$(count_tasks)"
 
 if [[ $REMAINING -eq 0 ]] && [[ $TOTAL -gt 0 ]]; then
     echo ""

@@ -46,8 +46,10 @@ write_checkpoint() {
         failure_json="{ $(IFS=', '; echo "${fail_pairs[*]}") }"
     fi
 
-    local completed_json="[$(IFS=', '; echo "${completed[*]+"${completed[*]}"}")]"
-    local stuck_json="[$(IFS=', '; echo "${stuck_list[*]+"${stuck_list[*]}"}")]"
+    local completed_json
+    completed_json="[$(IFS=', '; echo "${completed[*]+"${completed[*]}"}")]"
+    local stuck_json
+    stuck_json="[$(IFS=', '; echo "${stuck_list[*]+"${stuck_list[*]}"}")]"
 
     cat > "${CHECKPOINT_FILE}" <<EOF
 {

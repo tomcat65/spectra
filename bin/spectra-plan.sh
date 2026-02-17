@@ -101,14 +101,12 @@ fi
 
 RETRY_BUDGET=5
 SCOPE_DEFAULT="code"
-WIRING_DEPTH="basic"
 HAS_ASSESSMENT=false
 
 if [[ -f .spectra/assessment.yaml ]]; then
     HAS_ASSESSMENT=true
     RETRY_BUDGET=$(grep -oP '^\s*retry_budget:\s*\K\d+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "5")
     SCOPE_DEFAULT=$(grep -oP '^\s*scope_default:\s*\K\w+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "code")
-    WIRING_DEPTH=$(grep -oP '^\s*wiring_depth:\s*\K\w+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "basic")
     ASSESSED_LEVEL=$(grep -oP '^\s*level:\s*\K\d+' .spectra/assessment.yaml 2>/dev/null | head -1 || echo "")
     if [[ -n "${ASSESSED_LEVEL}" ]] && [[ "${PROJECT_LEVEL}" -eq 1 ]]; then
         PROJECT_LEVEL="${ASSESSED_LEVEL}"

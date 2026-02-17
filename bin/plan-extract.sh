@@ -10,8 +10,6 @@ set -euo pipefail
 # Output: JSON array of task objects with typed fields.
 # Schema: templates/plan-schema.json
 
-SPECTRA_HOME="${HOME}/.spectra"
-
 PLAN_FILE=""
 OUTPUT_FILE=""
 VALIDATE=false
@@ -136,8 +134,6 @@ PLAN_LEVEL="${PLAN_LEVEL:-1}"
 # ══════════════════════════════════════════
 # PARSE TASKS
 # ══════════════════════════════════════════
-
-declare -a TASK_JSON_BLOCKS=()
 
 current_task=""
 current_idx=-1
@@ -473,7 +469,6 @@ fi
 # Optional validation
 if [[ "$VALIDATE" == true ]]; then
     if command -v jq &>/dev/null; then
-        TARGET="${OUTPUT_FILE:-/dev/stdin}"
         if [[ -n "${OUTPUT_FILE}" ]]; then
             if jq empty "${OUTPUT_FILE}" 2>/dev/null; then
                 echo "JSON validation: PASS" >&2
