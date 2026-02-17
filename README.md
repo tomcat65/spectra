@@ -169,13 +169,13 @@ In all cases, assessment uses the same deterministic decision tree to map inputs
 
 ```bash
 # Interactive (asks you questions)
-spectra-assess
+spectra-assess.sh
 
 # CI/automation (must specify track)
-spectra-assess --non-interactive --track bmad_method
+spectra-assess.sh --non-interactive --track bmad_method
 
 # Override and force regeneration
-spectra-assess --force
+spectra-assess.sh --force
 
 # Called automatically by spectra-init (you don't usually need to run it manually)
 ```
@@ -211,19 +211,19 @@ Inside that directory, it looks for:
 
 ```bash
 # Generate plan from BMAD artifacts
-spectra-plan --from-bmad
+spectra-plan.sh --from-bmad
 
 # Specify BMAD directory explicitly
-spectra-plan --from-bmad --bmad-dir ./my-bmad-docs
+spectra-plan.sh --from-bmad --bmad-dir ./my-bmad-docs
 
 # Preview without writing (prints to stdout)
-spectra-plan --from-bmad --dry-run
+spectra-plan.sh --from-bmad --dry-run
 
 # Override level regardless of assessment
-spectra-plan --from-bmad --level 3
+spectra-plan.sh --from-bmad --level 3
 
 # Standard mode (unchanged — reads .spectra/stories/)
-spectra-plan
+spectra-plan.sh
 ```
 
 ### How It Works
@@ -243,11 +243,11 @@ Complex BMAD stories are split into multiple plan tasks (1:N ratio) — one task
 
 These examples walk through SPECTRA from simplest to most complex. Start with Example 1 — you can stop reading at any point and still have enough to use SPECTRA.
 
-> **PATH setup:** SPECTRA scripts live in `~/.spectra/bin/`. Add it to your PATH for bare command usage:
+> **PATH setup:** SPECTRA scripts live in `~/.spectra/bin/` with `.sh` extensions. Add it to your PATH:
 > ```bash
 > export PATH="$HOME/.spectra/bin:$PATH"
 > ```
-> Or invoke with full paths (e.g., `~/.spectra/bin/spectra-loop`).
+> Then invoke as `spectra-loop.sh`, `spectra-plan.sh`, etc. Or use full paths (e.g., `~/.spectra/bin/spectra-loop.sh`).
 
 ### Example 1: Fix a Bug (Level 0)
 
@@ -258,7 +258,7 @@ The simplest case. You found a bug and want an AI agent to fix it.
 cd my-web-app
 
 # Initialize SPECTRA for a quick fix
-spectra-init --name "fix-login-redirect" --level 0
+spectra-init.sh --name "fix-login-redirect" --level 0
 ```
 
 This creates a `.spectra/` directory in your project with template files. The important one is the story file. Open it and describe the bug:
@@ -289,13 +289,13 @@ Now generate the plan and run it:
 
 ```bash
 # Generate the execution plan (calls AI planner)
-spectra-plan
+spectra-plan.sh
 
 # Run it — SPECTRA handles the rest
-spectra-loop
+spectra-loop.sh
 
 # Check status anytime while it's running
-spectra-status
+spectra-status.sh
 ```
 
 For a Level 0 fix, `spectra-loop` runs a single builder agent that reads the plan, makes the fix, and runs verification. If verification passes, you're done. If it fails, the oracle classifier categorizes the failure type and the builder retries (up to the type-specific retry budget — see Example 5).
@@ -311,7 +311,7 @@ Adding a dark mode toggle to an existing app. This needs 2-3 stories and sequent
 
 ```bash
 cd my-web-app
-spectra-init --name "dark-mode" --level 1
+spectra-init.sh --name "dark-mode" --level 1
 ```
 
 Write 2 stories:
@@ -347,15 +347,15 @@ Define CSS custom properties for both themes and apply them globally.
 Generate and run:
 
 ```bash
-spectra-plan
+spectra-plan.sh
 # → Generates plan.md with 2 tasks, each with AC, files, and verify commands
 
-spectra-loop
+spectra-loop.sh
 # → Runs sequential loop: build task 001, verify, build task 002, verify
 # → Each task retries based on failure type (test_failure: up to 3, wiring_gap: up to 2)
 
 # Watch progress
-spectra-status
+spectra-status.sh
 ```
 
 Expected `spectra-status` output during execution:
@@ -365,7 +365,7 @@ Expected `spectra-status` output during execution:
   ────────────────────────────────────
   Project:  dark-mode
   Level:    1
-  Branch:   spectra/dark-mode
+  Branch:   spectra/run-20260217-091500
   Phase:    executing
   Agent:    spectra-builder
   ────────────────────────────────────
@@ -389,29 +389,29 @@ You already ran BMAD planning and have docs ready. SPECTRA consumes them directl
 cd my-project
 
 # Step 1: Assess the project (detects BMAD artifacts)
-spectra-assess
+spectra-assess.sh
 # → Creates .spectra/assessment.yaml
 # → Output: "Level 2, medium verification, retry_budget: 3"
 
 # Step 2: Initialize with assessment-driven defaults
-spectra-init --name "user-dashboard"
+spectra-init.sh --name "user-dashboard"
 # → Picks up level from assessment.yaml automatically
 
 # Step 3: Generate plan from BMAD artifacts
-spectra-plan --from-bmad
+spectra-plan.sh --from-bmad
 # → Reads PRD for acceptance criteria and risk factors
 # → Reads architecture for file ownership (Level 3+)
 # → Reads stories for task decomposition
 # → Generates .spectra/plan.md with Scope, Wiring-proof, etc.
 
 # Preview first if you want
-spectra-plan --from-bmad --dry-run
+spectra-plan.sh --from-bmad --dry-run
 
 # Step 4: Execute
-spectra-loop
+spectra-loop.sh
 
 # Step 5: Watch progress live (refreshes every 5 seconds)
-spectra-status --watch
+spectra-status.sh --watch
 ```
 
 At Level 3, SPECTRA spawns multiple builders in parallel (`&` + `wait`) on independent tasks with no file ownership overlap, then verifies each task sequentially with the full 4-step audit (including wiring proof).
@@ -422,7 +422,7 @@ At Level 3, SPECTRA spawns multiple builders in parallel (`&` + `wait`) on indep
 
 ```bash
 # Human-readable dashboard (default)
-spectra-status
+spectra-status.sh
 ```
 
 Output:
@@ -431,7 +431,7 @@ Output:
   ────────────────────────────────────
   Project:  my-api
   Level:    3
-  Branch:   spectra/my-api
+  Branch:   spectra/run-20260217-100000
   Phase:    executing
   Agent:    spectra-builder
   ────────────────────────────────────
@@ -445,7 +445,7 @@ Output:
 
 ```bash
 # JSON for scripts and CI
-spectra-status --json
+spectra-status.sh --json
 ```
 
 Output:
@@ -455,7 +455,7 @@ Output:
   "level": 3,
   "phase": "executing",
   "agent": "spectra-builder",
-  "branch": "spectra/my-api",
+  "branch": "spectra/run-20260217-100000",
   "tasks": {
     "total": 5,
     "done": 3,
@@ -470,7 +470,7 @@ Output:
 
 ```bash
 # Live monitoring (refreshes every 5s, Ctrl+C to stop)
-spectra-status --watch
+spectra-status.sh --watch
 ```
 
 **What the signals mean:**
@@ -518,15 +518,15 @@ cat .spectra/lessons-learned.md
 To fix manually and continue:
 1. Fix the underlying issue (maybe a missing env var, a database that's down, etc.)
 2. Edit `.spectra/plan.md` — change `[!]` back to `[ ]` for the stuck task
-3. Run `spectra-loop --resume` — it picks up from the checkpoint
+3. Run `spectra-loop.sh --resume` — it picks up from the checkpoint
 
 **Common mistakes and what they mean:**
 
 | You see... | It means... |
 |------------|-------------|
-| `Error: No .spectra/stories/ directory` | Run `spectra-init` first |
+| `Error: No .spectra/stories/ directory` | Run `spectra-init.sh` first |
 | `Error: No stories found` | Write at least one `.md` file in `.spectra/stories/` |
-| `WARN: No assessment.yaml` | Run `spectra-assess` or let `spectra-init` do it |
+| `WARN: No assessment.yaml` | Run `spectra-assess.sh` or let `spectra-init.sh` do it |
 | `Generated plan failed schema validation` | The AI produced malformed output. Check `.spectra/plan.md.new` and try again |
 | `--non-interactive requires --track` | In CI, you must specify `--track quick_flow\|bmad_method\|enterprise` |
 
@@ -630,13 +630,13 @@ The `RECONCILE` signal is written by `spectra-plan --from-bmad` when the generat
 
 ```bash
 # Dashboard view
-spectra-status
+spectra-status.sh
 
 # JSON output for programmatic use
-spectra-status --json
+spectra-status.sh --json
 
 # Live monitoring (refreshes every 5s)
-spectra-status --watch
+spectra-status.sh --watch
 ```
 
 ## Wiring Verification (v5.1)
@@ -663,13 +663,13 @@ Each project has `.spectra/verify.yaml` (generated by `spectra-init`) with proje
 
 ```bash
 # Run wiring verification
-spectra-verify-wiring .
+spectra-verify-wiring.sh .
 
 # Run self-test (validates the script itself)
-spectra-verify-wiring --self-test
+spectra-verify-wiring.sh --self-test
 
 # Verbose output with fix suggestions
-spectra-verify-wiring . --verbose --fix-hints
+spectra-verify-wiring.sh . --verbose --fix-hints
 ```
 
 ### plan.md Assertions
@@ -686,7 +686,7 @@ SPECTRA includes a GitHub Actions CI pipeline (`.github/workflows/spectra-ci.yml
 | **Tests** | Full test suite via `tests/run-tests.sh` (127 tests across 11 suites) |
 | **Wiring** | Anti-bypass guard (`SPECTRA_SKIP_WIRING` blocked in CI), wiring verification against pass/fail fixtures |
 
-The **ShellCheck ratchet** enforces a per-file, per-rule warning baseline (`shellcheck-baseline.json`). New warnings must be fixed before merge — the baseline can only decrease, never increase. Run `bin/spectra-shellcheck-ratchet.sh --update` locally to regenerate after fixing warnings.
+The **ShellCheck ratchet** enforces a per-file, per-rule warning baseline (`shellcheck-baseline.json`). New warnings must be fixed before merge — the baseline can only decrease, never increase. Run `bin/spectra-shellcheck-ratchet.sh --update-baseline` locally to regenerate after fixing warnings.
 
 The **module anti-drift** check ensures every expected `lib/loop-*.sh` module exists, is sourced by `spectra-loop.sh`, has no duplicates, and no wildcard sourcing.
 
@@ -742,8 +742,8 @@ Integration tokens live in `~/.spectra/.env` (chmod 600):
 
 ```bash
 # Manual verification
-spectra-preflight           # Runs only if .env changed since last check
-spectra-preflight --force   # Always run, ignore cached hash
+spectra-preflight.sh           # Runs only if .env changed since last check
+spectra-preflight.sh --force   # Always run, ignore cached hash
 ```
 
 **Automatic integration:** `spectra-loop` calls `spectra-preflight` after sourcing `.env` and before any project work. If any token fails, the loop aborts with a clear error.
