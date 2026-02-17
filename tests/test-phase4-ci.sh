@@ -90,7 +90,7 @@ fi
 # ── Ensure fixture git repos exist (wiring script uses git-scoped detection) ──
 for fixture_dir in "${SPECTRA_HOME}/fixtures/ci-wiring-pass" "${SPECTRA_HOME}/fixtures/ci-wiring-fail"; do
     if [[ -d "$fixture_dir" ]] && [[ ! -d "$fixture_dir/.git" ]]; then
-        (cd "$fixture_dir" && git init && git add -A && git commit -m "fixture" --quiet) > /dev/null 2>&1
+        (cd "$fixture_dir" && git init && git config user.name "Test" && git config user.email "test@spectra" && git add -A && git commit -m "fixture" --quiet) > /dev/null 2>&1
     fi
 done
 

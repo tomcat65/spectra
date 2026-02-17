@@ -41,7 +41,7 @@ jobs:
 
       - name: actionlint
         run: |
-          bash <(curl -sS https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          bash <(curl -sS https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
           ./actionlint
 
   tests:
@@ -78,7 +78,7 @@ jobs:
       - name: Initialize fixture git repos
         run: |
           for fixture in fixtures/ci-wiring-pass fixtures/ci-wiring-fail; do
-            (cd "$fixture" && git init && git add -A && git commit -m "fixture" --quiet)
+            (cd "$fixture" && git init && git config user.name "CI" && git config user.email "ci@spectra" && git add -A && git commit -m "fixture" --quiet)
           done
 
       - name: Wiring check — pass fixture (expect exit 0)
