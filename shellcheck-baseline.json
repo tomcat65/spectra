@@ -1,6 +1,6 @@
 {
   "shellcheck_version": "0.10.0",
-  "generated_at": "2026-02-17T04:26:13Z",
+  "generated_at": "2026-02-17T05:07:28Z",
   "files": {
     "bin/plan-extract.sh": {
       "total": 3,
@@ -22,27 +22,9 @@
       "total": 10,
       "rules": {
         "SC1010": 1,
-        "SC2034": 1,
+        "SC2034": 3,
         "SC2046": 4,
-        "SC2155": 4
-      }
-    },
-    "bin/spectra-loop-v5.sh": {
-      "total": 10,
-      "rules": {
-        "SC1010": 1,
-        "SC2034": 1,
-        "SC2046": 4,
-        "SC2155": 4
-      }
-    },
-    "bin/spectra-loop.sh": {
-      "total": 10,
-      "rules": {
-        "SC1010": 1,
-        "SC2034": 1,
-        "SC2046": 4,
-        "SC2155": 4
+        "SC2155": 2
       }
     },
     "bin/spectra-plan-validate.sh": {
@@ -94,5 +76,5 @@
       "rules": {}
     }
   },
-  "total": 42
+  "total": 22
 }

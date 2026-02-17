@@ -28,6 +28,13 @@ LOGS_DIR="${SPECTRA_DIR}/logs"
 PLAN_VALIDATOR="${SPECTRA_HOME}/bin/spectra-plan-validate.sh"
 CHECKPOINT_FILE="${SIGNALS_DIR}/CHECKPOINT"
 
+# ── Source modules (explicit ordered list — no wildcards) ──
+source "${SPECTRA_HOME}/lib/loop-signals.sh"
+source "${SPECTRA_HOME}/lib/loop-retry.sh"
+source "${SPECTRA_HOME}/lib/loop-wiring.sh"
+source "${SPECTRA_HOME}/lib/loop-git.sh"
+source "${SPECTRA_HOME}/lib/loop-checkpoint.sh"
+
 # ── Defaults ──
 PLAN_ONLY=false
 SKIP_PLANNING=false
@@ -162,85 +169,9 @@ elapsed_seconds() {
     echo $(( (now - START_TIME) + ELAPSED_OFFSET ))
 }
 
-write_status() {
-    local task_num="$1" task_title="$2" iteration="$3" max_iter="$4"
-    local agent="${5:-idle}" pass_history="${6:-}"
-    cat > "${SIGNALS_DIR}/STATUS" <<EOF
-## SPECTRA v5.0 Run Status
-- Current Task: ${task_num}
-- Task Title: ${task_title}
-- Iteration: ${iteration} / ${max_iter}
-- Elapsed Time: $(elapsed)
-- Pass History: ${pass_history}
-- Current Agent: ${agent}
-- Last Updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-EOF
-}
-
-write_batch_status() {
-    local batch_desc="$1" agent="${2:-idle}"
-    cat > "${SIGNALS_DIR}/STATUS" <<EOF
-## SPECTRA v5.0 Run Status
-- Current Batch: ${batch_desc}
-- Elapsed Time: $(elapsed)
-- Pass History: ${PASS_HISTORY}
-- Current Agent: ${agent}
-- Last Updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-EOF
-}
-
-signal_stuck() {
-    local reason="$1"
-    cat > "${SIGNALS_DIR}/STUCK" <<EOF
-## SPECTRA STUCK Signal
-- Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-- Elapsed: $(elapsed)
-- Reason: ${reason}
-- Branch: ${BRANCH_NAME}
-- Recovery: Human intervention required
-EOF
-    write_signal "PHASE" "stuck"
-    write_signal "AGENT" "none"
-    write_progress
-    echo ""
-    echo "  STUCK — Execution halted"
-    echo "  Reason: ${reason}"
-    echo "  Branch preserved: ${BRANCH_NAME}"
-
-    if [[ -n "${SLACK_WEBHOOK_URL:-}" ]]; then
-        curl -s -X POST "${SLACK_WEBHOOK_URL}" \
-            -H "Content-Type: application/json" \
-            -d "{\"text\":\"SPECTRA STUCK: ${reason} (branch: ${BRANCH_NAME})\"}" > /dev/null 2>&1 || true
-    fi
-
-    write_final_report
-    exit 1
-}
-
-write_signal() {
-    local signal_name="$1" signal_value="$2"
-    echo "${signal_value}" > "${SIGNALS_DIR}/${signal_name}"
-}
-
-write_progress() {
-    local total=0 done=0 stuck=0
-    if [[ -f "${SPECTRA_DIR}/plan.md" ]]; then
-        total=$(grep -cE '^\- \[[ xX!]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
-        total=${total:-0}
-        done=$(grep -cE '^\- \[[xX]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
-        done=${done:-0}
-        stuck=$(grep -cE '^\- \[!\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
-        stuck=${stuck:-0}
-        if [[ "$total" -eq 0 ]]; then
-            total=$(grep -c '^\- \[.\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
-            total=${total:-0}
-            done=$(grep -c '^\- \[[xX]\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
-            done=${done:-0}
-            stuck=0
-        fi
-        write_signal "PROGRESS" "${done}/${total} tasks (${stuck} stuck)"
-    fi
-}
+## Functions extracted to lib/loop-signals.sh:
+## write_status(), write_batch_status(), signal_stuck(), write_signal(),
+## write_progress(), signal_complete(), write_final_report()
 
 validate_plan_contract() {
     if [[ ! -f "${SPECTRA_DIR}/plan.md" ]]; then
@@ -259,36 +190,7 @@ validate_plan_contract() {
     return 0
 }
 
-signal_complete() {
-    cat > "${SIGNALS_DIR}/COMPLETE" <<EOF
-## SPECTRA Complete
-- Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-- Elapsed: $(elapsed)
-- Branch: ${BRANCH_NAME}
-- Pass History: ${PASS_HISTORY}
-EOF
-    write_signal "PHASE" "complete"
-    write_signal "AGENT" "none"
-    write_progress
-    echo ""
-    echo "  COMPLETE — All tasks passed"
-
-    if [[ -n "${SLACK_WEBHOOK_URL:-}" ]]; then
-        curl -s -X POST "${SLACK_WEBHOOK_URL}" \
-            -H "Content-Type: application/json" \
-            -d "{\"text\":\"SPECTRA COMPLETE: All tasks passed (branch: ${BRANCH_NAME}, elapsed: $(elapsed))\"}" > /dev/null 2>&1 || true
-    fi
-}
-
-write_final_report() {
-    cat > "${LOGS_DIR}/final-report.md" <<EOF
-## SPECTRA v5.0 Final Report
-- Branch: ${BRANCH_NAME}
-- Elapsed: $(elapsed)
-- Pass History: ${PASS_HISTORY:-none}
-- Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-EOF
-}
+## signal_complete(), write_final_report() — extracted to lib/loop-signals.sh
 
 refresh_claude_md() {
     local project_name level signs plan_status
@@ -340,73 +242,8 @@ EOF
     fi
 }
 
-propagate_signs() {
-    local guardrails_local="${SPECTRA_DIR}/guardrails.md"
-    local guardrails_global="${SPECTRA_HOME}/guardrails-global.md"
-
-    if [[ ! -f "$guardrails_local" ]] || [[ ! -f "$guardrails_global" ]]; then
-        return
-    fi
-
-    while IFS= read -r sign_line; do
-        local sign_id
-        sign_id=$(echo "$sign_line" | grep -oP 'SIGN-\d+' || echo "")
-        if [[ -n "$sign_id" ]] && ! grep -q "$sign_id" "$guardrails_global" 2>/dev/null; then
-            local line_num desc_line
-            line_num=$(grep -n "$sign_id" "$guardrails_local" | head -1 | cut -d: -f1)
-            desc_line=$(sed -n "$((line_num + 1))p" "$guardrails_local" 2>/dev/null || echo "")
-            {
-                echo ""
-                echo "$sign_line"
-                echo "$desc_line"
-            } >> "$guardrails_global"
-            echo "  Sign propagated to global: ${sign_id}"
-        fi
-    done < <(grep -E "^### SIGN-" "$guardrails_local" 2>/dev/null || true)
-}
-
-generate_task_summary() {
-    local task_num="$1" task_title="$2" result="$3" iteration="$4"
-
-    local summary_line
-    if [[ "$result" == "PASS" ]] && [[ "$iteration" -eq 1 ]]; then
-        summary_line="- Task ${task_num} (${task_title}): PASS on first attempt"
-    elif [[ "$result" == "PASS" ]]; then
-        summary_line="- Task ${task_num} (${task_title}): PASS after ${iteration} iterations"
-    else
-        summary_line="- Task ${task_num} (${task_title}): ${result} (${iteration} iterations)"
-    fi
-
-    local files_changed=""
-    if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
-        files_changed=$(git diff --name-only HEAD~1 2>/dev/null | head -5 | tr '\n' ', ' | sed 's/,$//' || echo "unknown")
-    fi
-
-    if [[ -f CLAUDE.md ]]; then
-        if grep -q '## Task History' CLAUDE.md 2>/dev/null; then
-            {
-                echo "${summary_line}"
-                echo "  Files: ${files_changed:-none}"
-            } >> CLAUDE.md
-        else
-            {
-                echo ""
-                echo "## Task History"
-                echo "${summary_line}"
-                echo "  Files: ${files_changed:-none}"
-            } >> CLAUDE.md
-        fi
-    fi
-}
-
-max_retries_for() {
-    local failure_type="$1"
-    case "$failure_type" in
-        test_failure|missing_dependency) echo 3 ;;
-        wiring_gap)                      echo 2 ;;
-        *)                               echo 0 ;;  # STUCK
-    esac
-}
+## Functions extracted to lib/loop-retry.sh:
+## propagate_signs(), generate_task_summary(), max_retries_for()
 
 count_tasks() {
     local total done stuck remaining
@@ -1089,216 +926,15 @@ oracle_classify() {
 # v5.0 CORE: CHECKPOINT SYSTEM
 # ══════════════════════════════════════════════════════════════
 
-write_checkpoint() {
-    local -a completed=() stuck_list=()
-    local retry_json="{}" failure_json="{}"
-
-    for ((i=0; i<${#TASK_IDS[@]}; i++)); do
-        case "${TASK_STATUS[$i]}" in
-            complete) completed+=("\"${TASK_IDS[$i]}\"") ;;
-            stuck)    stuck_list+=("\"${TASK_IDS[$i]}\"") ;;
-        esac
-    done
-
-    # Build retry counts JSON
-    local retry_pairs=()
-    for ((i=0; i<${#TASK_IDS[@]}; i++)); do
-        local rc="${RETRY_COUNTS[$i]:-0}"
-        if [[ "$rc" -gt 0 ]]; then
-            retry_pairs+=("\"${TASK_IDS[$i]}\": ${rc}")
-        fi
-    done
-    if [[ ${#retry_pairs[@]} -gt 0 ]]; then
-        retry_json="{ $(IFS=', '; echo "${retry_pairs[*]}") }"
-    fi
-
-    # Build failure types JSON
-    local fail_pairs=()
-    for ((i=0; i<${#TASK_IDS[@]}; i++)); do
-        local ft="${FAILURE_TYPES[$i]:-}"
-        if [[ -n "$ft" ]]; then
-            fail_pairs+=("\"${TASK_IDS[$i]}\": \"${ft}\"")
-        fi
-    done
-    if [[ ${#fail_pairs[@]} -gt 0 ]]; then
-        failure_json="{ $(IFS=', '; echo "${fail_pairs[*]}") }"
-    fi
-
-    local completed_json="[$(IFS=', '; echo "${completed[*]+"${completed[*]}"}")]"
-    local stuck_json="[$(IFS=', '; echo "${stuck_list[*]+"${stuck_list[*]}"}")]"
-
-    cat > "${CHECKPOINT_FILE}" <<EOF
-{
-  "version": "5.0",
-  "completed": ${completed_json},
-  "stuck": ${stuck_json},
-  "in_progress": [],
-  "retry_counts": ${retry_json},
-  "pass_history": "${PASS_HISTORY}",
-  "failure_types": ${failure_json},
-  "elapsed_seconds": $(elapsed_seconds),
-  "branch": "${BRANCH_NAME}",
-  "updated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-EOF
-}
-
-restore_checkpoint() {
-    if [[ ! -f "${CHECKPOINT_FILE}" ]]; then
-        echo "  No checkpoint found. Starting fresh."
-        return 1
-    fi
-
-    echo "  Restoring from checkpoint..."
-
-    local checkpoint
-    checkpoint=$(cat "${CHECKPOINT_FILE}")
-
-    # Checkpoint is the source of truth for task state on resume.
-    for ((i=0; i<${#TASK_IDS[@]}; i++)); do
-        TASK_STATUS[$i]="pending"
-    done
-
-    # Extract completed tasks
-    local completed_str=""
-    local stuck_str=""
-    if command -v jq &>/dev/null; then
-        completed_str=$(echo "$checkpoint" | jq -r '.completed[]' 2>/dev/null || echo "")
-        stuck_str=$(echo "$checkpoint" | jq -r '.stuck[]' 2>/dev/null || echo "")
-        PASS_HISTORY=$(echo "$checkpoint" | jq -r '.pass_history // ""' 2>/dev/null || echo "")
-        ELAPSED_OFFSET=$(echo "$checkpoint" | jq -r '.elapsed_seconds // 0' 2>/dev/null || echo "0")
-        BRANCH_NAME=$(echo "$checkpoint" | jq -r '.branch // ""' 2>/dev/null || echo "")
-
-        # Restore retry counts
-        local retry_keys
-        retry_keys=$(echo "$checkpoint" | jq -r '.retry_counts | keys[]' 2>/dev/null || echo "")
-        for key in $retry_keys; do
-            local val
-            val=$(echo "$checkpoint" | jq -r ".retry_counts[\"${key}\"]" 2>/dev/null || echo "0")
-            for ((i=0; i<${#TASK_IDS[@]}; i++)); do
-                if [[ "${TASK_IDS[$i]}" == "$key" ]]; then
-                    RETRY_COUNTS[$i]="$val"
-                    break
-                fi
-            done
-        done
-
-        # Restore failure types
-        local fail_keys
-        fail_keys=$(echo "$checkpoint" | jq -r '.failure_types | keys[]' 2>/dev/null || echo "")
-        for key in $fail_keys; do
-            local val
-            val=$(echo "$checkpoint" | jq -r ".failure_types[\"${key}\"]" 2>/dev/null || echo "")
-            for ((i=0; i<${#TASK_IDS[@]}; i++)); do
-                if [[ "${TASK_IDS[$i]}" == "$key" ]]; then
-                    FAILURE_TYPES[$i]="$val"
-                    break
-                fi
-            done
-        done
-    else
-        # Fallback: grep-based parsing
-        completed_str=$(echo "$checkpoint" | awk '/"completed"[[:space:]]*:/,/\]/' | grep -oP '"\K[0-9]{3}(?=")' || echo "")
-        stuck_str=$(echo "$checkpoint" | awk '/"stuck"[[:space:]]*:/,/\]/' | grep -oP '"\K[0-9]{3}(?=")' || echo "")
-        PASS_HISTORY=$(echo "$checkpoint" | grep -oP '"pass_history":\s*"\K[^"]*' || echo "")
-        ELAPSED_OFFSET=$(echo "$checkpoint" | grep -oP '"elapsed_seconds":\s*\K[0-9]+' || echo "0")
-        BRANCH_NAME=$(echo "$checkpoint" | grep -oP '"branch":\s*"\K[^"]*' || echo "")
-
-        # Restore retry counts from retry_counts object.
-        local retry_block retry_pair retry_key retry_val
-        retry_block=$(echo "$checkpoint" | awk '/"retry_counts"[[:space:]]*:/,/\}/')
-        while IFS= read -r retry_pair; do
-            retry_key=$(echo "$retry_pair" | grep -oP '"\K[0-9]{3}(?=")' || echo "")
-            retry_val=$(echo "$retry_pair" | grep -oP ':\s*\K[0-9]+' || echo "")
-            if [[ -z "$retry_key" ]] || [[ -z "$retry_val" ]]; then
-                continue
-            fi
-            for ((i=0; i<${#TASK_IDS[@]}; i++)); do
-                if [[ "${TASK_IDS[$i]}" == "$retry_key" ]]; then
-                    RETRY_COUNTS[$i]="$retry_val"
-                    break
-                fi
-            done
-        done < <(echo "$retry_block" | grep -oP '"[0-9]{3}"\s*:\s*[0-9]+' || true)
-
-        # Restore failure types from failure_types object.
-        local failure_block failure_pair failure_key failure_val
-        failure_block=$(echo "$checkpoint" | awk '/"failure_types"[[:space:]]*:/,/\}/')
-        while IFS= read -r failure_pair; do
-            failure_key=$(echo "$failure_pair" | grep -oP '"\K[0-9]{3}(?=")' || echo "")
-            failure_val=$(echo "$failure_pair" | grep -oP ':\s*"\K[^"]+' || echo "")
-            if [[ -z "$failure_key" ]] || [[ -z "$failure_val" ]]; then
-                continue
-            fi
-            for ((i=0; i<${#TASK_IDS[@]}; i++)); do
-                if [[ "${TASK_IDS[$i]}" == "$failure_key" ]]; then
-                    FAILURE_TYPES[$i]="$failure_val"
-                    break
-                fi
-            done
-        done < <(echo "$failure_block" | grep -oP '"[0-9]{3}"\s*:\s*"[^"]+"' || true)
-    fi
-
-    # Update TASK_STATUS from checkpoint completed list
-    for task_id in $completed_str; do
-        for ((i=0; i<${#TASK_IDS[@]}; i++)); do
-            if [[ "${TASK_IDS[$i]}" == "$task_id" ]]; then
-                TASK_STATUS[$i]="complete"
-                break
-            fi
-        done
-    done
-
-    # Also restore stuck tasks
-    for task_id in $stuck_str; do
-        for ((i=0; i<${#TASK_IDS[@]}; i++)); do
-            if [[ "${TASK_IDS[$i]}" == "$task_id" ]]; then
-                TASK_STATUS[$i]="stuck"
-                break
-            fi
-        done
-    done
-
-    local completed_count=0 stuck_count=0
-    for ((i=0; i<${#TASK_IDS[@]}; i++)); do
-        case "${TASK_STATUS[$i]}" in
-            complete) completed_count=$((completed_count + 1)) ;;
-            stuck)    stuck_count=$((stuck_count + 1)) ;;
-        esac
-    done
-
-    echo "  Checkpoint restored: ${completed_count} complete, ${stuck_count} stuck"
-    echo "  Pass history: ${PASS_HISTORY:-none}"
-    echo "  Elapsed offset: ${ELAPSED_OFFSET}s"
-    echo "  Branch: ${BRANCH_NAME}"
-
-    return 0
-}
+## Functions extracted to lib/loop-checkpoint.sh:
+## write_checkpoint(), restore_checkpoint(),
+## compute_plan_structure_checksum(), verify_plan_checksum()
 
 # ══════════════════════════════════════════════════════════════
-# BRANCH ISOLATION
+# BRANCH ISOLATION (delegated to lib/loop-git.sh)
 # ══════════════════════════════════════════════════════════════
 
-if [[ "$RESUME" == true ]] && git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
-    EXISTING_BRANCH=$(git branch --list 'spectra/run-*' | tail -1 | tr -d ' *' || true)
-    if [[ -n "$EXISTING_BRANCH" ]]; then
-        BRANCH_NAME="$EXISTING_BRANCH"
-        echo "  Resuming on existing branch: ${BRANCH_NAME}"
-        if [[ "$DRY_RUN" == false ]]; then
-            git checkout "${BRANCH_NAME}" 2>/dev/null || true
-        fi
-    fi
-fi
-
-if [[ -z "$BRANCH_NAME" ]]; then
-    BRANCH_NAME="spectra/run-$(date +%Y%m%d-%H%M%S)"
-    if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
-        if [[ "$DRY_RUN" == false ]]; then
-            git checkout -b "${BRANCH_NAME}" 2>/dev/null || true
-            echo "  Branch: ${BRANCH_NAME}"
-        fi
-    fi
-fi
+setup_branch
 
 # ══════════════════════════════════════════════════════════════
 # PHASE 1: PLANNING (if not skipped)
@@ -1411,41 +1047,12 @@ echo ""
 echo "  Parsing plan.md..."
 parse_plan
 
-# ── Plan checksum lock (Phase 1 Quick Win) ──
-# Checksum covers only structural (immutable) lines of plan.md — task headers,
-# AC, Files, Verify, deps, ownership. Checkbox state lines (- [ ]/[x]/[!]) and
-# appended constraints are mutable during execution, so they are excluded.
+# ── Plan checksum lock (functions in lib/loop-checkpoint.sh) ──
 PLAN_CHECKSUM=""
-
-compute_plan_structure_checksum() {
-    # Strip mutable lines: checkbox state, trailing constraint appendages
-    # Keep: ## Task headers, - AC:, - Files:, - Verify:, - Risk:, - Scope:, etc.
-    grep -vE '^\- \[[ xX!]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null \
-        | sha256sum | cut -d' ' -f1
-}
 
 if [[ -f "${SPECTRA_DIR}/plan.md" ]]; then
     PLAN_CHECKSUM=$(compute_plan_structure_checksum)
 fi
-
-verify_plan_checksum() {
-    if [[ -z "${PLAN_CHECKSUM}" ]]; then
-        return 0  # No checksum to verify (e.g., dry-run without plan file)
-    fi
-    local current
-    current=$(compute_plan_structure_checksum)
-    if [[ "${current}" != "${PLAN_CHECKSUM}" ]]; then
-        echo ""
-        echo "  PLAN LOCK VIOLATION: plan.md structure was modified during execution!"
-        echo "  Expected: ${PLAN_CHECKSUM:0:16}..."
-        echo "  Got:      ${current:0:16}..."
-        echo "  Halting to prevent stale-plan execution."
-        echo ""
-        write_signal "PLAN_LOCK_FAIL" "plan.md structural checksum mismatch at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        return 1
-    fi
-    return 0
-}
 
 # ── Initialize per-task tracking arrays ──
 declare -a RETRY_COUNTS=()
@@ -1484,16 +1091,8 @@ echo "  Dry Run:      ${DRY_RUN}"
 echo "  Resume:       ${RESUME}"
 echo ""
 
-# ── Install pre-commit hook (idempotent, skip in dry-run) ──
-if [[ "$DRY_RUN" == false ]] && git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
-    HOOK_SRC="${SPECTRA_HOME}/hooks/pre-commit"
-    HOOK_DST=".git/hooks/pre-commit"
-    if [[ -f "$HOOK_SRC" ]] && [[ ! -e "$HOOK_DST" ]]; then
-        mkdir -p .git/hooks
-        ln -s "$HOOK_SRC" "$HOOK_DST" 2>/dev/null || true
-        echo "  Installed pre-commit hook: ${HOOK_DST} -> ${HOOK_SRC}"
-    fi
-fi
+# ── Install pre-commit hook (delegated to lib/loop-git.sh) ──
+install_precommit_hook
 
 # Generate initial CLAUDE.md (skip in dry-run)
 if [[ "$DRY_RUN" == false ]]; then
@@ -1668,31 +1267,12 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
         fi
 
         if [[ "${RESULT^^}" == "PASS" ]]; then
-            # ── Wiring gate (runs BEFORE marking task complete) ──
-            WIRING_OK=true
-            if [[ -f ".spectra/verify.yaml" ]] && git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
-                echo "    Running wiring proof for Task ${task_id}..."
-                git add -A 2>/dev/null || true
-                set +e
-                "${SPECTRA_HOME}/bin/spectra-verify-wiring.sh" . \
-                    > "${LOGS_DIR}/task-${task_id}-wiring.log" 2>&1
-                WIRING_EXIT=$?
-                set -e
-
-                if [[ "${SPECTRA_SKIP_WIRING:-0}" == "1" ]]; then
-                    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] WIRING BYPASS: Task ${task_id} on branch ${BRANCH_NAME} — SPECTRA_SKIP_WIRING=1" \
-                        >> "${LOGS_DIR}/task-${task_id}-wiring.log"
-                    echo "    WARNING: Wiring proof bypassed (SPECTRA_SKIP_WIRING=1)"
-                elif [[ $WIRING_EXIT -ne 0 ]]; then
-                    WIRING_OK=false
-                    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] WIRING FAILED: Task ${task_id} on branch ${BRANCH_NAME}" \
-                        >> "${LOGS_DIR}/task-${task_id}-wiring.log"
-                    echo "    WIRING FAILED: Task ${task_id} — routing to retry (wiring_gap)"
-                fi
-            fi
-
-            if [[ "$WIRING_OK" == false ]]; then
-                # Wiring failure: do NOT mark complete — treat as FAIL with wiring_gap type
+            # ── Wiring gate (delegated to lib/loop-wiring.sh) ──
+            set +e
+            run_wiring_gate "$task_id"
+            WIRING_RESULT=$?
+            set -e
+            if [[ $WIRING_RESULT -ne 0 ]]; then
                 RESULT="FAIL"
                 FAILURE_TYPE="wiring_gap"
             fi
@@ -1716,11 +1296,8 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
                 PASS_HISTORY="${PASS_HISTORY:+${PASS_HISTORY}, }Task ${task_id}: FAIL->PASS"
             fi
 
-            # Git commit
-            if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
-                git add -A 2>/dev/null || true
-                git commit -m "feat(task-${task_id}): ${task_title}" 2>/dev/null || true
-            fi
+            # Git commit (delegated to lib/loop-git.sh)
+            commit_task "${task_id}" "${task_title}"
 
             generate_task_summary "${task_id}" "${task_title}" "PASS" "${iteration}"
         else

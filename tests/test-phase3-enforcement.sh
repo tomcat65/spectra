@@ -168,10 +168,10 @@ fi
 # ══════════════════════════════════════════
 # Verify the loop structure: wiring gate runs BEFORE TASK_STATUS=complete
 # and sets RESULT="FAIL" + FAILURE_TYPE="wiring_gap" on failure.
-# This is a structural test on the source ordering.
+# After Phase 6 refactor, wiring is delegated to run_wiring_gate() from lib/loop-wiring.sh.
 LOOP_PASS_SECTION=$(sed -n '/RESULT\^\^.*PASS/,/TASK_STATUS\[/p' "$LOOP" 2>/dev/null | head -20)
-if echo "$LOOP_PASS_SECTION" | grep -q 'WIRING_OK' 2>/dev/null; then
-    # Wiring gate appears before TASK_STATUS assignment
+if echo "$LOOP_PASS_SECTION" | grep -q 'run_wiring_gate' 2>/dev/null; then
+    # Wiring gate (delegated to module) appears before TASK_STATUS assignment
     assert_pass "wiring gate runs before task completion marking"
 else
     assert_fail "wiring gate runs before task completion marking"

@@ -24,7 +24,7 @@ jobs:
       - name: Bash syntax check
         run: |
           failed=0
-          for script in bin/*.sh; do
+          for script in bin/*.sh lib/*.sh; do
             if bash -n "$script" 2>/dev/null; then
               echo "PASS  $(basename "$script")"
             else
@@ -32,6 +32,46 @@ jobs:
               failed=1
             fi
           done
+          exit $failed
+
+      - name: Module anti-drift
+        run: |
+          failed=0
+          # Explicit expected module list (update when adding/removing modules)
+          EXPECTED_MODULES="loop-signals loop-retry loop-wiring loop-git loop-checkpoint"
+          # 1. Every expected module must exist AND be sourced
+          for mod in $EXPECTED_MODULES; do
+            if [[ ! -f "lib/${mod}.sh" ]]; then
+              echo "FAIL: expected module lib/${mod}.sh is missing"
+              failed=1
+            elif ! grep -q "source.*lib/${mod}.sh" bin/spectra-loop.sh; then
+              echo "FAIL: lib/${mod}.sh exists but is not sourced in spectra-loop.sh"
+              failed=1
+            fi
+          done
+          # 2. Every lib/loop-*.sh on disk must be in expected list (no rogue modules)
+          for mod_file in lib/loop-*.sh; do
+            [[ -f "$mod_file" ]] || continue
+            mod_name=$(basename "$mod_file" .sh)
+            if ! echo "$EXPECTED_MODULES" | grep -qw "$mod_name"; then
+              echo "FAIL: unexpected module ${mod_file} not in expected list"
+              failed=1
+            fi
+          done
+          # 3. No duplicate source lines
+          dups=$(grep -E '^source.*lib/loop-' bin/spectra-loop.sh | sort | uniq -d)
+          if [[ -n "$dups" ]]; then
+            echo "FAIL: duplicate source lines: $dups"
+            failed=1
+          fi
+          # 4. No wildcard sourcing
+          if grep -qE 'source.*lib/loop-\*' bin/spectra-loop.sh; then
+            echo "FAIL: wildcard sourcing detected (must use explicit list)"
+            failed=1
+          fi
+          if [[ $failed -eq 0 ]]; then
+            echo "PASS: all expected modules present, sourced, no duplicates, no wildcards"
+          fi
           exit $failed
 
       - name: Install ShellCheck (pinned)
@@ -42,7 +82,7 @@ jobs:
           shellcheck --version | head -2
 
       - name: ShellCheck (errors only — fast fail)
-        run: shellcheck --severity=error bin/*.sh hooks/pre-commit
+        run: shellcheck --severity=error bin/*.sh lib/*.sh hooks/pre-commit
 
       - name: ShellCheck ratchet (warnings)
         run: bin/spectra-shellcheck-ratchet.sh --check

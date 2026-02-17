@@ -74,14 +74,26 @@ if [[ -z "$MODE" ]]; then
     exit 1
 fi
 
-# ── Discover target files ──
+# ── Discover target files (dedup symlinks by realpath) ──
 discover_targets() {
     local targets=()
+    local -A seen_realpaths=()
     for f in "${SPECTRA_HOME}"/bin/*.sh; do
-        [[ -f "$f" ]] && targets+=("$f")
+        [[ -f "$f" ]] || continue
+        local real
+        real=$(realpath "$f" 2>/dev/null || readlink -f "$f" 2>/dev/null || echo "$f")
+        if [[ -z "${seen_realpaths[$real]+x}" ]]; then
+            seen_realpaths["$real"]=1
+            targets+=("$f")
+        fi
     done
     if [[ -f "${SPECTRA_HOME}/hooks/pre-commit" ]]; then
-        targets+=("${SPECTRA_HOME}/hooks/pre-commit")
+        local real
+        real=$(realpath "${SPECTRA_HOME}/hooks/pre-commit" 2>/dev/null || echo "${SPECTRA_HOME}/hooks/pre-commit")
+        if [[ -z "${seen_realpaths[$real]+x}" ]]; then
+            seen_realpaths["$real"]=1
+            targets+=("${SPECTRA_HOME}/hooks/pre-commit")
+        fi
     fi
     printf '%s\n' "${targets[@]}"
 }
