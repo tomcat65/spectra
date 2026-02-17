@@ -226,11 +226,15 @@ for i in "${!TASK_HEADERS[@]}"; do
         if [[ "${local_has_ownership}" == false ]]; then
             ERRORS+=("Task ${task_id}: Level ${PROJECT_LEVEL} requires '- File-ownership:' section")
         else
-            # owns: required (accept both bracket and bare formats)
+            # owns: required (bracket format required at Level 3+, bare format warned)
             if echo "${task_block}" | grep -qE '^[[:space:]]*- owns: \['; then
                 true  # Bracket format (preferred)
             elif echo "${task_block}" | grep -qE '^[[:space:]]*- owns: [^\[]'; then
-                WARNINGS+=("Task ${task_id}: '- owns:' should use bracket format: '- owns: [file1, file2]'")
+                if [[ "${PROJECT_LEVEL}" -ge 3 ]]; then
+                    ERRORS+=("Task ${task_id}: '- owns:' must use bracket format at Level ${PROJECT_LEVEL}: '- owns: [file1, file2]'")
+                else
+                    WARNINGS+=("Task ${task_id}: '- owns:' should use bracket format: '- owns: [file1, file2]'")
+                fi
             else
                 ERRORS+=("Task ${task_id}: missing '- owns: [...]' in File-ownership")
             fi

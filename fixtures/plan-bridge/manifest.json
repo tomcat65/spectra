@@ -80,6 +80,36 @@
         "dependency_graph_acyclic",
         "sequential_deps_parsed"
       ]
+    },
+    {
+      "id": "valid-risk-mixed-case",
+      "file": "valid-risk-mixed-case.md",
+      "projectLevel": 1,
+      "expected": "pass",
+      "checks": [
+        "risk_case_insensitive",
+        "multiple_risk_levels"
+      ]
+    },
+    {
+      "id": "invalid-bare-owns-level3",
+      "file": "invalid-bare-owns-level3.md",
+      "projectLevel": 3,
+      "expected": "fail",
+      "errorCode": "BARE_OWNS_FORMAT",
+      "errorDetail": "owns: must use bracket format at Level 3+"
+    },
+    {
+      "id": "valid-level3-with-reads",
+      "file": "valid-level3-with-reads.md",
+      "projectLevel": 3,
+      "expected": "pass",
+      "checks": [
+        "file_ownership_owns",
+        "file_ownership_touches",
+        "file_ownership_reads",
+        "parallelism_assessment"
+      ]
     }
   ]
 }

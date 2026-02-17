@@ -52,6 +52,7 @@ TASK_VERIFY=()    # verify command
 TASK_MAX_ITER=()  # max iterations per task
 TASK_LINES=()     # line number of checkbox in plan.md
 TASK_DEPS=()      # comma-separated dependency task IDs
+TASK_READS=()     # comma-separated read-only files
 
 PASS_HISTORY=""
 BRANCH_NAME=""
@@ -432,6 +433,8 @@ count_tasks() {
 
 parse_plan() {
     local plan="${SPECTRA_DIR}/plan.md"
+    local plan_json="${SPECTRA_DIR}/plan.json"
+
     if [[ ! -f "$plan" ]]; then
         echo "Error: No plan.md found."
         return 1
@@ -444,11 +447,155 @@ parse_plan() {
     TASK_RISKS=()
     TASK_OWNS=()
     TASK_TOUCHES=()
+    TASK_READS=()
     TASK_VERIFY=()
     TASK_MAX_ITER=()
     TASK_LINES=()
     TASK_DEPS=()
 
+    # Fast path: if plan.json exists, is fresh, and jq is available, use JSON
+    if [[ -f "$plan_json" ]] && command -v jq &>/dev/null; then
+        # Freshness gate: plan.json must embed a source_hash matching plan.md's current hash.
+        # Fall back to strict mtime (json > md, not >=) if source_hash is absent.
+        local json_fresh=false
+        local md_hash json_source_hash
+        md_hash=$(sha256sum "$plan" 2>/dev/null | cut -d' ' -f1 || echo "")
+        json_source_hash=$(jq -r '.source_hash // empty' "$plan_json" 2>/dev/null || echo "")
+
+        if [[ -n "$md_hash" ]] && [[ -n "$json_source_hash" ]]; then
+            # Hash-based freshness (strongest)
+            if [[ "$json_source_hash" == "$md_hash" ]]; then
+                json_fresh=true
+            fi
+        elif [[ -n "$md_hash" ]] && [[ -z "$json_source_hash" ]]; then
+            # No source_hash in JSON — fall back to strict mtime (json strictly newer)
+            local md_mtime json_mtime
+            md_mtime=$(stat -c %Y "$plan" 2>/dev/null || stat -f %m "$plan" 2>/dev/null || echo "0")
+            json_mtime=$(stat -c %Y "$plan_json" 2>/dev/null || stat -f %m "$plan_json" 2>/dev/null || echo "0")
+            if [[ "$json_mtime" -gt "$md_mtime" ]]; then
+                json_fresh=true
+            fi
+        fi
+
+        if [[ "$json_fresh" == true ]]; then
+            if parse_plan_from_json "$plan_json"; then
+                echo "  Parsed ${#TASK_IDS[@]} tasks from plan.json (jq fast path)"
+                return 0
+            else
+                echo "  Warning: plan.json parse failed, falling back to markdown"
+            fi
+        else
+            echo "  Warning: plan.json is stale (does not match plan.md), using markdown path"
+        fi
+    fi
+
+    # Fallback: parse from markdown
+    parse_plan_from_markdown
+    echo "  Parsed ${#TASK_IDS[@]} tasks from plan.md"
+    return 0
+}
+
+parse_plan_from_json() {
+    local json_file="$1"
+    local task_count
+
+    # Validate JSON is parseable
+    if ! jq empty "$json_file" 2>/dev/null; then
+        echo "  Warning: plan.json is not valid JSON" >&2
+        return 1
+    fi
+
+    # Validate required top-level structure
+    task_count=$(jq '.tasks | length' "$json_file" 2>/dev/null) || return 1
+    if [[ -z "$task_count" ]] || [[ "$task_count" -eq 0 ]]; then
+        return 1
+    fi
+
+    # Validate schema version (must be exactly "1.0")
+    local version
+    version=$(jq -r '.version // empty' "$json_file" 2>/dev/null) || return 1
+    if [[ "$version" != "1.0" ]]; then
+        echo "  Warning: plan.json has unsupported version: '${version}' (expected '1.0')" >&2
+        return 1
+    fi
+
+    # Validate each task has required fields before populating arrays
+    for ((i=0; i<task_count; i++)); do
+        local tid ttitle tstatus trisk tline tmax
+        tid=$(jq -r ".tasks[$i].id // empty" "$json_file" 2>/dev/null) || return 1
+        ttitle=$(jq -r ".tasks[$i].title // empty" "$json_file" 2>/dev/null) || return 1
+        tstatus=$(jq -r ".tasks[$i].status // empty" "$json_file" 2>/dev/null) || return 1
+        tline=$(jq -r ".tasks[$i].line_number // empty" "$json_file" 2>/dev/null) || return 1
+
+        # Required fields must be non-empty
+        if [[ -z "$tid" ]] || [[ -z "$ttitle" ]] || [[ -z "$tstatus" ]] || [[ -z "$tline" ]]; then
+            echo "  Warning: plan.json task $i missing required field (id/title/status/line_number)" >&2
+            return 1
+        fi
+
+        # Validate line_number is a non-negative integer
+        if [[ ! "$tline" =~ ^[0-9]+$ ]]; then
+            echo "  Warning: plan.json task $i has non-integer line_number: $tline" >&2
+            return 1
+        fi
+
+        # Validate id format (3-digit)
+        if [[ ! "$tid" =~ ^[0-9]{3}$ ]]; then
+            echo "  Warning: plan.json task $i has invalid id format: $tid" >&2
+            return 1
+        fi
+
+        # Validate status enum
+        if [[ "$tstatus" != "pending" ]] && [[ "$tstatus" != "complete" ]] && [[ "$tstatus" != "stuck" ]]; then
+            echo "  Warning: plan.json task $i has invalid status: $tstatus" >&2
+            return 1
+        fi
+
+        # Validate risk enum (with fallback default)
+        trisk=$(jq -r ".tasks[$i].risk // \"medium\"" "$json_file" 2>/dev/null)
+        if [[ "$trisk" != "low" ]] && [[ "$trisk" != "medium" ]] && [[ "$trisk" != "high" ]]; then
+            echo "  Warning: plan.json task $i has invalid risk: $trisk" >&2
+            return 1
+        fi
+
+        # Validate max_iterations is a positive integer
+        tmax=$(jq -r ".tasks[$i].max_iterations // 5" "$json_file" 2>/dev/null)
+        if [[ ! "$tmax" =~ ^[0-9]+$ ]] || [[ "$tmax" -eq 0 ]]; then
+            echo "  Warning: plan.json task $i has invalid max_iterations: $tmax" >&2
+            return 1
+        fi
+
+        # Validate arrays are actually arrays (not null or string)
+        for arr_field in owns touches reads deps; do
+            local arr_type
+            arr_type=$(jq -r ".tasks[$i].${arr_field} | type" "$json_file" 2>/dev/null) || return 1
+            if [[ "$arr_type" != "array" ]]; then
+                echo "  Warning: plan.json task $i.${arr_field} is not an array (got: $arr_type)" >&2
+                return 1
+            fi
+        done
+    done
+
+    # All validation passed — populate arrays
+    for ((i=0; i<task_count; i++)); do
+        TASK_IDS+=("$(jq -r ".tasks[$i].id" "$json_file")")
+        TASK_TITLES+=("$(jq -r ".tasks[$i].title" "$json_file")")
+        TASK_STATUS+=("$(jq -r ".tasks[$i].status" "$json_file")")
+        TASK_RISKS+=("$(jq -r ".tasks[$i].risk // \"medium\"" "$json_file")")
+        TASK_OWNS+=("$(jq -r '.tasks['"$i"'].owns | join(",")' "$json_file")")
+        TASK_TOUCHES+=("$(jq -r '.tasks['"$i"'].touches | join(",")' "$json_file")")
+        TASK_READS+=("$(jq -r '.tasks['"$i"'].reads | join(",")' "$json_file")")
+        TASK_VERIFY+=("$(jq -r ".tasks[$i].verify // \"\"" "$json_file")")
+        TASK_MAX_ITER+=("$(jq -r ".tasks[$i].max_iterations // 5" "$json_file")")
+        TASK_LINES+=("$(jq -r ".tasks[$i].line_number // 0" "$json_file")")
+        TASK_DEPS+=("$(jq -r '.tasks['"$i"'].deps | join(",")' "$json_file")")
+    done
+
+    return 0
+}
+
+parse_plan_from_markdown() {
+    local plan="${SPECTRA_DIR}/plan.md"
     local current_task="" current_idx=-1
     local line_num=0
 
@@ -467,6 +614,7 @@ parse_plan() {
             TASK_RISKS+=("medium")    # default
             TASK_OWNS+=("")
             TASK_TOUCHES+=("")
+            TASK_READS+=("")
             TASK_VERIFY+=("")
             TASK_MAX_ITER+=("5")      # default
             TASK_LINES+=("0")         # updated when checkbox found
@@ -491,8 +639,8 @@ parse_plan() {
             continue
         fi
 
-        # Parse Risk
-        if [[ "$line" =~ ^-\ Risk:\ *(high|medium|low) ]]; then
+        # Parse Risk (case-insensitive: normalize to lowercase)
+        if [[ "${line,,}" =~ ^-\ risk:\ *(high|medium|low) ]]; then
             TASK_RISKS[$current_idx]="${BASH_REMATCH[1]}"
             continue
         fi
@@ -503,21 +651,36 @@ parse_plan() {
             continue
         fi
 
-        # Parse Max-iterations
-        if [[ "$line" =~ ^-\ Max-iterations:\ *([0-9]+) ]]; then
+        # Parse Max-iterations (accept both hyphenated and unhyphenated)
+        if [[ "$line" =~ ^-\ Max-iterations:\ *([0-9]+) ]] || [[ "$line" =~ ^-\ Max\ iterations:\ *([0-9]+) ]]; then
             TASK_MAX_ITER[$current_idx]="${BASH_REMATCH[1]}"
             continue
         fi
 
-        # Parse File-ownership owns
+        # Parse File-ownership owns (bracket format, then bare fallback)
         if [[ "$line" =~ owns:\ *\[([^]]*)\] ]]; then
+            TASK_OWNS[$current_idx]="${BASH_REMATCH[1]}"
+            continue
+        elif [[ "$line" =~ ^[[:space:]]*-\ owns:\ +(.+)$ ]] && [[ ! "$line" =~ \[ ]]; then
             TASK_OWNS[$current_idx]="${BASH_REMATCH[1]}"
             continue
         fi
 
-        # Parse File-ownership touches
+        # Parse File-ownership touches (bracket format, then bare fallback)
         if [[ "$line" =~ touches:\ *\[([^]]*)\] ]]; then
             TASK_TOUCHES[$current_idx]="${BASH_REMATCH[1]}"
+            continue
+        elif [[ "$line" =~ ^[[:space:]]*-\ touches:\ +(.+)$ ]] && [[ ! "$line" =~ \[ ]]; then
+            TASK_TOUCHES[$current_idx]="${BASH_REMATCH[1]}"
+            continue
+        fi
+
+        # Parse File-ownership reads (bracket format, then bare fallback)
+        if [[ "$line" =~ reads:\ *\[([^]]*)\] ]]; then
+            TASK_READS[$current_idx]="${BASH_REMATCH[1]}"
+            continue
+        elif [[ "$line" =~ ^[[:space:]]*-\ reads:\ +(.+)$ ]] && [[ ! "$line" =~ \[ ]]; then
+            TASK_READS[$current_idx]="${BASH_REMATCH[1]}"
             continue
         fi
 
@@ -542,9 +705,6 @@ parse_plan() {
 
     # ── Parse Dependency Graph section ──
     parse_dependencies
-
-    echo "  Parsed ${#TASK_IDS[@]} tasks from plan.md"
-    return 0
 }
 
 parse_dependencies() {
@@ -552,14 +712,14 @@ parse_dependencies() {
     local in_dep_graph=false
 
     while IFS= read -r line; do
-        # Enter dependency graph section
-        if [[ "$line" == "## Dependency Graph" ]]; then
+        # Enter dependency graph section (accept both headers)
+        if [[ "$line" == "## Dependency Graph" ]] || [[ "$line" == "## Parallelism Assessment" ]]; then
             in_dep_graph=true
             continue
         fi
 
-        # Exit on next section
-        if [[ "$in_dep_graph" == true ]] && [[ "$line" =~ ^## ]]; then
+        # Exit on next section (but not on the alternate header)
+        if [[ "$in_dep_graph" == true ]] && [[ "$line" =~ ^## ]] && [[ "$line" != "## Dependency Graph" ]] && [[ "$line" != "## Parallelism Assessment" ]]; then
             break
         fi
 

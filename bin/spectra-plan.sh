@@ -561,6 +561,18 @@ else
     mv .spectra/plan.md.new .spectra/plan.md
     TASK_COUNT=$(grep -cE '^## Task [0-9]{3}:' .spectra/plan.md 2>/dev/null | tr -dc '0-9' || echo "0")
     TASK_COUNT=${TASK_COUNT:-0}
+
+    # Generate plan.json (typed contract for parse_plan fast path)
+    PLAN_EXTRACTOR="${SPECTRA_HOME}/bin/plan-extract.sh"
+    if [[ -x "${PLAN_EXTRACTOR}" ]]; then
+        if "${PLAN_EXTRACTOR}" --file .spectra/plan.md --output .spectra/plan.json 2>/dev/null; then
+            echo "  Extracted: .spectra/plan.json"
+        else
+            echo "  Warning: plan.json extraction failed (runtime will use regex fallback)"
+            rm -f .spectra/plan.json
+        fi
+    fi
+
     echo ""
     echo "  Plan generated: ${TASK_COUNT} tasks"
     echo "  Output: .spectra/plan.md"

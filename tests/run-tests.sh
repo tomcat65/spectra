@@ -92,6 +92,24 @@ TOTAL_FAIL=$((TOTAL_FAIL + loop_fail))
 [[ ${loop_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
 
 # ══════════════════════════════════════════
+# Suite 4: Plan extraction tests (Phase 2)
+# ══════════════════════════════════════════
+echo "=== Suite: plan-extract ==="
+set +e
+output=$("${SCRIPT_DIR}/test-plan-extract.sh" 2>&1)
+extract_exit=$?
+set -e
+echo "${output}"
+echo ""
+
+# Parse pass/fail counts from the sub-test output
+extract_pass=$(echo "${output}" | grep -oP 'plan-extract: \K[0-9]+(?= passed)' || echo "0")
+extract_fail=$(echo "${output}" | grep -oP 'passed, \K[0-9]+(?= failed)' || echo "0")
+TOTAL_PASS=$((TOTAL_PASS + extract_pass))
+TOTAL_FAIL=$((TOTAL_FAIL + extract_fail))
+[[ ${extract_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
+
+# ══════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════
 echo "==============================="
