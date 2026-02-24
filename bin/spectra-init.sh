@@ -313,7 +313,7 @@ if [[ "$NO_COMMIT" == false ]]; then
     if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
         echo "→ Creating initial SPECTRA commit..."
         git add .spectra/ CLAUDE.md
-        git commit -m "chore: initialize SPECTRA v5.1 framework (Level ${LEVEL})" --no-verify 2>/dev/null || echo "  Nothing to commit."
+        git commit -m "chore: initialize SPECTRA v5.4 framework (Level ${LEVEL})" --no-verify 2>/dev/null || echo "  Nothing to commit."
     else
         echo "⚠  Not a git repository. Run 'git init' first."
     fi
