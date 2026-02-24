@@ -546,12 +546,13 @@ Model selection and tool restrictions are defined in agent YAML frontmatter at `
 
 | Agent | Model | Role | Key Tools | Constraint |
 |-------|-------|------|-----------|------------|
-| **spectra-builder** | Opus | Implementer | Read, Edit, Write, Bash | acceptEdits mode, max 50 turns |
-| **spectra-verifier** | Opus | Quality gate | Read, Bash, Grep | No Edit/Write |
-| **spectra-reviewer** | Sonnet | Adversarial review | Read, Grep, Bash | Cross-model assurance |
-| **spectra-auditor** | Haiku | Pre-flight scan | Read, Grep, Glob | 10 turns max, minimal cost |
-| **spectra-oracle** | Haiku | Failure classifier | Read, Grep | 3 turns max, single-word output |
-| **spectra-planner** | Opus | Plan generation | Read, Grep, Glob, Bash | plan mode, research only |
+| **spectra-planner** | Opus | Plan generation | Read, Grep, Glob, Bash | plan mode, research only, 40 max turns |
+| **spectra-builder** | Opus | Implementer | Read, Edit, Write, Bash | acceptEdits mode, max 50 turns, reads lessons-active.md |
+| **spectra-verifier** | Opus | Quality gate | Read, Bash, Grep | No Edit/Write, checks lesson violations, 30 max turns |
+| **spectra-reviewer** | Sonnet | Adversarial review | Read, Grep, Bash | Cross-model assurance, 25 max turns |
+| **spectra-auditor** | Haiku | Pre-flight scan | Read, Grep, Glob | 10 max turns, no Bash, minimal cost |
+| **spectra-scout** | Haiku | Pre-planning discovery | Read, Grep, Glob, Bash | 15 max turns, discovery phase |
+| **spectra-oracle** | Haiku | Failure classifier | Read, Grep | 3 max turns, single-word output |
 
 ### Why Different Models?
 
