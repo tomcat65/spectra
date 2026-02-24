@@ -1380,6 +1380,91 @@ test_upgrade_brownfield_lessons_active_generated
 test_upgrade_detects_version_skips
 
 # ══════════════════════════════════════════
+# TEST GROUP 20: Codex audit fixes (Phase 10)
+# ══════════════════════════════════════════
+
+# FIX-1: Status-priority ordering before capping
+test_inject_cap_preserves_sign_over_confirmed() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    mkdir -p "${TEST_LESSONS_HOME}/projects/test-project"
+    # Create 16 CONFIRMED lessons + 1 SIGN lesson (project-local)
+    for i in $(seq 1 16); do
+        printf '{"action":"create","fingerprint":"build/err%d/f%d.ts","status":"CONFIRMED","severity":"medium","area":"build","error_code":"err%d","command":"test","primary_file":"f%d.ts","detail":"Confirmed lesson %d","recurrence_count":1,"distinct_projects":["test-project"],"prevention_count":0,"false_positive_count":0,"ttl":5,"ttl_base":5,"projects_since_last":0,"timestamp":"2026-02-24T00:00:00Z","evidence":{"source_run_id":"run","project":"test-project","task_id":"001","verifier_output":"FAIL","oracle_class":"test_failure"}}\n' \
+            "$i" "$i" "$i" "$i" "$i" >> "${TEST_LESSONS_HOME}/projects/test-project/lessons.jsonl"
+    done
+    # Add one SIGN lesson — must survive the cap at 15
+    echo '{"action":"create","fingerprint":"sign/critical/important.ts","status":"SIGN","severity":"critical","area":"sign","error_code":"critical","command":"test","primary_file":"important.ts","detail":"Critical SIGN lesson","recurrence_count":10,"distinct_projects":["test-project"],"prevention_count":5,"false_positive_count":0,"ttl":999,"ttl_base":999,"projects_since_last":0,"timestamp":"2026-02-24T00:00:00Z","evidence":{"source_run_id":"run","project":"test-project","task_id":"001","verifier_output":"FAIL","oracle_class":"test_failure"}}' \
+        >> "${TEST_LESSONS_HOME}/projects/test-project/lessons.jsonl"
+
+    inject_active_lessons "test-project" "${TEST_SPECTRA_DIR}"
+    # SIGN lesson must be present even though there are 17 entries and cap is 15
+    if grep -q "sign/critical/important.ts" "${TEST_SPECTRA_DIR}/lessons-active.md"; then
+        pass "inject_cap_preserves_sign_over_confirmed"
+    else
+        fail "inject_cap_preserves_sign_over_confirmed" "SIGN lesson dropped by cap"
+    fi
+    teardown_test_env
+}
+
+# FIX-2: Brownfield strip logic scoped to Lessons section only
+test_upgrade_brownfield_preserves_bullets_outside_lessons() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    cat > "${TEST_SPECTRA_DIR}/guardrails.md" <<'GR'
+### SIGN-001: Integration tests must invoke what they import
+> Check that every import is actually called.
+- **[CONFIRMED]** `build/err/file.ts`: This bullet is OUTSIDE Lessons section
+## Lessons
+- **[CONFIRMED]** `build/err/file.ts`: This one is INSIDE Lessons section
+- **[PROMOTED]** `deploy/timeout/server.ts`: Also inside
+## Other Section
+Some content here.
+GR
+    spectra_upgrade_project "${TEST_SPECTRA_DIR}" "test-project"
+    # The bullet OUTSIDE Lessons must survive
+    if grep -q "This bullet is OUTSIDE Lessons section" "${TEST_SPECTRA_DIR}/guardrails.md"; then
+        # The bullet INSIDE Lessons must be stripped
+        if grep -q "This one is INSIDE Lessons section" "${TEST_SPECTRA_DIR}/guardrails.md"; then
+            fail "upgrade_brownfield_preserves_bullets_outside_lessons" "inside-lessons bullet was NOT stripped"
+        else
+            pass "upgrade_brownfield_preserves_bullets_outside_lessons"
+        fi
+    else
+        fail "upgrade_brownfield_preserves_bullets_outside_lessons" "outside-lessons bullet was incorrectly stripped"
+    fi
+    teardown_test_env
+}
+
+# FIX-3: Brownfield strip preserves "Other Section" after Lessons
+test_upgrade_brownfield_preserves_section_after_lessons() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    cat > "${TEST_SPECTRA_DIR}/guardrails.md" <<'GR'
+### SIGN-001: Test
+> Description
+## Lessons
+- **[CONFIRMED]** `build/err/file.ts`: Stale lesson
+## Post-Lessons Section
+Important content that must survive.
+GR
+    spectra_upgrade_project "${TEST_SPECTRA_DIR}" "test-project"
+    if grep -q "Post-Lessons Section" "${TEST_SPECTRA_DIR}/guardrails.md" && \
+       grep -q "Important content that must survive" "${TEST_SPECTRA_DIR}/guardrails.md"; then
+        pass "upgrade_brownfield_preserves_section_after_lessons"
+    else
+        fail "upgrade_brownfield_preserves_section_after_lessons" "content after Lessons section was deleted"
+    fi
+    teardown_test_env
+}
+
+# Run codex audit fix tests
+echo "--- Phase 10: Codex Audit Fixes ---"
+test_inject_cap_preserves_sign_over_confirmed
+test_upgrade_brownfield_preserves_bullets_outside_lessons
+test_upgrade_brownfield_preserves_section_after_lessons
+
+# ══════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════
 

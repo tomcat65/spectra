@@ -860,8 +860,8 @@ fi
 # PRE-EXECUTION CHECKS
 # ══════════════════════════════════════════════════════════════
 
-# ── Phase 10: Self-heal brownfield projects ──
-if [[ ! -f "${SPECTRA_DIR}/lessons-active.md" ]]; then
+# ── Phase 10: Self-heal brownfield projects (skip in dry-run) ──
+if [[ "$DRY_RUN" == false ]] && [[ ! -f "${SPECTRA_DIR}/lessons-active.md" ]]; then
     echo "  Pre-Phase10 project detected — running non-destructive upgrade..."
     project_name_upgrade=$(grep 'name:' "${SPECTRA_DIR}/project.yaml" 2>/dev/null | head -1 | sed 's/name: *//' || basename "$(pwd)")
     spectra_upgrade_project "${SPECTRA_DIR}" "${project_name_upgrade}" 2>/dev/null || true
@@ -1002,9 +1002,11 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
     echo "  Batch ${LOOP_COUNT}: [${batch_desc}] (${local_batch_size} task(s))"
     echo "  ────────────────────────────────────"
 
-    # ── Step 0: Inject active lessons (Phase 10 — live feed before each batch) ──
-    project_name_p10=$(grep 'name:' "${SPECTRA_DIR}/project.yaml" 2>/dev/null | head -1 | sed 's/name: *//' || basename "$(pwd)")
-    inject_active_lessons "${project_name_p10}" "${SPECTRA_DIR}" 2>/dev/null || true
+    # ── Step 0: Inject active lessons (Phase 10 — live feed before each batch, skip in dry-run) ──
+    if [[ "$DRY_RUN" == false ]]; then
+        project_name_p10=$(grep 'name:' "${SPECTRA_DIR}/project.yaml" 2>/dev/null | head -1 | sed 's/name: *//' || basename "$(pwd)")
+        inject_active_lessons "${project_name_p10}" "${SPECTRA_DIR}" 2>/dev/null || true
+    fi
 
     # ── Step A: Pre-flight audit for each task in batch ──
     echo "  Pre-flight audit..."

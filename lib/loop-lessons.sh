@@ -758,7 +758,8 @@ inject_active_lessons() {
         [[ -n "${entry}" ]] && _dedup_entry "${entry}" "global"
     done
 
-    # Sort by status rank (highest first), cap at 25 (15 project + 10 global)
+    # Collect entries, then sort by status rank (SIGN=3 > PROMOTED=2 > CONFIRMED=1)
+    # so cap at 15/10 drops lowest-priority first
     local project_lines=() global_lines=()
     for fp_file in "${dedup_dir}"/*; do
         [[ -f "${fp_file}" ]] || continue
@@ -772,6 +773,17 @@ inject_active_lessons() {
         fi
     done
     rm -rf "${dedup_dir}"
+
+    # Sort descending by rank (field 1) so higher-priority lessons survive the cap
+    local sorted_project=() sorted_global=()
+    if [[ ${#project_lines[@]} -gt 0 ]]; then
+        mapfile -t sorted_project < <(printf '%s\n' "${project_lines[@]}" | sort -t'|' -k1 -rn)
+        project_lines=("${sorted_project[@]}")
+    fi
+    if [[ ${#global_lines[@]} -gt 0 ]]; then
+        mapfile -t sorted_global < <(printf '%s\n' "${global_lines[@]}" | sort -t'|' -k1 -rn)
+        global_lines=("${sorted_global[@]}")
+    fi
 
     # Write lessons-active.md
     {
@@ -850,12 +862,14 @@ spectra_upgrade_project() {
            "${project_spectra_dir}/guardrails.md.pre-v10" 2>/dev/null || true
 
         # 2. Strip lessons section from guardrails.md (preserve SIGNs)
-        # Remove from "# Lessons" or "## Lessons" or "- **[CONFIRMED" to EOF or next "# " heading
+        # Only strip content within a "# Lessons" / "## Lessons" heading scope.
+        # Bullets outside that section are preserved even if they match status patterns.
         # Idempotent: safe to run multiple times
         local tmp_guardrails="${project_spectra_dir}/guardrails.md.tmp.$$"
         awk '
-            /^#+ *Lessons|^- \*\*\[(CONFIRMED|PROMOTED|SIGN)\]/ { skip=1 }
-            /^#/ && !/^#+ *Lessons/ && skip { skip=0 }
+            /^#+ *Lessons/ { in_lessons=1; skip=1; next }
+            /^#/ && !/^#+ *Lessons/ { in_lessons=0; skip=0 }
+            in_lessons && /^- \*\*\[(CONFIRMED|PROMOTED|SIGN)\]/ { skip=1 }
             !skip { print }
         ' "${project_spectra_dir}/guardrails.md" > "${tmp_guardrails}"
         # Remove trailing blank lines
