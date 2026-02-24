@@ -135,29 +135,17 @@ if [[ "$LEVEL" -ge 1 ]]; then
     fi
     hydrate "${TEMPLATE_DIR}/lessons-learned.md.tmpl" ".spectra/lessons-learned.md"
 
-    # Phase 9: Propagate CONFIRMED+ lessons from global store
+    # Phase 10: Generate lessons-active.md (live feed, replaces stale guardrails propagation)
+    # Lessons are now in a separate file — guardrails.md keeps SIGNs only.
     if [[ -d "${SPECTRA_HOME}/lessons/projects" ]]; then
         source "${SPECTRA_HOME}/lib/loop-lessons.sh" 2>/dev/null || true
-        if declare -f lessons_for_propagation > /dev/null 2>&1; then
-            lesson_count=0
-            echo "→ Propagating cross-project lessons (CONFIRMED+)..."
-            while IFS= read -r lesson_entry; do
-                [[ -z "${lesson_entry}" ]] && continue
-                fp=""; detail=""
-                fp=$(echo "${lesson_entry}" | grep -oP '"fingerprint":"\K[^"]+' || echo "unknown")
-                detail=$(echo "${lesson_entry}" | grep -oP '"detail":"\K[^"]*' || echo "")
-                status=$(echo "${lesson_entry}" | grep -oP '"status":"\K[^"]+' || echo "")
-                # Sanitize ALL fields before writing to project guardrails
-                fp=$(sanitize_for_propagation "${fp}")
-                detail=$(sanitize_for_propagation "${detail}")
-                status=$(echo "${status}" | grep -oP '^(CONFIRMED|PROMOTED|SIGN)$' || echo "UNKNOWN")
-                echo "- **[${status}]** \`${fp}\`: ${detail}" >> ".spectra/guardrails.md"
-                lesson_count=$((lesson_count + 1))
-            done < <(lessons_for_propagation "CONFIRMED")
-            if [[ ${lesson_count} -gt 0 ]]; then
-                echo "  ${lesson_count} lesson(s) propagated to project guardrails."
+        if declare -f inject_active_lessons > /dev/null 2>&1; then
+            echo "→ Generating initial lessons-active.md..."
+            inject_active_lessons "${PROJECT_NAME}" ".spectra" 2>/dev/null || true
+            if [[ -f ".spectra/lessons-active.md" ]]; then
+                echo "  lessons-active.md created (live feed for builders)."
             else
-                echo "  No cross-project lessons to propagate."
+                echo "  No lessons to propagate yet."
             fi
         fi
     fi
@@ -247,6 +235,9 @@ cp "${TEMPLATE_DIR}/PROMPT_verify.md" ".spectra/PROMPT_verify.md"
 cp "${TEMPLATE_DIR}/stories/.gitkeep" ".spectra/stories/.gitkeep" 2>/dev/null || true
 cp "${TEMPLATE_DIR}/screenshots/.gitkeep" ".spectra/screenshots/.gitkeep" 2>/dev/null || true
 touch ".spectra/logs/.gitkeep" ".spectra/signals/.gitkeep"
+
+# ── Write VERSION marker (Phase 10) ──
+echo "v5.4" > ".spectra/VERSION"
 
 # ── Generate CLAUDE.md (single integration point for all subagents) ──
 echo "→ Generating CLAUDE.md..."

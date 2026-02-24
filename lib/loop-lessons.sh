@@ -10,6 +10,7 @@
 #   compute_fingerprint(), sanitize_lesson(), compact_snapshot(),
 #   lesson_check_promotion(), lesson_promote(), lesson_demote(),
 #   ensure_lessons_dir(), check_schema_version(), migrate_lessons(),
+#   inject_active_lessons(), spectra_upgrade_project(),
 #   guardrails_dedup_check()
 #
 # Storage: Append-only JSONL + flock (no mutable JSON)
@@ -675,6 +676,214 @@ lesson_check_ttl() {
     else
         echo "ALIVE"
     fi
+}
+
+# ── Live lessons injection (Phase 10 — bidirectional feed) ──
+# Merges project-local + global CONFIRMED+ lessons into lessons-active.md
+# Called before each builder task so lessons are always current.
+
+inject_active_lessons() {
+    local project_name="${1}"
+    local project_spectra_dir="${2}"   # {project}/.spectra/
+    local output_file="${project_spectra_dir}/lessons-active.md"
+    local date_str
+    date_str=$(date -u +%Y-%m-%d)
+
+    ensure_lessons_dir
+
+    # Collect project-local CONFIRMED+ entries
+    local project_entries=()
+    local project_snapshot="${LESSONS_HOME}/projects/${project_name}/lessons.snapshot"
+    local project_jsonl="${LESSONS_HOME}/projects/${project_name}/lessons.jsonl"
+    local project_source="${project_snapshot}"
+    [[ -f "${project_source}" ]] || project_source="${project_jsonl}"
+
+    if [[ -f "${project_source}" ]]; then
+        while IFS= read -r entry; do
+            local status
+            status=$(echo "${entry}" | grep -oP '"status":"\K[^"]+' || echo "")
+            if echo "${status}" | grep -qP '^(CONFIRMED|PROMOTED|SIGN)$'; then
+                validate_lesson_entry "${entry}" && project_entries+=("${entry}")
+            fi
+        done < "${project_source}"
+    fi
+
+    # Collect global CONFIRMED+ entries from ALL other projects
+    local global_entries=()
+    for other_dir in "${LESSONS_HOME}/projects"/*/; do
+        [[ -d "${other_dir}" ]] || continue
+        local other_project
+        other_project=$(basename "${other_dir}")
+        [[ "${other_project}" == "${project_name}" ]] && continue
+
+        local other_source="${other_dir}lessons.snapshot"
+        [[ -f "${other_source}" ]] || other_source="${other_dir}lessons.jsonl"
+        [[ -f "${other_source}" ]] || continue
+
+        while IFS= read -r entry; do
+            local status
+            status=$(echo "${entry}" | grep -oP '"status":"\K[^"]+' || echo "")
+            if echo "${status}" | grep -qP '^(CONFIRMED|PROMOTED|SIGN)$'; then
+                validate_lesson_entry "${entry}" && global_entries+=("${entry}")
+            fi
+        done < "${other_source}"
+    done
+
+    # Dedup by fingerprint (keep highest-status entry)
+    local dedup_dir
+    dedup_dir=$(mktemp -d)
+
+    _dedup_entry() {
+        local entry="$1" source_tag="$2"
+        local fp fp_hash status new_rank existing_status existing_rank
+        fp=$(echo "${entry}" | grep -oP '"fingerprint":"\K[^"]+' || echo "")
+        [[ -z "${fp}" ]] && return
+        fp_hash=$(echo "${fp}" | md5sum | cut -d' ' -f1)
+
+        case "$(echo "${entry}" | grep -oP '"status":"\K[^"]+' || echo "")" in
+            CONFIRMED) new_rank=1 ;; PROMOTED) new_rank=2 ;; SIGN) new_rank=3 ;; *) new_rank=0 ;;
+        esac
+
+        if [[ -f "${dedup_dir}/${fp_hash}" ]]; then
+            existing_rank=$(head -1 "${dedup_dir}/${fp_hash}" | cut -d'|' -f1)
+            [[ ${new_rank} -le ${existing_rank} ]] && return
+        fi
+        echo "${new_rank}|${source_tag}|${entry}" > "${dedup_dir}/${fp_hash}"
+    }
+
+    for entry in "${project_entries[@]+"${project_entries[@]}"}"; do
+        [[ -n "${entry}" ]] && _dedup_entry "${entry}" "project"
+    done
+    for entry in "${global_entries[@]+"${global_entries[@]}"}"; do
+        [[ -n "${entry}" ]] && _dedup_entry "${entry}" "global"
+    done
+
+    # Collect entries, then sort by status rank (SIGN=3 > PROMOTED=2 > CONFIRMED=1)
+    # so cap at 15/10 drops lowest-priority first
+    local project_lines=() global_lines=()
+    for fp_file in "${dedup_dir}"/*; do
+        [[ -f "${fp_file}" ]] || continue
+        local line source_tag
+        line=$(cat "${fp_file}")
+        source_tag=$(echo "${line}" | cut -d'|' -f2)
+        if [[ "${source_tag}" == "project" ]]; then
+            project_lines+=("${line}")
+        else
+            global_lines+=("${line}")
+        fi
+    done
+    rm -rf "${dedup_dir}"
+
+    # Sort descending by rank (field 1) so higher-priority lessons survive the cap
+    local sorted_project=() sorted_global=()
+    if [[ ${#project_lines[@]} -gt 0 ]]; then
+        mapfile -t sorted_project < <(printf '%s\n' "${project_lines[@]}" | sort -t'|' -k1 -rn)
+        project_lines=("${sorted_project[@]}")
+    fi
+    if [[ ${#global_lines[@]} -gt 0 ]]; then
+        mapfile -t sorted_global < <(printf '%s\n' "${global_lines[@]}" | sort -t'|' -k1 -rn)
+        global_lines=("${sorted_global[@]}")
+    fi
+
+    # Write lessons-active.md
+    {
+        echo "# Active Lessons — ${project_name} (${date_str})"
+        echo "> Generated from project history + global institutional memory."
+        echo "> Builder: treat these as hard guardrails, not suggestions."
+        echo ""
+
+        if [[ ${#project_lines[@]} -gt 0 ]]; then
+            echo "## From This Project (CONFIRMED+)"
+            local count=0
+            for line in "${project_lines[@]}"; do
+                [[ ${count} -ge 15 ]] && break
+                local entry fp detail recurrence status
+                entry=$(echo "${line}" | cut -d'|' -f3-)
+                fp=$(echo "${entry}" | grep -oP '"fingerprint":"\K[^"]+' || echo "unknown")
+                detail=$(echo "${entry}" | grep -oP '"detail":"\K[^"]*' || echo "")
+                recurrence=$(echo "${entry}" | grep -oP '"recurrence_count":\K[0-9]+' || echo "1")
+                status=$(echo "${entry}" | grep -oP '"status":"\K[^"]+' || echo "")
+                detail=$(sanitize_for_propagation "${detail}")
+                echo "- [${fp}] ${detail} — seen ${recurrence}x (${status})"
+                count=$((count + 1))
+            done
+            echo ""
+        fi
+
+        if [[ ${#global_lines[@]} -gt 0 ]]; then
+            echo "## From Global Memory (CONFIRMED+ across all projects)"
+            local count=0
+            for line in "${global_lines[@]}"; do
+                [[ ${count} -ge 10 ]] && break
+                local entry fp detail num_projects status
+                entry=$(echo "${line}" | cut -d'|' -f3-)
+                fp=$(echo "${entry}" | grep -oP '"fingerprint":"\K[^"]+' || echo "unknown")
+                detail=$(echo "${entry}" | grep -oP '"detail":"\K[^"]*' || echo "")
+                num_projects=$(echo "${entry}" | grep -oP '"distinct_projects":\[' >/dev/null 2>&1 && \
+                    echo "${entry}" | grep -oP '"distinct_projects":\[[^\]]*\]' | tr ',' '\n' | wc -l || echo "1")
+                status=$(echo "${entry}" | grep -oP '"status":"\K[^"]+' || echo "")
+                detail=$(sanitize_for_propagation "${detail}")
+                echo "- [${fp}] ${detail} — ${num_projects} project(s) (${status})"
+                count=$((count + 1))
+            done
+            echo ""
+        fi
+
+        if [[ ${#project_lines[@]} -eq 0 ]] && [[ ${#global_lines[@]} -eq 0 ]]; then
+            echo "No active lessons yet. Lessons accumulate as the project runs."
+            echo ""
+        fi
+    } > "${output_file}"
+}
+
+# ── Brownfield project upgrade (Phase 10) ──
+# Non-destructive upgrade for pre-Phase10 projects.
+# Idempotent: skips if VERSION marker already matches current version.
+# NEVER touches: plan.md, signals/, logs/, CLAUDE.md, checkpoints/
+
+SPECTRA_CURRENT_VERSION="v5.4"
+
+spectra_upgrade_project() {
+    local project_spectra_dir="${1}"   # {project}/.spectra/
+    local project_name="${2:-}"
+
+    # Idempotent: skip if VERSION already matches
+    if [[ -f "${project_spectra_dir}/VERSION" ]]; then
+        local existing_version
+        existing_version=$(cat "${project_spectra_dir}/VERSION" 2>/dev/null || echo "")
+        if [[ "${existing_version}" == "${SPECTRA_CURRENT_VERSION}" ]]; then
+            return 0
+        fi
+    fi
+
+    # 1. Backup guardrails.md before touching it
+    if [[ -f "${project_spectra_dir}/guardrails.md" ]]; then
+        cp "${project_spectra_dir}/guardrails.md" \
+           "${project_spectra_dir}/guardrails.md.pre-v10" 2>/dev/null || true
+
+        # 2. Strip lessons section from guardrails.md (preserve SIGNs)
+        # Only strip content within a "# Lessons" / "## Lessons" heading scope.
+        # Bullets outside that section are preserved even if they match status patterns.
+        # Idempotent: safe to run multiple times
+        local tmp_guardrails="${project_spectra_dir}/guardrails.md.tmp.$$"
+        awk '
+            /^#+ *Lessons/ { in_lessons=1; skip=1; next }
+            /^#/ && !/^#+ *Lessons/ { in_lessons=0; skip=0 }
+            in_lessons && /^- \*\*\[(CONFIRMED|PROMOTED|SIGN)\]/ { skip=1 }
+            !skip { print }
+        ' "${project_spectra_dir}/guardrails.md" > "${tmp_guardrails}"
+        # Remove trailing blank lines
+        sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "${tmp_guardrails}" 2>/dev/null || true
+        mv "${tmp_guardrails}" "${project_spectra_dir}/guardrails.md"
+    fi
+
+    # 3. Generate initial lessons-active.md
+    if [[ -n "${project_name}" ]]; then
+        inject_active_lessons "${project_name}" "${project_spectra_dir}" 2>/dev/null || true
+    fi
+
+    # 4. Write VERSION marker
+    echo "${SPECTRA_CURRENT_VERSION}" > "${project_spectra_dir}/VERSION"
 }
 
 # ── Guardrails dedup helper ──

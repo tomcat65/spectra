@@ -1105,6 +1105,413 @@ test_validate_entry_accepts_clean
 test_lessons_for_propagation_filters
 
 # ══════════════════════════════════════════
+# TEST GROUP 18: inject_active_lessons (Phase 10)
+# ══════════════════════════════════════════
+
+test_inject_no_lessons() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    inject_active_lessons "test-project" "${TEST_SPECTRA_DIR}"
+    if [[ -f "${TEST_SPECTRA_DIR}/lessons-active.md" ]]; then
+        if grep -q "No active lessons yet" "${TEST_SPECTRA_DIR}/lessons-active.md"; then
+            pass "inject_no_lessons"
+        else
+            fail "inject_no_lessons" "file exists but missing 'No active lessons' message"
+        fi
+    else
+        fail "inject_no_lessons" "lessons-active.md not created"
+    fi
+    teardown_test_env
+}
+
+test_inject_project_lessons() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    # Create a CONFIRMED lesson in the project
+    mkdir -p "${TEST_LESSONS_HOME}/projects/test-project"
+    echo '{"action":"create","fingerprint":"build/err/file.ts","status":"CONFIRMED","severity":"medium","area":"build","error_code":"err","command":"npm test","primary_file":"file.ts","detail":"Test build fails","recurrence_count":3,"distinct_projects":["test-project"],"prevention_count":0,"false_positive_count":0,"ttl":5,"ttl_base":5,"projects_since_last":0,"timestamp":"2026-02-24T00:00:00Z","evidence":{"source_run_id":"run1","project":"test-project","task_id":"001","verifier_output":"FAIL","oracle_class":"test_failure"}}' \
+        > "${TEST_LESSONS_HOME}/projects/test-project/lessons.jsonl"
+
+    inject_active_lessons "test-project" "${TEST_SPECTRA_DIR}"
+    if grep -q "From This Project" "${TEST_SPECTRA_DIR}/lessons-active.md" && \
+       grep -q "build/err/file.ts" "${TEST_SPECTRA_DIR}/lessons-active.md"; then
+        pass "inject_project_lessons"
+    else
+        fail "inject_project_lessons" "project lesson not in output"
+    fi
+    teardown_test_env
+}
+
+test_inject_global_lessons() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    # Create a PROMOTED lesson in another project
+    mkdir -p "${TEST_LESSONS_HOME}/projects/other-project"
+    echo '{"action":"create","fingerprint":"deploy/timeout/server.ts","status":"PROMOTED","severity":"high","area":"deploy","error_code":"timeout","command":"deploy","primary_file":"server.ts","detail":"Deploy timeout on large builds","recurrence_count":5,"distinct_projects":["other-project","another"],"prevention_count":3,"false_positive_count":0,"ttl":10,"ttl_base":10,"projects_since_last":0,"timestamp":"2026-02-24T00:00:00Z","evidence":{"source_run_id":"run2","project":"other-project","task_id":"003","verifier_output":"TIMEOUT","oracle_class":"infra_failure"}}' \
+        > "${TEST_LESSONS_HOME}/projects/other-project/lessons.jsonl"
+
+    inject_active_lessons "test-project" "${TEST_SPECTRA_DIR}"
+    if grep -q "From Global Memory" "${TEST_SPECTRA_DIR}/lessons-active.md" && \
+       grep -q "deploy/timeout/server.ts" "${TEST_SPECTRA_DIR}/lessons-active.md"; then
+        pass "inject_global_lessons"
+    else
+        fail "inject_global_lessons" "global lesson not in output"
+    fi
+    teardown_test_env
+}
+
+test_inject_dedup_by_fingerprint() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    # Same fingerprint in project (CONFIRMED) and another project (PROMOTED)
+    mkdir -p "${TEST_LESSONS_HOME}/projects/test-project"
+    echo '{"action":"create","fingerprint":"build/err/file.ts","status":"CONFIRMED","severity":"medium","area":"build","error_code":"err","command":"npm test","primary_file":"file.ts","detail":"Test build fails","recurrence_count":2,"distinct_projects":["test-project"],"prevention_count":0,"false_positive_count":0,"ttl":5,"ttl_base":5,"projects_since_last":0,"timestamp":"2026-02-24T00:00:00Z","evidence":{"source_run_id":"run1","project":"test-project","task_id":"001","verifier_output":"FAIL","oracle_class":"test_failure"}}' \
+        > "${TEST_LESSONS_HOME}/projects/test-project/lessons.jsonl"
+    mkdir -p "${TEST_LESSONS_HOME}/projects/other-project"
+    echo '{"action":"create","fingerprint":"build/err/file.ts","status":"PROMOTED","severity":"medium","area":"build","error_code":"err","command":"npm test","primary_file":"file.ts","detail":"Test build fails globally","recurrence_count":5,"distinct_projects":["test-project","other-project"],"prevention_count":3,"false_positive_count":0,"ttl":5,"ttl_base":5,"projects_since_last":0,"timestamp":"2026-02-24T00:00:00Z","evidence":{"source_run_id":"run2","project":"other-project","task_id":"002","verifier_output":"FAIL","oracle_class":"test_failure"}}' \
+        > "${TEST_LESSONS_HOME}/projects/other-project/lessons.jsonl"
+
+    inject_active_lessons "test-project" "${TEST_SPECTRA_DIR}"
+    # Should appear only once (PROMOTED wins over CONFIRMED)
+    local count
+    count=$(grep -c "build/err/file.ts" "${TEST_SPECTRA_DIR}/lessons-active.md")
+    if [[ "${count}" -eq 1 ]]; then
+        pass "inject_dedup_by_fingerprint"
+    else
+        fail "inject_dedup_by_fingerprint" "expected 1 occurrence, got ${count}"
+    fi
+    teardown_test_env
+}
+
+test_inject_cap_at_25() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    # Create 20 project lessons (should cap at 15)
+    mkdir -p "${TEST_LESSONS_HOME}/projects/test-project"
+    for i in $(seq 1 20); do
+        printf '{"action":"create","fingerprint":"build/err%d/f%d.ts","status":"CONFIRMED","severity":"medium","area":"build","error_code":"err%d","command":"test","primary_file":"f%d.ts","detail":"Lesson %d","recurrence_count":1,"distinct_projects":["test-project"],"prevention_count":0,"false_positive_count":0,"ttl":5,"ttl_base":5,"projects_since_last":0,"timestamp":"2026-02-24T00:00:00Z","evidence":{"source_run_id":"run","project":"test-project","task_id":"001","verifier_output":"FAIL","oracle_class":"test_failure"}}\n' \
+            "$i" "$i" "$i" "$i" "$i" >> "${TEST_LESSONS_HOME}/projects/test-project/lessons.jsonl"
+    done
+    # Create 15 global lessons (should cap at 10)
+    mkdir -p "${TEST_LESSONS_HOME}/projects/global-proj"
+    for i in $(seq 21 35); do
+        printf '{"action":"create","fingerprint":"deploy/err%d/g%d.ts","status":"PROMOTED","severity":"high","area":"deploy","error_code":"err%d","command":"deploy","primary_file":"g%d.ts","detail":"Global lesson %d","recurrence_count":2,"distinct_projects":["global-proj"],"prevention_count":1,"false_positive_count":0,"ttl":10,"ttl_base":10,"projects_since_last":0,"timestamp":"2026-02-24T00:00:00Z","evidence":{"source_run_id":"run","project":"global-proj","task_id":"002","verifier_output":"FAIL","oracle_class":"infra_failure"}}\n' \
+            "$i" "$i" "$i" "$i" "$i" >> "${TEST_LESSONS_HOME}/projects/global-proj/lessons.jsonl"
+    done
+
+    inject_active_lessons "test-project" "${TEST_SPECTRA_DIR}"
+    # Count lesson lines (starting with "- [")
+    local total_entries
+    total_entries=$(grep -c '^\- \[' "${TEST_SPECTRA_DIR}/lessons-active.md" || echo "0")
+    if [[ "${total_entries}" -le 25 ]]; then
+        pass "inject_cap_at_25"
+    else
+        fail "inject_cap_at_25" "expected <= 25 entries, got ${total_entries}"
+    fi
+    teardown_test_env
+}
+
+test_inject_header_always_present() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    inject_active_lessons "test-project" "${TEST_SPECTRA_DIR}"
+    if grep -q "^# Active Lessons" "${TEST_SPECTRA_DIR}/lessons-active.md" && \
+       grep -q "treat these as hard guardrails" "${TEST_SPECTRA_DIR}/lessons-active.md"; then
+        pass "inject_header_always_present"
+    else
+        fail "inject_header_always_present" "header missing from lessons-active.md"
+    fi
+    teardown_test_env
+}
+
+test_inject_skips_temp_lessons() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    mkdir -p "${TEST_LESSONS_HOME}/projects/test-project"
+    # TEMP lesson should NOT appear
+    echo '{"action":"create","fingerprint":"build/temp/temp.ts","status":"TEMP","severity":"low","area":"build","error_code":"temp","command":"test","primary_file":"temp.ts","detail":"Temp lesson","recurrence_count":1,"distinct_projects":["test-project"],"prevention_count":0,"false_positive_count":0,"ttl":3,"ttl_base":3,"projects_since_last":0,"timestamp":"2026-02-24T00:00:00Z","evidence":{"source_run_id":"run","project":"test-project","task_id":"001","verifier_output":"FAIL","oracle_class":"test_failure"}}' \
+        > "${TEST_LESSONS_HOME}/projects/test-project/lessons.jsonl"
+
+    inject_active_lessons "test-project" "${TEST_SPECTRA_DIR}"
+    if grep -q "build/temp/temp.ts" "${TEST_SPECTRA_DIR}/lessons-active.md"; then
+        fail "inject_skips_temp_lessons" "TEMP lesson should not appear in active lessons"
+    else
+        pass "inject_skips_temp_lessons"
+    fi
+    teardown_test_env
+}
+
+# Run Phase 10 inject tests
+echo "--- Phase 10: inject_active_lessons ---"
+test_inject_no_lessons
+test_inject_project_lessons
+test_inject_global_lessons
+test_inject_dedup_by_fingerprint
+test_inject_cap_at_25
+test_inject_header_always_present
+test_inject_skips_temp_lessons
+
+# ══════════════════════════════════════════
+# TEST GROUP 19: Brownfield upgrade (Phase 10)
+# ══════════════════════════════════════════
+
+test_upgrade_brownfield_no_plan_md_touched() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    echo "## Task 001: Do something" > "${TEST_SPECTRA_DIR}/plan.md"
+    local before_md5
+    before_md5=$(md5sum "${TEST_SPECTRA_DIR}/plan.md" | cut -d' ' -f1)
+    # Create old-style guardrails with mixed content
+    cat > "${TEST_SPECTRA_DIR}/guardrails.md" <<'GR'
+### SIGN-001: Integration tests must invoke what they import
+> Check that every import is actually called.
+## Lessons
+- **[CONFIRMED]** `build/err/file.ts`: Old stale lesson
+GR
+    spectra_upgrade_project "${TEST_SPECTRA_DIR}" "test-project"
+    local after_md5
+    after_md5=$(md5sum "${TEST_SPECTRA_DIR}/plan.md" | cut -d' ' -f1)
+    if [[ "${before_md5}" == "${after_md5}" ]]; then
+        pass "upgrade_brownfield_no_plan_md_touched"
+    else
+        fail "upgrade_brownfield_no_plan_md_touched" "plan.md was modified during upgrade"
+    fi
+    teardown_test_env
+}
+
+test_upgrade_brownfield_guardrails_signs_preserved() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    cat > "${TEST_SPECTRA_DIR}/guardrails.md" <<'GR'
+### SIGN-001: Integration tests must invoke what they import
+> Check that every import is actually called.
+### SIGN-002: CLI commands need subprocess-level tests
+> Verify with real subprocess calls.
+## Lessons
+- **[CONFIRMED]** `build/err/file.ts`: Old stale lesson
+- **[PROMOTED]** `deploy/timeout/server.ts`: Another stale lesson
+GR
+    spectra_upgrade_project "${TEST_SPECTRA_DIR}" "test-project"
+    if grep -q "SIGN-001" "${TEST_SPECTRA_DIR}/guardrails.md" && \
+       grep -q "SIGN-002" "${TEST_SPECTRA_DIR}/guardrails.md"; then
+        pass "upgrade_brownfield_guardrails_signs_preserved"
+    else
+        fail "upgrade_brownfield_guardrails_signs_preserved" "SIGN rules removed during upgrade"
+    fi
+    teardown_test_env
+}
+
+test_upgrade_brownfield_backup_created() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    echo "original content" > "${TEST_SPECTRA_DIR}/guardrails.md"
+    spectra_upgrade_project "${TEST_SPECTRA_DIR}" "test-project"
+    if [[ -f "${TEST_SPECTRA_DIR}/guardrails.md.pre-v10" ]]; then
+        if grep -q "original content" "${TEST_SPECTRA_DIR}/guardrails.md.pre-v10"; then
+            pass "upgrade_brownfield_backup_created"
+        else
+            fail "upgrade_brownfield_backup_created" "backup exists but content wrong"
+        fi
+    else
+        fail "upgrade_brownfield_backup_created" "guardrails.md.pre-v10 not created"
+    fi
+    teardown_test_env
+}
+
+test_upgrade_brownfield_idempotent() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    cat > "${TEST_SPECTRA_DIR}/guardrails.md" <<'GR'
+### SIGN-001: Test sign
+> Description
+## Lessons
+- **[CONFIRMED]** `build/err/file.ts`: Stale lesson
+GR
+    spectra_upgrade_project "${TEST_SPECTRA_DIR}" "test-project"
+    local after_first
+    after_first=$(md5sum "${TEST_SPECTRA_DIR}/guardrails.md" | cut -d' ' -f1)
+    # Run again — should skip (VERSION matches)
+    spectra_upgrade_project "${TEST_SPECTRA_DIR}" "test-project"
+    local after_second
+    after_second=$(md5sum "${TEST_SPECTRA_DIR}/guardrails.md" | cut -d' ' -f1)
+    if [[ "${after_first}" == "${after_second}" ]]; then
+        pass "upgrade_brownfield_idempotent"
+    else
+        fail "upgrade_brownfield_idempotent" "guardrails.md changed on second run"
+    fi
+    teardown_test_env
+}
+
+test_upgrade_brownfield_lessons_active_generated() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    echo "### SIGN-001: Test" > "${TEST_SPECTRA_DIR}/guardrails.md"
+    spectra_upgrade_project "${TEST_SPECTRA_DIR}" "test-project"
+    if [[ -f "${TEST_SPECTRA_DIR}/lessons-active.md" ]]; then
+        pass "upgrade_brownfield_lessons_active_generated"
+    else
+        fail "upgrade_brownfield_lessons_active_generated" "lessons-active.md not created"
+    fi
+    teardown_test_env
+}
+
+test_upgrade_detects_version_skips() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    echo "v5.4" > "${TEST_SPECTRA_DIR}/VERSION"
+    echo "should not be backed up" > "${TEST_SPECTRA_DIR}/guardrails.md"
+    spectra_upgrade_project "${TEST_SPECTRA_DIR}" "test-project"
+    # Should NOT create backup (skipped entirely)
+    if [[ ! -f "${TEST_SPECTRA_DIR}/guardrails.md.pre-v10" ]]; then
+        pass "upgrade_detects_version_skips"
+    else
+        fail "upgrade_detects_version_skips" "upgrade ran despite matching VERSION"
+    fi
+    teardown_test_env
+}
+
+# Run Phase 10 brownfield upgrade tests
+echo "--- Phase 10: Brownfield Upgrade ---"
+test_upgrade_brownfield_no_plan_md_touched
+test_upgrade_brownfield_guardrails_signs_preserved
+test_upgrade_brownfield_backup_created
+test_upgrade_brownfield_idempotent
+test_upgrade_brownfield_lessons_active_generated
+test_upgrade_detects_version_skips
+
+# ══════════════════════════════════════════
+# TEST GROUP 20: Codex audit fixes (Phase 10)
+# ══════════════════════════════════════════
+
+# FIX-1: Status-priority ordering before capping
+test_inject_cap_preserves_sign_over_confirmed() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    mkdir -p "${TEST_LESSONS_HOME}/projects/test-project"
+    # Create 16 CONFIRMED lessons + 1 SIGN lesson (project-local)
+    for i in $(seq 1 16); do
+        printf '{"action":"create","fingerprint":"build/err%d/f%d.ts","status":"CONFIRMED","severity":"medium","area":"build","error_code":"err%d","command":"test","primary_file":"f%d.ts","detail":"Confirmed lesson %d","recurrence_count":1,"distinct_projects":["test-project"],"prevention_count":0,"false_positive_count":0,"ttl":5,"ttl_base":5,"projects_since_last":0,"timestamp":"2026-02-24T00:00:00Z","evidence":{"source_run_id":"run","project":"test-project","task_id":"001","verifier_output":"FAIL","oracle_class":"test_failure"}}\n' \
+            "$i" "$i" "$i" "$i" "$i" >> "${TEST_LESSONS_HOME}/projects/test-project/lessons.jsonl"
+    done
+    # Add one SIGN lesson — must survive the cap at 15
+    echo '{"action":"create","fingerprint":"sign/critical/important.ts","status":"SIGN","severity":"critical","area":"sign","error_code":"critical","command":"test","primary_file":"important.ts","detail":"Critical SIGN lesson","recurrence_count":10,"distinct_projects":["test-project"],"prevention_count":5,"false_positive_count":0,"ttl":999,"ttl_base":999,"projects_since_last":0,"timestamp":"2026-02-24T00:00:00Z","evidence":{"source_run_id":"run","project":"test-project","task_id":"001","verifier_output":"FAIL","oracle_class":"test_failure"}}' \
+        >> "${TEST_LESSONS_HOME}/projects/test-project/lessons.jsonl"
+
+    inject_active_lessons "test-project" "${TEST_SPECTRA_DIR}"
+    # SIGN lesson must be present even though there are 17 entries and cap is 15
+    if grep -q "sign/critical/important.ts" "${TEST_SPECTRA_DIR}/lessons-active.md"; then
+        pass "inject_cap_preserves_sign_over_confirmed"
+    else
+        fail "inject_cap_preserves_sign_over_confirmed" "SIGN lesson dropped by cap"
+    fi
+    teardown_test_env
+}
+
+# FIX-2: Brownfield strip logic scoped to Lessons section only
+test_upgrade_brownfield_preserves_bullets_outside_lessons() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    cat > "${TEST_SPECTRA_DIR}/guardrails.md" <<'GR'
+### SIGN-001: Integration tests must invoke what they import
+> Check that every import is actually called.
+- **[CONFIRMED]** `build/err/file.ts`: This bullet is OUTSIDE Lessons section
+## Lessons
+- **[CONFIRMED]** `build/err/file.ts`: This one is INSIDE Lessons section
+- **[PROMOTED]** `deploy/timeout/server.ts`: Also inside
+## Other Section
+Some content here.
+GR
+    spectra_upgrade_project "${TEST_SPECTRA_DIR}" "test-project"
+    # The bullet OUTSIDE Lessons must survive
+    if grep -q "This bullet is OUTSIDE Lessons section" "${TEST_SPECTRA_DIR}/guardrails.md"; then
+        # The bullet INSIDE Lessons must be stripped
+        if grep -q "This one is INSIDE Lessons section" "${TEST_SPECTRA_DIR}/guardrails.md"; then
+            fail "upgrade_brownfield_preserves_bullets_outside_lessons" "inside-lessons bullet was NOT stripped"
+        else
+            pass "upgrade_brownfield_preserves_bullets_outside_lessons"
+        fi
+    else
+        fail "upgrade_brownfield_preserves_bullets_outside_lessons" "outside-lessons bullet was incorrectly stripped"
+    fi
+    teardown_test_env
+}
+
+# FIX-3: Brownfield strip preserves "Other Section" after Lessons
+test_upgrade_brownfield_preserves_section_after_lessons() {
+    setup_test_env
+    mkdir -p "${TEST_SPECTRA_DIR}"
+    cat > "${TEST_SPECTRA_DIR}/guardrails.md" <<'GR'
+### SIGN-001: Test
+> Description
+## Lessons
+- **[CONFIRMED]** `build/err/file.ts`: Stale lesson
+## Post-Lessons Section
+Important content that must survive.
+GR
+    spectra_upgrade_project "${TEST_SPECTRA_DIR}" "test-project"
+    if grep -q "Post-Lessons Section" "${TEST_SPECTRA_DIR}/guardrails.md" && \
+       grep -q "Important content that must survive" "${TEST_SPECTRA_DIR}/guardrails.md"; then
+        pass "upgrade_brownfield_preserves_section_after_lessons"
+    else
+        fail "upgrade_brownfield_preserves_section_after_lessons" "content after Lessons section was deleted"
+    fi
+    teardown_test_env
+}
+
+# FIX-4: --dry-run must not mutate project state (no lessons-active.md, no VERSION, no backup)
+test_dryrun_no_mutation() {
+    setup_test_env
+    local dry_run_dir
+    dry_run_dir=$(mktemp -d)
+    mkdir -p "${dry_run_dir}/.spectra/signals" "${dry_run_dir}/.spectra/logs"
+    # Create a minimal plan.md so loop can parse it
+    cat > "${dry_run_dir}/.spectra/plan.md" <<'PLAN'
+# Plan
+
+## Task 001: Dummy task
+- [ ] 001 — Dummy task
+  - owns: dummy.ts
+  - touches: (none)
+  - reads: (none)
+  - depends: (none)
+  - verify: echo ok
+  - risk: low
+PLAN
+    # Pre-Phase10 state: no lessons-active.md, no VERSION
+    echo "### SIGN-001: Test" > "${dry_run_dir}/.spectra/guardrails.md"
+
+    # Run loop with --dry-run --skip-planning from the temp dir
+    (cd "${dry_run_dir}" && unset CLAUDECODE && bash "${SPECTRA_HOME}/bin/spectra-loop.sh" --skip-planning --dry-run 2>&1) || true
+
+    # Assert no mutation: no lessons-active.md, no VERSION, no backup
+    local mutation_found=false
+    if [[ -f "${dry_run_dir}/.spectra/lessons-active.md" ]]; then
+        mutation_found=true
+    fi
+    if [[ -f "${dry_run_dir}/.spectra/VERSION" ]]; then
+        mutation_found=true
+    fi
+    if [[ -f "${dry_run_dir}/.spectra/guardrails.md.pre-v10" ]]; then
+        mutation_found=true
+    fi
+
+    if [[ "${mutation_found}" == false ]]; then
+        pass "dryrun_no_mutation"
+    else
+        fail "dryrun_no_mutation" "dry-run mutated project state"
+    fi
+    rm -rf "${dry_run_dir}"
+    teardown_test_env
+}
+
+# Run codex audit fix tests
+echo "--- Phase 10: Codex Audit Fixes ---"
+test_inject_cap_preserves_sign_over_confirmed
+test_upgrade_brownfield_preserves_bullets_outside_lessons
+test_upgrade_brownfield_preserves_section_after_lessons
+test_dryrun_no_mutation
+
+# ══════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════
 
