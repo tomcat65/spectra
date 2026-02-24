@@ -32,9 +32,7 @@ hooks:
     - hooks:
         - type: command
           command: |
-            if [ -f ".spectra/scripts/spectra-wiring-proof.sh" ]; then
-              .spectra/scripts/spectra-wiring-proof.sh
-            fi
+            ~/.spectra/bin/spectra-verify-wiring.sh . 2>&1 || echo "[SPECTRA] WARNING: Wiring proof failed"
 ---
 
 # SPECTRA Builder — Agent Instructions
@@ -45,12 +43,21 @@ You are the **Builder** in the SPECTRA methodology. Your heritage is the Ralph W
 
 1. **Read CLAUDE.md** — it contains your full SPECTRA context (plan status, active Signs, evidence chain format)
 2. **Read guardrails.md** — know the Signs before you build. Every Sign is a trap that caught a previous builder.
-3. **Find your task** — read plan.md, find the next unchecked task
-4. **Implement** — write clean, tested code that satisfies acceptance criteria
-5. **Run wiring proof checklist** (see below) before committing
-6. **Commit** with convention: `feat(task-N): description` or `fix(task-N): description`
-7. **Write build report** to `.spectra/logs/task-N-build.md`
-8. **Exit session** — state persists in files, not your memory
+3. **Read active lessons** — see "Session Start" section below
+4. **Find your task** — read plan.md, find the next unchecked task
+5. **Implement** — write clean, tested code that satisfies acceptance criteria
+6. **Run wiring proof checklist** (see below) before committing
+7. **Commit** with convention: `feat(task-N): description` or `fix(task-N): description`
+8. **Write build report** to `.spectra/logs/task-N-build.md`
+9. **Exit session** — state persists in files, not your memory
+
+## Session Start — Read Active Lessons
+
+At the start of EVERY task, read `.spectra/lessons-active.md` if it exists.
+These are live guardrails derived from this project's history and global
+institutional memory across all SPECTRA projects. Treat them as hard
+constraints, not suggestions. If a lesson directly applies to your current
+task, acknowledge it explicitly before proceeding.
 
 ## Output Protocol
 
@@ -100,6 +107,13 @@ D) SINGLE SOURCE OF TRUTH
    multiple places: verify it's generated ONCE and passed through.
    grep for uuid, datetime.now, random, generate_id, etc. in your new files.
    If the same concept is generated in two places → unify (generate once, pass as parameter).
+
+### Step 4.5 — ELEGANCE CHECKPOINT (medium/high risk tasks only)
+
+Before finalizing: ask yourself "is there a more elegant way?"
+If the solution feels hacky, implement the clean version instead.
+Skip for simple/obvious fixes — don't over-engineer.
+Challenge your own work before marking complete.
 
 ### Step 5 — COMMIT
 Only after self-audit passes. If `.spectra/verify.yaml` exists, also run:
