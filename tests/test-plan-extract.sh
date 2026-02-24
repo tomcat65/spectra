@@ -500,8 +500,9 @@ LOOP_SCRIPT="${SPECTRA_DIR}/bin/spectra-loop.sh"
 
 # Run spectra-loop.sh --skip-planning --dry-run from the temp project dir
 # and capture output. It should fall back to markdown due to malformed JSON.
+# Unset CLAUDECODE so the fail-fast guard doesn't block runtime tests inside Claude Code.
 set +e
-loop_output=$(cd "${MALFORMED_DIR}" && bash "${LOOP_SCRIPT}" --skip-planning --dry-run 2>&1)
+loop_output=$(cd "${MALFORMED_DIR}" && unset CLAUDECODE && bash "${LOOP_SCRIPT}" --skip-planning --dry-run 2>&1)
 loop_exit=$?
 set -e
 
@@ -538,8 +539,9 @@ level: 0
 YAML
 
 # Run loop --skip-planning --dry-run — should detect stale JSON and use markdown
+# Unset CLAUDECODE so the fail-fast guard doesn't block runtime tests inside Claude Code.
 set +e
-loop_output=$(cd "${FRESH_DIR}" && bash "${LOOP_SCRIPT}" --skip-planning --dry-run 2>&1)
+loop_output=$(cd "${FRESH_DIR}" && unset CLAUDECODE && bash "${LOOP_SCRIPT}" --skip-planning --dry-run 2>&1)
 loop_exit=$?
 set -e
 
@@ -571,8 +573,9 @@ name: fastpath-test
 level: 0
 YAML
 
+    # Unset CLAUDECODE so the fail-fast guard doesn't block runtime tests inside Claude Code.
     set +e
-    loop_output=$(cd "${FAST_DIR}" && bash "${LOOP_SCRIPT}" --skip-planning --dry-run 2>&1)
+    loop_output=$(cd "${FAST_DIR}" && unset CLAUDECODE && bash "${LOOP_SCRIPT}" --skip-planning --dry-run 2>&1)
     set -e
 
     if echo "$loop_output" | grep -q "jq fast path"; then
