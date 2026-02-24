@@ -1458,11 +1458,58 @@ GR
     teardown_test_env
 }
 
+# FIX-4: --dry-run must not mutate project state (no lessons-active.md, no VERSION, no backup)
+test_dryrun_no_mutation() {
+    setup_test_env
+    local dry_run_dir
+    dry_run_dir=$(mktemp -d)
+    mkdir -p "${dry_run_dir}/.spectra/signals" "${dry_run_dir}/.spectra/logs"
+    # Create a minimal plan.md so loop can parse it
+    cat > "${dry_run_dir}/.spectra/plan.md" <<'PLAN'
+# Plan
+
+## Task 001: Dummy task
+- [ ] 001 — Dummy task
+  - owns: dummy.ts
+  - touches: (none)
+  - reads: (none)
+  - depends: (none)
+  - verify: echo ok
+  - risk: low
+PLAN
+    # Pre-Phase10 state: no lessons-active.md, no VERSION
+    echo "### SIGN-001: Test" > "${dry_run_dir}/.spectra/guardrails.md"
+
+    # Run loop with --dry-run --skip-planning from the temp dir
+    (cd "${dry_run_dir}" && unset CLAUDECODE && bash "${SPECTRA_HOME}/bin/spectra-loop.sh" --skip-planning --dry-run 2>&1) || true
+
+    # Assert no mutation: no lessons-active.md, no VERSION, no backup
+    local mutation_found=false
+    if [[ -f "${dry_run_dir}/.spectra/lessons-active.md" ]]; then
+        mutation_found=true
+    fi
+    if [[ -f "${dry_run_dir}/.spectra/VERSION" ]]; then
+        mutation_found=true
+    fi
+    if [[ -f "${dry_run_dir}/.spectra/guardrails.md.pre-v10" ]]; then
+        mutation_found=true
+    fi
+
+    if [[ "${mutation_found}" == false ]]; then
+        pass "dryrun_no_mutation"
+    else
+        fail "dryrun_no_mutation" "dry-run mutated project state"
+    fi
+    rm -rf "${dry_run_dir}"
+    teardown_test_env
+}
+
 # Run codex audit fix tests
 echo "--- Phase 10: Codex Audit Fixes ---"
 test_inject_cap_preserves_sign_over_confirmed
 test_upgrade_brownfield_preserves_bullets_outside_lessons
 test_upgrade_brownfield_preserves_section_after_lessons
+test_dryrun_no_mutation
 
 # ══════════════════════════════════════════
 # Summary
