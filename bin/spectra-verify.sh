@@ -12,7 +12,8 @@ set -euo pipefail
 # This script provides automated verification as a complement to the
 # spectra-verifier subagent. It can run standalone or as a pre-check.
 
-SPECTRA_HOME="${HOME}/.spectra"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SPECTRA_HOME="${SPECTRA_HOME:-$(dirname "${SCRIPT_DIR}")}"
 SPECTRA_DIR=".spectra"
 LOGS_DIR="${SPECTRA_DIR}/logs"
 PLAN_FILE="${SPECTRA_DIR}/plan.md"

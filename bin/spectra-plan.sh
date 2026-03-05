@@ -6,7 +6,8 @@ set -euo pipefail
 # Model and tools defined in ~/.claude/agents/spectra-planner.md
 # Usage: spectra-plan [--from-bmad] [--bmad-dir PATH] [--dry-run] [--discover] [--skip-discovery]
 
-SPECTRA_HOME="${HOME}/.spectra"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SPECTRA_HOME="${SPECTRA_HOME:-$(dirname "${SCRIPT_DIR}")}"
 PLAN_VALIDATOR="${SPECTRA_HOME}/bin/spectra-plan-validate.sh"
 
 # Defaults
