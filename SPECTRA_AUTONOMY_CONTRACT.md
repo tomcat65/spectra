@@ -5,7 +5,7 @@
 **Status:** Active — Non-Negotiable Guardrail
 **Applies To:** SPECTRA v5.1 autonomous execution
 **Audience:** Loop orchestrator, Agent workers, Humans-in-Reserve
-**Last Updated:** February 16, 2026
+**Last Updated:** March 5, 2026
 **Architecture:** Bash-native orchestration (spectra-loop.sh) with Claude Code agent workers
 
 ---
@@ -165,7 +165,7 @@ The verifier's report must include a `failure_type` field. The loop uses this to
 
 ### 4.2 Compound Failure Rule
 
-If **two different failure types** occur on the same task → **IMMEDIATE STUCK**.
+If **two different failure types** occur on the same task, the loop first attempts **Party Mode STUCK recovery** (see Section 4.7). If recovery fails → **STUCK**.
 
 This is a strong signal that the plan is wrong, not the code.
 
@@ -185,12 +185,15 @@ If the builder exhausts max turns on any iteration → kill and count as failed 
 
 STUCK means:
 
-- Autonomous execution **halts immediately**
-- `.spectra/signals/STUCK` file is written with failure context
-- Slack notification sent (if configured)
-- Human intervention is required
-- **No further agent retries are permitted until human clears the STUCK**
-- Feature branch preserved for human inspection
+- The loop first attempts **Party Mode recovery** (classify → attempt fix → see Section 4.7)
+- If recovery succeeds: STUCK is cleared, failure history is reset, task re-enters retry loop
+- If recovery fails or type is non-recoverable:
+  - Autonomous execution **halts immediately**
+  - `.spectra/signals/STUCK` file is written with failure context (includes `Recovery-Attempted: yes/no`)
+  - Slack notification sent (if configured)
+  - Human intervention is required
+  - **No further agent retries are permitted until human clears the STUCK**
+  - Feature branch preserved for human inspection
 
 ### 4.5 Post-Failure Reflection
 
@@ -215,6 +218,22 @@ Most external blockers are **researchable** — the answer exists on the web or 
 5. **If still blocked:** NOW declare STUCK with research findings attached
 
 The builder agent definition includes the full research protocol. The loop includes SIGN-008 context in builder prompts automatically.
+
+### 4.7 Party Mode STUCK Recovery (v5.4.1)
+
+Before escalating to the user, the loop attempts autonomous recovery via `lib/loop-stuck-recovery.sh`:
+
+1. **Classify** — pattern-match the STUCK reason into: `dependency_failure`, `environment_issue`, `spec_conflict`, `unknown`
+2. **Attempt recovery** — for recoverable types (`dependency_failure`, `environment_issue`), generate a `RECOVERY_PLAN` and retry
+3. **Escalate** — non-recoverable types (`spec_conflict`, `unknown`) remain STUCK for human intervention
+
+On successful recovery:
+- STUCK signal is cleared
+- Failure history is reset
+- Retry count resets to 1
+- Task re-enters the retry loop (skips retry-budget checks)
+
+Recovery attempts are logged to `logs/task-{id}-recovery.md`. The STUCK signal includes a `Recovery-Attempted: yes/no` field.
 
 ---
 
@@ -347,12 +366,14 @@ v5.0 bash-native orchestration handles the task lifecycle directly — hook scri
 
 When a builder or verifier reports failure, the loop invokes `spectra-oracle` (Haiku, 3 turns max) to classify the failure:
 
-| Classification | Meaning | Loop Action |
-|---------------|---------|-------------|
-| `FLAKY` | Non-deterministic test failure | Auto-retry (counts toward retry budget) |
-| `ENV` | Environment or dependency issue | Research cycle, then retry |
-| `LOGIC` | Code logic error | Retry with failure context |
-| `STUCK` | Unresolvable by builder | Immediate STUCK signal |
+| Classification | Meaning | Max Retries | Loop Action |
+|---------------|---------|-------------|-------------|
+| `test_failure` | Tests don't pass, assertions wrong | 3 | Retry with failure context |
+| `missing_dependency` | Import errors, package not installed | 3 | Retry |
+| `wiring_gap` | Code exists but isn't connected to runtime | 2 | Retry |
+| `architecture_mismatch` | Wrong approach — needs human guidance | 0 | STUCK |
+| `ambiguous_spec` | Requirements unclear — needs clarification | 0 | STUCK |
+| `external_blocker` | Dependency on external service/team | 0 | Research cycle (SIGN-008), then STUCK |
 
 Oracle classification replaces the v3.0 model where the team lead made retry decisions.
 
@@ -364,6 +385,9 @@ Oracle classification replaces the v3.0 model where the team lead made retry dec
 | SIGN-005: File Collision | No two builders may edit the same file. Dependency graph enforces file ownership. |
 | SIGN-006: Stale Task | If task stays in-progress >10 minutes without output, loop must nudge or reassign. |
 | SIGN-007: Silent Failure | Worker errors must be surfaced via loop logs/signals. Silent swallowing is a system fault. |
+| SIGN-008: Research Before STUCK | Builder must web search/docs lookup before declaring external blockers. |
+| SIGN-009: Test Ordering Pollution | Tests must pass in isolation and in full suite. |
+| SIGN-010: Language Blindspot | Wiring proof must cover all project languages. |
 
 ### 7.6 Verification Is Never Parallel
 
@@ -400,32 +424,38 @@ Institutional memory must not rot. Unchecked accumulation causes builders to opt
 
 ### 9.2 Entry Lifecycle
 
-Every lessons-learned entry is tagged with a lifecycle state:
+Every lesson entry is tagged with a lifecycle state (v5.3+ JSONL storage with flock locking):
 
 | State | Meaning | TTL | Transition |
 |-------|---------|-----|------------|
-| `TEMP` | Recent observation, not yet proven recurring | 5 projects | Auto-archive if not promoted |
-| `PROMOTED` | Elevated to Sign in guardrails.md | Permanent (as Sign) | Manual demotion only |
-| `ARCHIVED` | Historical record, not actively enforced | Indefinite | Can be re-promoted if pattern recurs |
+| `TEMP` | Recent observation, not yet proven recurring | Adaptive (severity-based, extended on recurrence) | Auto-expire if not promoted |
+| `CONFIRMED` | Seen in 2+ distinct projects | Indefinite | Auto-promoted from TEMP on cross-project recurrence |
+| `PROMOTED` | High confidence + recurrence | Indefinite | Manual or auto from CONFIRMED |
+| `SIGN` | Permanent guardrail | Permanent | Human-gated promotion, appended to `global-signs.jsonl` |
+| `EXPIRED` | Exceeded adaptive TTL (TEMP only) | Removed from active set | Can recur as new TEMP |
 
 ### 9.3 Promotion Rules
 
-- Lessons default to `TEMP` with a 5-project TTL
-- If a TEMP lesson's pattern recurs in a subsequent project → **auto-promote** to Sign in guardrails.md
-- If it doesn't recur within TTL → **auto-archive**
-- The loop handles this mechanically — no reasoning required
+- Lessons default to `TEMP` with adaptive TTL (severity-based: critical=10, high=7, medium=5, low=3 projects; extended on recurrence)
+- If a TEMP lesson recurs in a 2nd distinct project → **auto-promote** to CONFIRMED
+- CONFIRMED lessons are injected into `lessons-active.md` for builder/verifier consumption
+- SIGN promotion requires human approval and appends to `~/.spectra/lessons/global-signs.jsonl`
+- The loop handles this mechanically via `lib/loop-lessons.sh` — no reasoning required
 
-### 9.4 Entry Format
+### 9.4 Storage Format
 
-```markdown
-### LESSON-[timestamp]
-- **State:** TEMP | PROMOTED | ARCHIVED
-- **Pattern:** [description of what went wrong]
-- **Fix:** [how it was resolved]
-- **Projects Seen:** [list of projects where pattern appeared]
-- **TTL Remaining:** [N projects, if TEMP]
-- **Promoted To:** [SIGN-NNN, if promoted]
+Lessons are stored as append-only JSONL with `flock` file locking in `~/.spectra/lessons/`:
+
 ```
+~/.spectra/lessons/
+  schema-version                    # Integer schema version
+  global-signs.jsonl                # SIGN-level lessons (cross-project)
+  projects/{name}/
+    lessons.jsonl                   # Append-only events (create, increment, promote, demote)
+    lessons.snapshot                # Compacted state (post-run)
+```
+
+Each entry carries a normalized fingerprint (`{area}/{error_code}/{primary_file}`) for deduplication. Before each builder task, `inject_active_lessons()` merges project-local and global CONFIRMED+ lessons into `.spectra/lessons-active.md` (rank-sorted, capped at 25, sanitized against prompt injection).
 
 ---
 
