@@ -87,8 +87,8 @@ SPECTRA takes the best mechanism from each framework and wires them into a singl
 │  │   ├── 001-story.md         .linear_project.json (local)    │
 │  │   ├── 002-story.md                                         │
 │  │   └── ...                  screenshots/ (evidence)         │
-│  ├── plan.md (Ralph reads)                                    │
-│  └── tasks.md (checkboxes)                                    │
+│  ├── plan.md (execution contract — checkboxes + AC + verify)  │
+│  └── lessons-active.md (live lesson feed)                     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -169,13 +169,12 @@ Step 1: Generate plan.md from stories
   └── Each task maps to one story (or sub-story)
   └── Dependencies resolved into sequential order
 
-Step 2: Generate tasks.md (execution manifest)
-  └── For each task:
-      - [ ] Task name
-      - Acceptance criteria (copy from story)
-      - Files to create/modify
-      - Test commands to validate
-      - Max iterations before "stuck" flag
+Step 2: Each task in plan.md includes:
+      - [ ] NNN: Task name
+      - AC: Acceptance criteria (from story)
+      - Files: Files to create/modify
+      - Verify: Test command to validate
+      - Max-iterations: Retry budget before "stuck" flag
 ```
 
 **File: .spectra/plan.md**
@@ -316,8 +315,7 @@ project/
 │   │   ├── 001-project-setup.md
 │   │   ├── 002-auth-api.md
 │   │   └── 003-dashboard-ui.md
-│   ├── plan.md                        # Execution manifest (Ralph reads this)
-│   ├── tasks.md                       # Granular task tracking
+│   ├── plan.md                        # Execution contract (checkboxes + AC + verify)
 │   ├── PROMPT_build.md                # Build mode prompt (for Ralph loop)
 │   ├── PROMPT_split.md                # Task-splitting prompt (stuck handler)
 │   ├── PROMPT_verify.md               # Verification prompt (YCE gate)
@@ -521,7 +519,7 @@ spectra-loop  # Parallel builders + verification gates + Linear updates
 | Level 3 (Large feature) | 50K | 500K-1.5M | 150K | **~1.7M** |
 | Level 4 (Enterprise) | 150K | 2M-8M | 500K | **~8.6M** |
 
-*v5.0 model assignments: Opus for planning/building/verification, Sonnet for cross-model review, Haiku for pre-flight audit and oracle classification. Models defined in agent YAML frontmatter (`~/.claude/agents/spectra-*.md`), not env vars.*
+*v5.4.1 model assignments: Opus for planning/building/verification, Sonnet for cross-model review, Haiku for pre-flight audit and oracle classification. Models defined in agent YAML frontmatter (`~/.claude/agents/spectra-*.md`), not env vars.*
 
 ## Appendix B: Framework Source Links
 
@@ -602,7 +600,7 @@ Self-audit + automated verification replaces the need for a dedicated auditor LL
 
 ---
 
-*SPECTRA v5.1 — A unified AI software engineering methodology*
+*SPECTRA v5.4.1 — A unified AI software engineering methodology*
 *Combining the planning depth of BMAD, the execution simplicity of Ralph Wiggum, and the orchestration rigor of Your Claude Engineer.*
 
 ---
@@ -699,7 +697,10 @@ Signs are hard-won lessons from SPECTRA execution failures. They live in `.spect
 ### SIGN-009: Test Ordering Pollution
 > "Tests that pass in isolation but fail in the full suite indicate test pollution — shared state leaking between test files."
 
-New Signs are discovered through FAIL→FIX cycles and added to guardrails.md per project. Cross-project Signs are stored in the neural knowledge graph for institutional memory.
+### SIGN-010: Language Blindspot
+> "Wiring proof must cover all languages present in the project. Running Python-only checks on a non-Python project is equivalent to no wiring proof. Prevention: auto-detect language, require profile match or emit WARNING."
+
+New Signs are discovered through FAIL→FIX cycles. The continuous learning system (v5.3+) tracks lessons from TEMP through CONFIRMED/PROMOTED to SIGN status, with adaptive TTL, cross-project fingerprint deduplication, and automatic propagation via `lessons-active.md`. Cross-project Signs are stored in `~/.spectra/lessons/global-signs.jsonl`.
 
 ---
 
