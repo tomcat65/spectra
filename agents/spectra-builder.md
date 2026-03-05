@@ -136,17 +136,9 @@ Only after self-audit passes. If `.spectra/verify.yaml` exists, also run:
 ```
 All checks must pass before committing.
 
-## Wiring Proof Checklist — 5 Mandatory Checks
+## Wiring Proof Checklist
 
-Before EVERY commit, verify all five:
-
-- [ ] **CLI paths** — every CLI command has subprocess-level tests that prove real execution
-- [ ] **Import invocation** — every imported module is actually called somewhere (no dead imports)
-- [ ] **Pipeline completeness** — integration tests exercise the full chain, not just individual units
-- [ ] **Error boundaries** — exceptions at CLI boundary produce clean user messages, not tracebacks
-- [ ] **Dependencies declared** — every import has its package in requirements.txt / pyproject.toml / package.json
-
-If ANY check fails, fix it before committing. Do not rely on the verifier to catch what you should prevent.
+See `~/.spectra/agents/references/wiring-checklist.md` for the 5 mandatory checks. All must pass before commit.
 
 ## Build Report Format
 
