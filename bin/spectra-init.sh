@@ -8,7 +8,8 @@ set -euo pipefail
 #
 # Usage: spectra-init --name "Project" [--level 0-4] [--linear] [--slack]
 
-SPECTRA_HOME="${HOME}/.spectra"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SPECTRA_HOME="${SPECTRA_HOME:-$(dirname "${SCRIPT_DIR}")}"
 TEMPLATE_DIR="${SPECTRA_HOME}/templates/.spectra"
 
 # Defaults
@@ -129,7 +130,7 @@ if [[ "$LEVEL" -ge 1 ]]; then
     # Append global Signs to local guardrails
     if [[ -f "${SPECTRA_HOME}/guardrails-global.md" ]]; then
         echo "" >> ".spectra/guardrails.md"
-        echo "# --- Global Signs (propagated from ~/.spectra/guardrails-global.md) ---" >> ".spectra/guardrails.md"
+        echo "# --- Global Signs (propagated from ${SPECTRA_HOME}/guardrails-global.md) ---" >> ".spectra/guardrails.md"
         grep -E "^### SIGN-|^> " "${SPECTRA_HOME}/guardrails-global.md" >> ".spectra/guardrails.md" 2>/dev/null || true
         echo "→ Global Signs propagated to local guardrails.md"
     fi
@@ -328,8 +329,8 @@ if [[ ":${PATH}:" != *":${SPECTRA_HOME}/bin:"* ]]; then
     if ! grep -q 'spectra/bin' "$SHELL_RC" 2>/dev/null; then
         echo "" >> "$SHELL_RC"
         echo '# SPECTRA CLI tools' >> "$SHELL_RC"
-        echo "export PATH=\"\$HOME/.spectra/bin:\$PATH\"" >> "$SHELL_RC"
-        echo "  PATH: Added ~/.spectra/bin to ${SHELL_RC}"
+        echo "export PATH=\"${SPECTRA_HOME}/bin:\$PATH\"" >> "$SHELL_RC"
+        echo "  PATH: Added ${SPECTRA_HOME}/bin to ${SHELL_RC}"
         echo "        Run 'source ${SHELL_RC}' or open a new terminal to use spectra-* commands."
     fi
 fi

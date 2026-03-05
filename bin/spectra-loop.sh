@@ -21,7 +21,8 @@ set -euo pipefail
 #   v5.0 keeps orchestration IN BASH. LLMs only do: build, verify, classify, review.
 #   Prompts are <500 bytes. Agents read from disk. Checkpoint enables deterministic resume.
 
-SPECTRA_HOME="${HOME}/.spectra"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SPECTRA_HOME="${SPECTRA_HOME:-$(dirname "${SCRIPT_DIR}")}"
 SPECTRA_DIR=".spectra"
 SIGNALS_DIR="${SPECTRA_DIR}/signals"
 LOGS_DIR="${SPECTRA_DIR}/logs"

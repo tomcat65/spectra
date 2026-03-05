@@ -6,7 +6,8 @@ set -euo pipefail
 # Usage: spectra-preflight [--force]
 #   --force   Run even if .env hash matches previous verification
 
-SPECTRA_HOME="${HOME}/.spectra"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SPECTRA_HOME="${SPECTRA_HOME:-$(dirname "${SCRIPT_DIR}")}"
 ENV_FILE="${SPECTRA_HOME}/.env"
 VERIFIED_FILE="${SPECTRA_HOME}/.env.verified"
 FORCE=false

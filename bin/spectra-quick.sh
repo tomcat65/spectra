@@ -8,7 +8,8 @@ set -euo pipefail
 #
 # Usage: spectra-quick "description of change"
 
-SPECTRA_HOME="${HOME}/.spectra"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SPECTRA_HOME="${SPECTRA_HOME:-$(dirname "${SCRIPT_DIR}")}"
 SPECTRA_DIR=".spectra"
 LOGS_DIR="${SPECTRA_DIR}/logs"
 SIGNALS_DIR="${SPECTRA_DIR}/signals"
