@@ -40,6 +40,7 @@ source "${SPECTRA_HOME}/lib/loop-checkpoint.sh"
 source "${SPECTRA_HOME}/lib/loop-build.sh"
 source "${SPECTRA_HOME}/lib/loop-verify.sh"
 source "${SPECTRA_HOME}/lib/loop-lessons.sh"
+source "${SPECTRA_HOME}/lib/loop-stuck-recovery.sh"
 
 # ── Guard: CLAUDECODE env var (FIX-1, Phase 9) ──
 # When running inside Claude Code, CLAUDECODE is set and blocks nested `claude` CLI.
@@ -1095,9 +1096,15 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
         echo "  WARNING" > "${SIGNALS_DIR}/BOGUS_RUN_WARNING"
     fi
 
-    # Check for STUCK from builders
+    # Check for STUCK from builders — try Party Mode recovery first
     if [[ -f "${SIGNALS_DIR}/STUCK" ]]; then
-        signal_stuck "Builder raised STUCK during batch [${batch_desc}]: $(head -5 "${SIGNALS_DIR}/STUCK")"
+        # Use batch description for attribution (task_id may be stale from prior iteration)
+        if ! handle_stuck "batch-${batch_desc}"; then
+            signal_stuck "Builder raised STUCK during batch [${batch_desc}]: $(head -5 "${SIGNALS_DIR}/STUCK")" "yes"
+        else
+            echo "  Recovery plan generated. Retrying..."
+            rm -f "${SIGNALS_DIR}/STUCK"
+        fi
     fi
 
     # ── Step C: Sequential verification for each task in batch ──
@@ -1192,14 +1199,27 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
                 unique_count=0
                 unique_count=$(echo "${TASK_FAILURE_HISTORY[$idx]}" | tr ',' '\n' | sort -u | wc -l)
                 if [[ "$unique_count" -ge 2 ]]; then
-                    # Mark as stuck in plan.md
-                    task_line="${TASK_LINES[$idx]}"
-                    if [[ "$task_line" -gt 0 ]]; then
-                        sed_inplace "${task_line}s/\- \[ \]/- [!]/" "${SPECTRA_DIR}/plan.md"
+                    # Party Mode: try recovery before marking as stuck
+                    compound_reason="Compound failure on Task ${task_id}: ${TASK_FAILURE_HISTORY[$idx]}. Two different failure types = plan is wrong, not code."
+                    echo "$compound_reason" > "${SIGNALS_DIR}/STUCK"
+                    if ! handle_stuck "${task_id}"; then
+                        # Recovery failed — now mark as stuck
+                        task_line="${TASK_LINES[$idx]}"
+                        if [[ "$task_line" -gt 0 ]]; then
+                            sed_inplace "${task_line}s/\- \[ \]/- [!]/" "${SPECTRA_DIR}/plan.md"
+                        fi
+                        TASK_STATUS[$idx]="stuck"
+                        write_checkpoint
+                        signal_stuck "$compound_reason" "yes"
+                    else
+                        # Recovery succeeded — clear STUCK, keep task retryable
+                        echo "  Recovery plan generated for compound failure. Retrying..."
+                        rm -f "${SIGNALS_DIR}/STUCK"
+                        TASK_FAILURE_HISTORY[$idx]=""
+                        # Skip retry-budget checks — recovered task gets a fresh attempt
+                        RETRY_COUNTS[$idx]=1
+                        continue
                     fi
-                    TASK_STATUS[$idx]="stuck"
-                    write_checkpoint
-                    signal_stuck "Compound failure on Task ${task_id}: ${TASK_FAILURE_HISTORY[$idx]}. Two different failure types = plan is wrong, not code."
                 fi
             fi
 

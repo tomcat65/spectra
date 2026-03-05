@@ -254,6 +254,40 @@ TOTAL_FAIL=$((TOTAL_FAIL + routing_fail))
 [[ ${routing_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
 
 # ══════════════════════════════════════════
+# Suite 13: Phase D STUCK recovery tests
+# ══════════════════════════════════════════
+echo "=== Suite: phase-d-stuck ==="
+set +e
+output=$("${SCRIPT_DIR}/test-phase-d-stuck.sh" 2>&1)
+stuck_exit=$?
+set -e
+echo "${output}"
+echo ""
+
+stuck_pass=$(echo "${output}" | grep -oP '\K[0-9]+(?= passed)' | tail -1 || echo "0")
+stuck_fail=$(echo "${output}" | grep -oP 'passed, \K[0-9]+(?= failed)' | tail -1 || echo "0")
+TOTAL_PASS=$((TOTAL_PASS + stuck_pass))
+TOTAL_FAIL=$((TOTAL_FAIL + stuck_fail))
+[[ ${stuck_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
+
+# ══════════════════════════════════════════
+# Suite 14: Phase D language profile tests
+# ══════════════════════════════════════════
+echo "=== Suite: phase-d-langprofile ==="
+set +e
+output=$("${SCRIPT_DIR}/test-phase-d-langprofile.sh" 2>&1)
+langprofile_exit=$?
+set -e
+echo "${output}"
+echo ""
+
+langprofile_pass=$(echo "${output}" | grep -oP '\K[0-9]+(?= passed)' | tail -1 || echo "0")
+langprofile_fail=$(echo "${output}" | grep -oP 'passed, \K[0-9]+(?= failed)' | tail -1 || echo "0")
+TOTAL_PASS=$((TOTAL_PASS + langprofile_pass))
+TOTAL_FAIL=$((TOTAL_FAIL + langprofile_fail))
+[[ ${langprofile_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
+
+# ══════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════
 echo "==============================="
