@@ -78,9 +78,10 @@ check_spec_fidelity() {
         return 0
     fi
 
-    # Count AC items
+    # Count AC items (use head -1 to ensure single-line value)
     local ac_count
-    ac_count=$(grep -cE '^\s+-\s+' "${TASK_FILE}" 2>/dev/null || echo "0")
+    ac_count=$(grep -cE '^\s+-\s+' "${TASK_FILE}" 2>/dev/null || true)
+    ac_count="${ac_count:-0}"
 
     if [[ "${ac_count}" -eq 0 ]]; then
         echo "SKIP: SPEC FIDELITY — no AC items found in task"
@@ -154,8 +155,8 @@ check_dependency_resolution() {
                     echo "PASS: DEPENDENCY RESOLUTION — pip check passed"
                     return 0
                 elif [[ -n "${pip_check}" ]]; then
-                    echo "WARN: DEPENDENCY RESOLUTION — pip check: ${pip_check}"
-                    return 0
+                    echo "FAIL: DEPENDENCY RESOLUTION — pip check: ${pip_check}"
+                    return 1
                 fi
             fi
             # Fallback: check requirements.txt exists
@@ -163,20 +164,20 @@ check_dependency_resolution() {
                 echo "PASS: DEPENDENCY RESOLUTION — manifest found"
                 return 0
             fi
-            echo "WARN: DEPENDENCY RESOLUTION — no dependency manifest found"
-            return 0
+            echo "FAIL: DEPENDENCY RESOLUTION — no dependency manifest found"
+            return 1
             ;;
         javascript)
             if [[ -f "${PROJECT_ROOT}/package.json" ]]; then
                 if [[ ! -d "${PROJECT_ROOT}/node_modules" ]]; then
-                    echo "WARN: DEPENDENCY RESOLUTION — node_modules missing (run npm install)"
-                    return 0
+                    echo "FAIL: DEPENDENCY RESOLUTION — node_modules missing (run npm install)"
+                    return 1
                 fi
                 echo "PASS: DEPENDENCY RESOLUTION — package.json + node_modules present"
                 return 0
             fi
-            echo "WARN: DEPENDENCY RESOLUTION — no package.json found"
-            return 0
+            echo "FAIL: DEPENDENCY RESOLUTION — no package.json found"
+            return 1
             ;;
         go)
             if command -v go > /dev/null 2>&1 && [[ -f "${PROJECT_ROOT}/go.mod" ]]; then

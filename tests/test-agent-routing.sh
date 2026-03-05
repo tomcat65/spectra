@@ -12,6 +12,11 @@ AGENTS_DIR="${SPECTRA_HOME}/agents"
 PASS=0
 FAIL=0
 
+# Extract YAML frontmatter (between first and second ---) from an agent file
+frontmatter() {
+    sed -n '/^---$/,/^---$/p' "$1"
+}
+
 assert_pass() {
     PASS=$((PASS + 1))
     echo "  PASS  $1"
@@ -35,8 +40,8 @@ for agent in "${AGENTS[@]}"; do
         continue
     fi
 
-    # Check for "Use when:" trigger
-    if grep -q 'Use when:' "${file}"; then
+    # Check for "Use when:" trigger in frontmatter description
+    if frontmatter "${file}" | grep -q 'Use when:'; then
         assert_pass "${agent} has 'Use when:' trigger"
     else
         assert_fail "${agent} has 'Use when:' trigger"
@@ -49,7 +54,7 @@ done
 
 for agent in "${AGENTS[@]}"; do
     file="${AGENTS_DIR}/${agent}.md"
-    if grep -q 'Do NOT use' "${file}"; then
+    if frontmatter "${file}" | grep -q 'Do NOT use'; then
         assert_pass "${agent} has 'Do NOT use' exclusion"
     else
         assert_fail "${agent} has 'Do NOT use' exclusion"
@@ -62,7 +67,7 @@ done
 
 for agent in "${AGENTS[@]}"; do
     file="${AGENTS_DIR}/${agent}.md"
-    if grep -q '^compatibility:' "${file}"; then
+    if frontmatter "${file}" | grep -q '^compatibility:'; then
         assert_pass "${agent} has compatibility field"
     else
         assert_fail "${agent} has compatibility field"
@@ -75,7 +80,7 @@ done
 
 for agent in "${AGENTS[@]}"; do
     file="${AGENTS_DIR}/${agent}.md"
-    if grep -q 'framework: SPECTRA' "${file}"; then
+    if frontmatter "${file}" | grep -q 'framework: SPECTRA'; then
         assert_pass "${agent} has metadata.framework = SPECTRA"
     else
         assert_fail "${agent} has metadata.framework = SPECTRA"
@@ -88,7 +93,7 @@ done
 
 for agent in "${AGENTS[@]}"; do
     file="${AGENTS_DIR}/${agent}.md"
-    if grep -q 'version: "5.4"' "${file}"; then
+    if frontmatter "${file}" | grep -q 'version: "5.4"'; then
         assert_pass "${agent} has metadata.version = 5.4"
     else
         assert_fail "${agent} has metadata.version = 5.4"
@@ -112,7 +117,7 @@ declare -A EXPECTED_ROLES=(
 for agent in "${AGENTS[@]}"; do
     file="${AGENTS_DIR}/${agent}.md"
     expected_role="${EXPECTED_ROLES[${agent}]}"
-    if grep -q "role: ${expected_role}" "${file}"; then
+    if frontmatter "${file}" | grep -q "role: ${expected_role}"; then
         assert_pass "${agent} has metadata.role = ${expected_role}"
     else
         assert_fail "${agent} has metadata.role = ${expected_role}"
@@ -124,91 +129,91 @@ done
 # ══════════════════════════════════════════
 
 # Planner triggers on planning, not implementation
-if grep -q 'plan this' "${AGENTS_DIR}/spectra-planner.md"; then
+if frontmatter "${AGENTS_DIR}/spectra-planner.md" | grep -q 'plan this'; then
     assert_pass "planner triggers on 'plan this'"
 else
     assert_fail "planner triggers on 'plan this'"
 fi
 
-if grep -q 'Do NOT use for:.*implementation' "${AGENTS_DIR}/spectra-planner.md"; then
+if frontmatter "${AGENTS_DIR}/spectra-planner.md" | grep -q 'Do NOT use for:.*implementation'; then
     assert_pass "planner excludes implementation"
 else
     assert_fail "planner excludes implementation"
 fi
 
 # Builder triggers on unchecked tasks
-if grep -q 'unchecked task' "${AGENTS_DIR}/spectra-builder.md"; then
+if frontmatter "${AGENTS_DIR}/spectra-builder.md" | grep -q 'unchecked task'; then
     assert_pass "builder triggers on unchecked tasks"
 else
     assert_fail "builder triggers on unchecked tasks"
 fi
 
-if grep -q 'Do NOT use for:.*planning' "${AGENTS_DIR}/spectra-builder.md"; then
+if frontmatter "${AGENTS_DIR}/spectra-builder.md" | grep -q 'Do NOT use for:.*planning'; then
     assert_pass "builder excludes planning"
 else
     assert_fail "builder excludes planning"
 fi
 
 # Verifier triggers on verification, not implementation
-if grep -q 'wiring proof' "${AGENTS_DIR}/spectra-verifier.md"; then
+if frontmatter "${AGENTS_DIR}/spectra-verifier.md" | grep -q 'wiring proof'; then
     assert_pass "verifier triggers on wiring proof"
 else
     assert_fail "verifier triggers on wiring proof"
 fi
 
-if grep -q 'Do NOT use for:.*implementation' "${AGENTS_DIR}/spectra-verifier.md"; then
+if frontmatter "${AGENTS_DIR}/spectra-verifier.md" | grep -q 'Do NOT use for:.*implementation'; then
     assert_pass "verifier excludes implementation"
 else
     assert_fail "verifier excludes implementation"
 fi
 
 # Auditor triggers pre-task, not post-verification
-if grep -q 'pre-flight' "${AGENTS_DIR}/spectra-auditor.md"; then
+if frontmatter "${AGENTS_DIR}/spectra-auditor.md" | grep -q 'pre-flight'; then
     assert_pass "auditor triggers on pre-flight"
 else
     assert_fail "auditor triggers on pre-flight"
 fi
 
-if grep -q 'Do NOT use for:.*post-verification' "${AGENTS_DIR}/spectra-auditor.md"; then
+if frontmatter "${AGENTS_DIR}/spectra-auditor.md" | grep -q 'Do NOT use for:.*post-verification'; then
     assert_pass "auditor excludes post-verification"
 else
     assert_fail "auditor excludes post-verification"
 fi
 
 # Oracle triggers on STUCK only
-if grep -q 'STUCK signal' "${AGENTS_DIR}/spectra-oracle.md"; then
+if frontmatter "${AGENTS_DIR}/spectra-oracle.md" | grep -q 'STUCK signal'; then
     assert_pass "oracle triggers on STUCK signal"
 else
     assert_fail "oracle triggers on STUCK signal"
 fi
 
-if grep -q 'Do NOT use for:.*plan review' "${AGENTS_DIR}/spectra-oracle.md"; then
+if frontmatter "${AGENTS_DIR}/spectra-oracle.md" | grep -q 'Do NOT use for:.*plan review'; then
     assert_pass "oracle excludes plan review"
 else
     assert_fail "oracle excludes plan review"
 fi
 
 # Scout triggers on brownfield discovery
-if grep -q 'brownfield' "${AGENTS_DIR}/spectra-scout.md"; then
+if frontmatter "${AGENTS_DIR}/spectra-scout.md" | grep -q 'brownfield'; then
     assert_pass "scout triggers on brownfield"
 else
     assert_fail "scout triggers on brownfield"
 fi
 
-if grep -q 'Do NOT use for:.*greenfield' "${AGENTS_DIR}/spectra-scout.md"; then
+if frontmatter "${AGENTS_DIR}/spectra-scout.md" | grep -q 'Do NOT use for:.*greenfield'; then
     assert_pass "scout excludes greenfield with no code"
 else
     assert_fail "scout excludes greenfield with no code"
 fi
 
 # Reviewer triggers on adversarial validation
-if grep -q 'adversarial' "${AGENTS_DIR}/spectra-reviewer.md"; then
+if frontmatter "${AGENTS_DIR}/spectra-reviewer.md" | grep -q 'adversarial'; then
     assert_pass "reviewer triggers on adversarial validation"
 else
     assert_fail "reviewer triggers on adversarial validation"
 fi
 
-if grep -q 'Do NOT use for:.*implementation' "${AGENTS_DIR}/spectra-reviewer.md"; then
+if frontmatter "${AGENTS_DIR}/spectra-reviewer.md" | grep -q 'Do NOT use for:.*implementation'; then
     assert_pass "reviewer excludes implementation"
 else
     assert_fail "reviewer excludes implementation"
@@ -220,7 +225,7 @@ fi
 
 for agent in "${AGENTS[@]}"; do
     file="${AGENTS_DIR}/${agent}.md"
-    if grep -q 'orchestrator: spectra-loop.sh' "${file}"; then
+    if frontmatter "${file}" | grep -q 'orchestrator: spectra-loop.sh'; then
         assert_pass "${agent} has orchestrator = spectra-loop.sh"
     else
         assert_fail "${agent} has orchestrator = spectra-loop.sh"
