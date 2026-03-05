@@ -281,6 +281,47 @@ EOF
     teardown_test_env
 }
 
+test_recovered_task_skips_retry_budget() {
+    # Simulates the full compound recovery + downstream retry-budget path.
+    # After successful recovery, retry-budget checks must NOT fire.
+    setup_test_env
+
+    # Simulate loop variables
+    local FAILURE_TYPE="wiring_gap"
+    local iteration=2
+    local task_id="601"
+    local recovered=false
+
+    # Recoverable STUCK
+    cat > "${SIGNALS_DIR}/STUCK" <<'EOF'
+## SPECTRA STUCK Signal
+- Reason: pip install failed: could not resolve dependencies
+EOF
+
+    # Simulate the compound recovery path from spectra-loop.sh
+    if handle_stuck "${task_id}"; then
+        rm -f "${SIGNALS_DIR}/STUCK"
+        recovered=true
+    fi
+
+    # Simulate the retry-budget check that follows in the loop
+    local would_stuck=false
+    if [[ "$recovered" != true ]]; then
+        # Only check retry budget if NOT recovered
+        local allowed_retries=2  # wiring_gap gets 2 retries
+        if [[ "$iteration" -ge "$allowed_retries" ]]; then
+            would_stuck=true
+        fi
+    fi
+
+    if [[ "$recovered" == true ]] && [[ "$would_stuck" == false ]]; then
+        pass "recovered_task_skips_retry_budget"
+    else
+        fail "recovered_task_skips_retry_budget" "recovered=${recovered}, would_stuck=${would_stuck}"
+    fi
+    teardown_test_env
+}
+
 # ══════════════════════════════════════════
 # Run all tests
 # ══════════════════════════════════════════
@@ -310,6 +351,7 @@ test_recovery_plan_created
 # Group 4: compound recovery state restoration
 test_compound_recovery_clears_failure_history
 test_compound_non_recoverable_preserves_stuck
+test_recovered_task_skips_retry_budget
 
 echo ""
 echo "════════════════════════════════════"

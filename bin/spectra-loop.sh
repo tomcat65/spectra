@@ -1216,6 +1216,9 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
                         echo "  Recovery plan generated for compound failure. Retrying..."
                         rm -f "${SIGNALS_DIR}/STUCK"
                         TASK_FAILURE_HISTORY[$idx]=""
+                        # Skip retry-budget checks — recovered task gets a fresh attempt
+                        RETRY_COUNTS[$idx]=1
+                        continue
                     fi
                 fi
             fi
