@@ -36,7 +36,7 @@ git clone https://github.com/tomcat65/spectra.git ~/.spectra
 ~/.spectra/install.sh
 ```
 
-`install.sh` adds `~/.spectra/bin` to your PATH (via `.bashrc`/`.zshrc`) and symlinks agent definitions to `~/.claude/agents/`.
+`install.sh` adds `~/.spectra/bin` to your PATH (via `.bashrc`). Agent definitions in `~/.claude/agents/` are managed separately.
 
 ### Prerequisites
 
@@ -118,7 +118,7 @@ git clone https://github.com/tomcat65/spectra.git ~/.spectra
       builder-self-audit.sh         #     4-step self-audit (reachability, spec fidelity, integration, SSOT)
   lang-profiles/                    # Language-specific wiring profiles (sourceable bash)
     python.profile                  #   Python: import patterns, entry points, dep manifests
-  install.sh                        # Installer (symlinks bin/ to PATH, sets up agents)
+  install.sh                        # Installer (adds bin/ to PATH via .bashrc)
   SKILL.md                          # Claude Code skill definition (spectra-method, spectra-plan, etc.)
   signals/                          # Signal file definitions
 
@@ -566,7 +566,7 @@ To fix manually and continue:
 
 ## Agent Architecture (v5.4)
 
-Model selection, tool restrictions, and routing signals are defined in agent YAML frontmatter at `~/.claude/agents/spectra-*.md`. There are no env vars for model routing. Bash is the orchestrator — agents are workers with <500 byte prompts that read context from disk. Each agent's frontmatter declares its `model`, `permission` mode, `allowedTools`, and max turn budget — validated by 63 routing tests in CI.
+Model selection, tool restrictions, and routing signals are defined in agent YAML frontmatter at `~/.claude/agents/spectra-*.md`. There are no env vars for model routing. Bash is the orchestrator — agents are workers with <500 byte prompts that read context from disk. Each agent's frontmatter declares its `model`, `tools`, `permissionMode`, and `maxTurns` — 63 routing tests in CI validate trigger/exclusion/compatibility and orchestrator semantics across all 7 agents.
 
 | Agent | Model | Role | Key Tools | Constraint |
 |-------|-------|------|-----------|------------|
