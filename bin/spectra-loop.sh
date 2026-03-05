@@ -1098,7 +1098,8 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
 
     # Check for STUCK from builders — try Party Mode recovery first
     if [[ -f "${SIGNALS_DIR}/STUCK" ]]; then
-        if ! handle_stuck "${task_id:-batch}"; then
+        # Use batch description for attribution (task_id may be stale from prior iteration)
+        if ! handle_stuck "batch-${batch_desc}"; then
             signal_stuck "Builder raised STUCK during batch [${batch_desc}]: $(head -5 "${SIGNALS_DIR}/STUCK")" "yes"
         else
             echo "  Recovery plan generated. Retrying..."
@@ -1198,21 +1199,23 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
                 unique_count=0
                 unique_count=$(echo "${TASK_FAILURE_HISTORY[$idx]}" | tr ',' '\n' | sort -u | wc -l)
                 if [[ "$unique_count" -ge 2 ]]; then
-                    # Mark as stuck in plan.md
-                    task_line="${TASK_LINES[$idx]}"
-                    if [[ "$task_line" -gt 0 ]]; then
-                        sed_inplace "${task_line}s/\- \[ \]/- [!]/" "${SPECTRA_DIR}/plan.md"
-                    fi
-                    TASK_STATUS[$idx]="stuck"
-                    write_checkpoint
-                    # Party Mode: try recovery before escalating
+                    # Party Mode: try recovery before marking as stuck
                     compound_reason="Compound failure on Task ${task_id}: ${TASK_FAILURE_HISTORY[$idx]}. Two different failure types = plan is wrong, not code."
                     echo "$compound_reason" > "${SIGNALS_DIR}/STUCK"
                     if ! handle_stuck "${task_id}"; then
+                        # Recovery failed — now mark as stuck
+                        task_line="${TASK_LINES[$idx]}"
+                        if [[ "$task_line" -gt 0 ]]; then
+                            sed_inplace "${task_line}s/\- \[ \]/- [!]/" "${SPECTRA_DIR}/plan.md"
+                        fi
+                        TASK_STATUS[$idx]="stuck"
+                        write_checkpoint
                         signal_stuck "$compound_reason" "yes"
                     else
+                        # Recovery succeeded — clear STUCK, keep task retryable
                         echo "  Recovery plan generated for compound failure. Retrying..."
                         rm -f "${SIGNALS_DIR}/STUCK"
+                        TASK_FAILURE_HISTORY[$idx]=""
                     fi
                 fi
             fi

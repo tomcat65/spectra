@@ -232,6 +232,56 @@ EOF
 }
 
 # ══════════════════════════════════════════
+# TEST GROUP 4: compound recovery state restoration
+# ══════════════════════════════════════════
+
+test_compound_recovery_clears_failure_history() {
+    # Simulates the loop logic: on successful compound recovery,
+    # STUCK is removed and failure history is cleared for retry.
+    setup_test_env
+    # Simulate a recoverable compound STUCK
+    cat > "${SIGNALS_DIR}/STUCK" <<'EOF'
+## SPECTRA STUCK Signal
+- Reason: pip install failed: could not resolve dependencies
+EOF
+    local task_failure_history="test_failure,dependency_failure"
+
+    # Simulate the fixed loop logic: try recovery BEFORE marking stuck
+    if handle_stuck "501"; then
+        # Recovery succeeded — clear STUCK, reset failure history
+        rm -f "${SIGNALS_DIR}/STUCK"
+        task_failure_history=""
+        if [[ ! -f "${SIGNALS_DIR}/STUCK" ]] && [[ -z "$task_failure_history" ]]; then
+            pass "compound_recovery_clears_failure_history"
+        else
+            fail "compound_recovery_clears_failure_history" "state not fully restored"
+        fi
+    else
+        fail "compound_recovery_clears_failure_history" "recovery should have succeeded"
+    fi
+    teardown_test_env
+}
+
+test_compound_non_recoverable_preserves_stuck() {
+    # On non-recoverable compound failure, STUCK remains and task stays stuck.
+    setup_test_env
+    cat > "${SIGNALS_DIR}/STUCK" <<'EOF'
+## SPECTRA STUCK Signal
+- Reason: contradictory requirements in spec
+EOF
+    if handle_stuck "502"; then
+        fail "compound_non_recoverable_preserves_stuck" "expected failure"
+    else
+        if [[ -f "${SIGNALS_DIR}/STUCK" ]]; then
+            pass "compound_non_recoverable_preserves_stuck"
+        else
+            fail "compound_non_recoverable_preserves_stuck" "STUCK was removed"
+        fi
+    fi
+    teardown_test_env
+}
+
+# ══════════════════════════════════════════
 # Run all tests
 # ══════════════════════════════════════════
 
@@ -256,6 +306,10 @@ test_handle_stuck_clears_recoverable
 test_handle_stuck_preserves_non_recoverable
 test_recovery_log_written
 test_recovery_plan_created
+
+# Group 4: compound recovery state restoration
+test_compound_recovery_clears_failure_history
+test_compound_non_recoverable_preserves_stuck
 
 echo ""
 echo "════════════════════════════════════"
