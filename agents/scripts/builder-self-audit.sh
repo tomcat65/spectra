@@ -142,8 +142,10 @@ check_spec_fidelity() {
     literals=$(grep -oP '(?<=")[^"]{2,50}(?=")|(?<=`)[^`]{2,50}(?=`)' "${TASK_FILE}" 2>/dev/null || true)
 
     # Also extract values after colons in AC lines (e.g., "- Status code: 200")
+    # Exclude plan.md metadata fields (Files, Verify, Risk, Max-iterations, AC)
     local ac_values
-    ac_values=$(grep -oP '^\s*-\s+.*?:\s*\K\S+' "${TASK_FILE}" 2>/dev/null || true)
+    ac_values=$(grep -vE '^\s*-\s+(Files|Verify|Risk|Max-iterations|AC):' "${TASK_FILE}" 2>/dev/null \
+        | grep -oP '^\s*-\s+.*?:\s*\K\S+' || true)
 
     # Combine and deduplicate
     local all_values
