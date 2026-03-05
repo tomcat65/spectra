@@ -74,12 +74,14 @@ EOF
 
 signal_stuck() {
     local reason="$1"
+    local recovery_attempted="${2:-no}"
     cat > "${SIGNALS_DIR}/STUCK" <<EOF
 ## SPECTRA STUCK Signal
 - Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 - Elapsed: $(elapsed)
 - Reason: ${reason}
 - Branch: ${BRANCH_NAME}
+- Recovery-Attempted: ${recovery_attempted}
 - Recovery: Human intervention required
 EOF
     write_signal "PHASE" "stuck"

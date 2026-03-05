@@ -28,3 +28,6 @@
 
 ### SIGN-009: Test Ordering Pollution
 > "Tests that pass in isolation but fail in the full suite indicate test pollution — shared state leaking between test files."
+
+### SIGN-010: Language Blindspot
+> "Wiring proof must cover all languages present in the project. Running Python-only checks on a non-Python project is equivalent to no wiring proof. Prevention: auto-detect language, require profile match or emit WARNING."

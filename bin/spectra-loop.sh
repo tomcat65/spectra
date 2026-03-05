@@ -40,6 +40,7 @@ source "${SPECTRA_HOME}/lib/loop-checkpoint.sh"
 source "${SPECTRA_HOME}/lib/loop-build.sh"
 source "${SPECTRA_HOME}/lib/loop-verify.sh"
 source "${SPECTRA_HOME}/lib/loop-lessons.sh"
+source "${SPECTRA_HOME}/lib/loop-stuck-recovery.sh"
 
 # ── Guard: CLAUDECODE env var (FIX-1, Phase 9) ──
 # When running inside Claude Code, CLAUDECODE is set and blocks nested `claude` CLI.
@@ -1095,9 +1096,14 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
         echo "  WARNING" > "${SIGNALS_DIR}/BOGUS_RUN_WARNING"
     fi
 
-    # Check for STUCK from builders
+    # Check for STUCK from builders — try Party Mode recovery first
     if [[ -f "${SIGNALS_DIR}/STUCK" ]]; then
-        signal_stuck "Builder raised STUCK during batch [${batch_desc}]: $(head -5 "${SIGNALS_DIR}/STUCK")"
+        if ! handle_stuck "${task_id:-batch}"; then
+            signal_stuck "Builder raised STUCK during batch [${batch_desc}]: $(head -5 "${SIGNALS_DIR}/STUCK")" "yes"
+        else
+            echo "  Recovery plan generated. Retrying..."
+            rm -f "${SIGNALS_DIR}/STUCK"
+        fi
     fi
 
     # ── Step C: Sequential verification for each task in batch ──
@@ -1199,7 +1205,15 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
                     fi
                     TASK_STATUS[$idx]="stuck"
                     write_checkpoint
-                    signal_stuck "Compound failure on Task ${task_id}: ${TASK_FAILURE_HISTORY[$idx]}. Two different failure types = plan is wrong, not code."
+                    # Party Mode: try recovery before escalating
+                    compound_reason="Compound failure on Task ${task_id}: ${TASK_FAILURE_HISTORY[$idx]}. Two different failure types = plan is wrong, not code."
+                    echo "$compound_reason" > "${SIGNALS_DIR}/STUCK"
+                    if ! handle_stuck "${task_id}"; then
+                        signal_stuck "$compound_reason" "yes"
+                    else
+                        echo "  Recovery plan generated for compound failure. Retrying..."
+                        rm -f "${SIGNALS_DIR}/STUCK"
+                    fi
                 fi
             fi
 

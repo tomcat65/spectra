@@ -270,75 +270,120 @@ if [[ "$USE_WIRING_PROOF" == true ]]; then
     echo "  [4/4] Wiring proof checks..."
     WIRING_ISSUES=0
 
-    # ── 4a: Dead import detection in test files ──
-    TEST_FILES=$(find . -name "test_*.py" -o -name "*_test.py" 2>/dev/null | grep -v __pycache__ || true)
-    if [[ -n "$TEST_FILES" ]]; then
-        for TEST_FILE in $TEST_FILES; do
-            # Find project imports (skip stdlib/test utilities)
-            IMPORTS=$(grep -oP 'from\s+\S+\s+import\s+\K\w+' "$TEST_FILE" 2>/dev/null || true)
-            for IMPORT in $IMPORTS; do
-                # Skip common utilities
-                if [[ "$IMPORT" =~ ^(patch|MagicMock|Mock|pytest|unittest|mock|subprocess|os|sys|json|tempfile|shutil|pathlib|Path|Any|Dict|List|Optional|call|PropertyMock|fixture)$ ]]; then
-                    continue
-                fi
-                # Check usage count (must appear more than just the import line)
-                USAGE_COUNT=$(grep -c "${IMPORT}" "$TEST_FILE" 2>/dev/null || echo "0")
-                if [[ "$USAGE_COUNT" -le 1 ]]; then
-                    echo "  ⚠  SIGN-001: Dead import '${IMPORT}' in ${TEST_FILE}"
-                    WIRING_ISSUES=$((WIRING_ISSUES + 1))
-                fi
-            done
+    # ── Auto-detect project language ──
+    DETECTED_LANG=""
+    if [[ -f "pyproject.toml" || -f "requirements.txt" || -f "setup.py" || -f "setup.cfg" || -f "Pipfile" ]]; then
+        DETECTED_LANG="python"
+    elif [[ -f "package.json" ]]; then
+        DETECTED_LANG="javascript"
+    elif [[ -f "go.mod" ]]; then
+        DETECTED_LANG="go"
+    elif [[ -f "Cargo.toml" ]]; then
+        DETECTED_LANG="rust"
+    fi
 
-            # ── 4b: Integration test pipeline check ──
-            if echo "$TEST_FILE" | grep -qi "integration"; then
-                echo "  → Integration test: ${TEST_FILE}"
-                # Check that imported pipeline modules are actually invoked
-                PROJECT_IMPORTS=$(grep -oP 'from\s+\w+\s+import\s+\K\w+' "$TEST_FILE" 2>/dev/null || true)
-                for PI in $PROJECT_IMPORTS; do
-                    if [[ "$PI" =~ ^(patch|MagicMock|Mock|pytest|unittest)$ ]]; then continue; fi
-                    # Look for invocation (parentheses after the name)
-                    INVOKED=$(grep -cP "${PI}\s*\(" "$TEST_FILE" 2>/dev/null || echo "0")
-                    if [[ "$INVOKED" -eq 0 ]]; then
-                        echo "  ⚠  SIGN-001: '${PI}' imported but never invoked in ${TEST_FILE}"
+    # ── Load language profile ──
+    LANG_PROFILE_LOADED=false
+    if [[ -n "$DETECTED_LANG" ]]; then
+        LANG_PROFILE="${SPECTRA_HOME}/lang-profiles/${DETECTED_LANG}.profile"
+        if [[ -f "$LANG_PROFILE" ]]; then
+            # shellcheck source=/dev/null
+            source "$LANG_PROFILE"
+            LANG_PROFILE_LOADED=true
+            echo "  Language detected: ${DETECTED_LANG} (profile loaded)"
+        else
+            echo "  WARNING: No language profile for '${DETECTED_LANG}'. Wiring proof may be incomplete."
+            echo "  SIGN-010: Language Blindspot — create ${SPECTRA_HOME}/lang-profiles/${DETECTED_LANG}.profile"
+        fi
+    else
+        echo "  WARNING: No language detected (no manifest files found). Skipping wiring proof."
+    fi
+
+    if [[ "$LANG_PROFILE_LOADED" == true ]]; then
+        # ── 4a: Dead import detection in test files ──
+        FIND_TEST_ARGS=()
+        for i in "${!TEST_PATTERNS[@]}"; do
+            if [[ $i -gt 0 ]]; then
+                FIND_TEST_ARGS+=("-o")
+            fi
+            FIND_TEST_ARGS+=("-name" "${TEST_PATTERNS[$i]}")
+        done
+        TEST_FILES=$(find . "${FIND_TEST_ARGS[@]}" 2>/dev/null | grep -v __pycache__ || true)
+        if [[ -n "$TEST_FILES" ]]; then
+            for TEST_FILE in $TEST_FILES; do
+                # Find project imports (skip stdlib/test utilities)
+                IMPORTS=$(grep -oP 'from\s+\S+\s+import\s+\K\w+' "$TEST_FILE" 2>/dev/null || true)
+                for IMPORT in $IMPORTS; do
+                    # Skip common utilities using profile's SKIP_IMPORTS
+                    if [[ "$IMPORT" =~ ^(${SKIP_IMPORTS})$ ]]; then
+                        continue
+                    fi
+                    # Check usage count (must appear more than just the import line)
+                    USAGE_COUNT=$(grep -c "${IMPORT}" "$TEST_FILE" 2>/dev/null || echo "0")
+                    if [[ "$USAGE_COUNT" -le 1 ]]; then
+                        echo "  ⚠  SIGN-001: Dead import '${IMPORT}' in ${TEST_FILE}"
                         WIRING_ISSUES=$((WIRING_ISSUES + 1))
                     fi
                 done
-            fi
-        done
-    fi
 
-    # ── 4c: CLI boundary check (SIGN-002) ──
-    ENTRY_POINTS=$(find . -name "__main__.py" -o -name "cli.py" 2>/dev/null | grep -v __pycache__ || true)
-    if [[ -n "$ENTRY_POINTS" ]]; then
-        for EP in $ENTRY_POINTS; do
-            # Extract CLI commands/subcommands
-            CLI_CMDS=$(grep -oP "add_parser\(['\"](\K[^'\"]+)" "$EP" 2>/dev/null || true)
-            if [[ -z "$CLI_CMDS" ]]; then
-                CLI_CMDS=$(grep -oP "command=['\"](\K[^'\"]+)" "$EP" 2>/dev/null || true)
-            fi
-            # Check for subprocess tests
-            SUBPROCESS_TESTS=$(grep -rl "subprocess" tests/ 2>/dev/null | head -5 || true)
-            if [[ -z "$SUBPROCESS_TESTS" ]] && [[ -n "$CLI_CMDS" ]]; then
-                echo "  ⚠  SIGN-002: CLI entry point ${EP} has no subprocess-level tests"
-                WIRING_ISSUES=$((WIRING_ISSUES + 1))
-            fi
-        done
-    fi
+                # ── 4b: Integration test pipeline check ──
+                if echo "$TEST_FILE" | grep -qi "integration"; then
+                    echo "  → Integration test: ${TEST_FILE}"
+                    # Check that imported pipeline modules are actually invoked
+                    PROJECT_IMPORTS=$(grep -oP 'from\s+\w+\s+import\s+\K\w+' "$TEST_FILE" 2>/dev/null || true)
+                    for PI in $PROJECT_IMPORTS; do
+                        if [[ "$PI" =~ ^(patch|MagicMock|Mock|pytest|unittest)$ ]]; then continue; fi
+                        # Look for invocation (parentheses after the name)
+                        INVOKED=$(grep -cP "${PI}\s*\(" "$TEST_FILE" 2>/dev/null || echo "0")
+                        if [[ "$INVOKED" -eq 0 ]]; then
+                            echo "  ⚠  SIGN-001: '${PI}' imported but never invoked in ${TEST_FILE}"
+                            WIRING_ISSUES=$((WIRING_ISSUES + 1))
+                        fi
+                    done
+                fi
+            done
+        fi
 
-    # ── 4d: Dependency verification ──
-    if [[ -f "requirements.txt" ]]; then
-        # Quick check: try importing all source modules
-        SRC_IMPORTS=$(find . -name "*.py" -not -path "./tests/*" -not -path "./.spectra/*" -not -name "test_*" -print0 2>/dev/null | \
-            xargs -0 grep -hoP '^import\s+\K\w+|^from\s+\K\w+' 2>/dev/null | sort -u || true)
-        for MOD in $SRC_IMPORTS; do
-            # Skip stdlib
-            if python3 -c "import ${MOD}" 2>/dev/null; then continue; fi
-            if ! grep -qi "${MOD}" requirements.txt 2>/dev/null; then
-                echo "  ⚠  Missing dependency: '${MOD}' imported but not in requirements.txt"
-                WIRING_ISSUES=$((WIRING_ISSUES + 1))
-                [[ -z "$FAILURE_TYPE" ]] && FAILURE_TYPE="missing_dependency"
+        # ── 4c: CLI boundary check (SIGN-002) ──
+        CLI_ENTRY_FILES=$(find . -name "__main__.${FILE_EXTENSION}" -o -name "cli.${FILE_EXTENSION}" 2>/dev/null | grep -v __pycache__ || true)
+        if [[ -n "$CLI_ENTRY_FILES" ]]; then
+            for EP in $CLI_ENTRY_FILES; do
+                # Extract CLI commands/subcommands
+                CLI_CMDS=$(grep -oP "add_parser\(['\"](\K[^'\"]+)" "$EP" 2>/dev/null || true)
+                if [[ -z "$CLI_CMDS" ]]; then
+                    CLI_CMDS=$(grep -oP "command=['\"](\K[^'\"]+)" "$EP" 2>/dev/null || true)
+                fi
+                # Check for subprocess tests
+                SUBPROCESS_TESTS=$(grep -rl "subprocess" tests/ 2>/dev/null | head -5 || true)
+                if [[ -z "$SUBPROCESS_TESTS" ]] && [[ -n "$CLI_CMDS" ]]; then
+                    echo "  ⚠  SIGN-002: CLI entry point ${EP} has no subprocess-level tests"
+                    WIRING_ISSUES=$((WIRING_ISSUES + 1))
+                fi
+            done
+        fi
+
+        # ── 4d: Dependency verification ──
+        DEP_FILE_FOUND=""
+        for DEP_MANIFEST in "${DEP_MANIFESTS[@]}"; do
+            if [[ -f "$DEP_MANIFEST" ]]; then
+                DEP_FILE_FOUND="$DEP_MANIFEST"
+                break
             fi
         done
+        if [[ -n "$DEP_FILE_FOUND" ]]; then
+            # Quick check: try importing all source modules
+            SRC_IMPORTS=$(find . -name "*.${FILE_EXTENSION}" -not -path "./tests/*" -not -path "./.spectra/*" -not -name "test_*" -print0 2>/dev/null | \
+                xargs -0 grep -hoP '^import\s+\K\w+|^from\s+\K\w+' 2>/dev/null | sort -u || true)
+            for MOD in $SRC_IMPORTS; do
+                # Skip stdlib
+                if python3 -c "import ${MOD}" 2>/dev/null; then continue; fi
+                if ! grep -qi "${MOD}" "$DEP_FILE_FOUND" 2>/dev/null; then
+                    echo "  ⚠  Missing dependency: '${MOD}' imported but not in ${DEP_FILE_FOUND}"
+                    WIRING_ISSUES=$((WIRING_ISSUES + 1))
+                    [[ -z "$FAILURE_TYPE" ]] && FAILURE_TYPE="missing_dependency"
+                fi
+            done
+        fi
     fi
 
     if [[ $WIRING_ISSUES -gt 0 ]]; then
