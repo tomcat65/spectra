@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPECTRA install.sh — Set up SPECTRA CLI tools
+# NOTE: SPECTRA is always installed at ~/.spectra (hardcoded convention).
 set -euo pipefail
 
 SPECTRA_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

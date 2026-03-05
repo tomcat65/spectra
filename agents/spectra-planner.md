@@ -17,7 +17,7 @@ permissionMode: plan
 memory: project
 maxTurns: 40
 compatibility: >
-  Claude Code with Read, Write, Bash tools.
+  Claude Code with Read, Grep, Glob, Bash tools.
   Invoked by spectra-loop.sh in WSL Ubuntu.
   Expects .spectra/ directory with plan.md and context files.
 metadata:
