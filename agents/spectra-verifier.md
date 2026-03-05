@@ -53,7 +53,7 @@ Your memory scope is `user` — you carry knowledge across ALL projects. When yo
 
 ## Output Protocol
 
-You are invoked by the bash orchestrator (`spectra-loop-v5.sh`) with a <500 byte prompt specifying the task to verify. On completion:
+You are invoked by the bash orchestrator (`spectra-loop.sh`) with a <500 byte prompt specifying the task to verify. On completion:
 
 1. **Write verify report** to `.spectra/logs/task-NNN-verify.md` with PASS or FAIL verdict
 2. **Exit cleanly** — the orchestrator reads your exit code and report

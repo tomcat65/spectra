@@ -1,6 +1,6 @@
 # Assessment Fixtures
 
-These fixtures validate the Phase C `spectra-assess` contract in `proposals/bmad-output-schema.md`.
+These fixtures validate the Phase C `spectra-assess` contract.
 
 Coverage:
 - 4 valid `assessment.yaml` samples (Level 0, Level 3, Level 4, manual fallback)

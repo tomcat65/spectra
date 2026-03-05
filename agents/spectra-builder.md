@@ -75,7 +75,7 @@ task, acknowledge it explicitly before proceeding.
 
 ## Output Protocol
 
-You are invoked by the bash orchestrator (`spectra-loop-v5.sh`) with a <500 byte prompt specifying your task. On completion:
+You are invoked by the bash orchestrator (`spectra-loop.sh`) with a <500 byte prompt specifying your task. On completion:
 
 1. **Write build report** to `.spectra/logs/task-NNN-build.md`
 2. **Git commit** with message `feat(task-NNN): description` if tests pass

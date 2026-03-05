@@ -367,8 +367,6 @@ project/
 | spectra-oracle.md | `~/.claude/agents/` + `~/.spectra/agents/` | Oracle agent definition (failure classifier) |
 | spectra-scout.md | `~/.claude/agents/` + `~/.spectra/agents/` | Scout agent definition (discovery phase) |
 | spectra-loop.sh | `~/.spectra/bin/` | v5.0 bash-native parallel orchestrator |
-| spectra-loop-v3.sh | `~/.spectra/bin/` | Symlink → `spectra-loop.sh` (compat alias) |
-| spectra-loop-v5.sh | `~/.spectra/bin/` | Symlink → `spectra-loop.sh` (compat alias) |
 | spectra-init.sh | `~/.spectra/bin/` | Project initialization |
 | spectra-verify.sh | `~/.spectra/bin/` | Standalone verification |
 | spectra-assess.sh | `~/.spectra/bin/` | Scale assessment (Level 0-4) |

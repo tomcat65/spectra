@@ -42,7 +42,7 @@ Your memory scope is `user` — violation patterns accumulate across ALL project
 
 ## Output Protocol
 
-You are invoked by the bash orchestrator (`spectra-loop-v5.sh`) with a <500 byte prompt specifying the task to audit. On completion:
+You are invoked by the bash orchestrator (`spectra-loop.sh`) with a <500 byte prompt specifying the task to audit. On completion:
 
 1. **Write pre-flight report** to `.spectra/logs/task-NNN-preflight.md`
 2. **Exit cleanly** — the orchestrator reads your exit code and report

@@ -59,8 +59,6 @@ git clone https://github.com/tomcat65/spectra.git ~/.spectra
     spectra-plan.sh                 #   Plan generation (uses spectra-planner agent)
     spectra-plan-validate.sh        #   Canonical plan.md schema validation (v4)
     spectra-loop.sh                 #   Main loop — v5.0 bash-native parallel (all levels)
-    spectra-loop-v5.sh              #   Symlink → spectra-loop.sh
-    spectra-loop-v3.sh              #   Symlink → spectra-loop.sh
     spectra-preflight.sh            #   Token verification (runs once, then on .env change)
     spectra-quick.sh                #   Quick single-task execution
     spectra-verify.sh               #   Standalone verification
@@ -105,7 +103,6 @@ git clone https://github.com/tomcat65/spectra.git ~/.spectra
     plan-bridge/                    #   Plan schema validation fixtures
     assessment/                     #   Assessment YAML fixtures
     bmad-bridge/                    #   BMAD bridge parsing fixtures
-  proposals/                        # Design artifacts and contracts
   lessons/                          # Continuous learning data store (Phase 9+10)
     schema-version                  #   Schema version file (integer, starts at 1)
     global-signs.jsonl              #   SIGN-level lessons (promoted globally)
@@ -120,7 +117,6 @@ git clone https://github.com/tomcat65/spectra.git ~/.spectra
     python.profile                  #   Python: import patterns, entry points, dep manifests
   install.sh                        # Installer (adds bin/ to PATH via .bashrc)
   SKILL.md                          # Claude Code skill definition (spectra-method, spectra-plan, etc.)
-  signals/                          # Signal file definitions
 
 ~/.claude/agents/                   # Canonical agent definitions
   spectra-planner.md                # Planning artifact generator (Opus)
