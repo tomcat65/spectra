@@ -32,9 +32,9 @@ Discovery → Scale Assessment → Specification → Execution → Verification 
 ## Quick Start
 
 ```bash
-spectra-init    # scaffold .spectra/ in your project
-spectra-loop    # start the build loop
-spectra-quick   # ad-hoc single task (skips planning)
+spectra-init.sh    # scaffold .spectra/ in your project
+spectra-loop.sh    # start the build loop
+spectra-quick.sh   # ad-hoc single task (skips planning)
 ```
 
 ## Agents

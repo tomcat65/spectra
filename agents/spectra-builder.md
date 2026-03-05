@@ -138,7 +138,7 @@ All checks must pass before committing.
 
 ## Wiring Proof Checklist
 
-See `agents/references/wiring-checklist.md` for the 5 mandatory checks. All must pass before commit.
+See `~/.spectra/agents/references/wiring-checklist.md` for the 5 mandatory checks. All must pass before commit.
 
 ## Build Report Format
 

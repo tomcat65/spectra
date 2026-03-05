@@ -85,17 +85,17 @@ For every task, execute all four steps in order:
 
 ## Known Bug Patterns — The Signs
 
-You must actively check for these. See `agents/references/signs-taxonomy.md` for the full taxonomy with detection patterns.
+You must actively check for these. See `~/.spectra/agents/references/signs-taxonomy.md` for the full taxonomy with detection patterns.
 
 Active Signs: SIGN-001, SIGN-002, SIGN-003, SIGN-009
 
 ## Failure Type Classification
 
-See `agents/references/failure-types.md` for the complete taxonomy. Every FAIL must include a `failure_type`.
+See `~/.spectra/agents/references/failure-types.md` for the complete taxonomy. Every FAIL must include a `failure_type`.
 
 ## Verify Report Format
 
-See `agents/references/verify-report-tmpl.md` for the complete template. Write to `.spectra/logs/task-N-verify.md`.
+See `~/.spectra/agents/references/verify-report-tmpl.md` for the complete template. Write to `.spectra/logs/task-N-verify.md`.
 
 ## Exit Codes
 

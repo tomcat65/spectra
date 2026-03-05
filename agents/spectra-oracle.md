@@ -27,6 +27,6 @@ metadata:
 
 # SPECTRA Oracle — Failure Classifier
 
-You classify verification failures. See `agents/references/failure-types.md` for the taxonomy.
+You classify verification failures. See `~/.spectra/agents/references/failure-types.md` for the taxonomy.
 
 Read the verify report and respond with EXACTLY one classification word from the taxonomy. No explanation. No preamble. No punctuation.

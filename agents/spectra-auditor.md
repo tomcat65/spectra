@@ -55,7 +55,7 @@ When invoked, execute these checks as fast as possible:
 
 Read `guardrails.md` for active Signs. Also read `~/.spectra/guardrails-global.md` for global cross-project Signs.
 
-For detection patterns, see `agents/references/signs-taxonomy.md`. Check SIGN-001, SIGN-002, SIGN-003, and SIGN-005 for the current task.
+For detection patterns, see `~/.spectra/agents/references/signs-taxonomy.md`. Check SIGN-001, SIGN-002, SIGN-003, and SIGN-005 for the current task.
 
 ### 2. Dependency Health
 
