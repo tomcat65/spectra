@@ -53,26 +53,9 @@ When invoked, execute these checks as fast as possible:
 
 ### 1. Sign Violation Scan
 
-Read `guardrails.md` for active Signs. Also read `~/.spectra/guardrails-global.md` for global cross-project Signs. For each Sign, run targeted checks:
+Read `guardrails.md` for active Signs. Also read `~/.spectra/guardrails-global.md` for global cross-project Signs.
 
-**SIGN-001 (Import Without Invocation):**
-- Grep test files for imports
-- For each import, verify at least one call-site exists
-- Flag any dead imports
-
-**SIGN-002 (CLI Boundary Blindness):**
-- Find CLI entry points (`__main__.py`, `cli.py`, bin scripts)
-- Check for corresponding subprocess-level tests
-- Flag any CLI command without subprocess tests
-
-**SIGN-003 (Lesson Decay):**
-- Read recent entries in `lessons-learned.md`
-- Check if any TEMP lessons relate to the current task
-- Flag if builder should be warned about a pattern
-
-**SIGN-005 (File Ownership Conflict):**
-- Check if the current task's file ownership overlaps with other in-progress tasks
-- Flag if detected
+For detection patterns, see `agents/references/signs-taxonomy.md`. Check SIGN-001, SIGN-002, SIGN-003, and SIGN-005 for the current task.
 
 ### 2. Dependency Health
 
