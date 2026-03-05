@@ -1,9 +1,9 @@
-# SPECTRA v5.1 — AUTONOMY CONTRACT
+# SPECTRA v5.4.1 — AUTONOMY CONTRACT
 
 > **"Agents may reason. Only files may decide."**
 
 **Status:** Active — Non-Negotiable Guardrail
-**Applies To:** SPECTRA v5.1 autonomous execution
+**Applies To:** SPECTRA v5.4.1 autonomous execution
 **Audience:** Loop orchestrator, Agent workers, Humans-in-Reserve
 **Last Updated:** March 5, 2026
 **Architecture:** Bash-native orchestration (spectra-loop.sh) with Claude Code agent workers
@@ -373,7 +373,7 @@ When a builder or verifier reports failure, the loop invokes `spectra-oracle` (H
 | `wiring_gap` | Code exists but isn't connected to runtime | 2 | Retry |
 | `architecture_mismatch` | Wrong approach — needs human guidance | 0 | STUCK |
 | `ambiguous_spec` | Requirements unclear — needs clarification | 0 | STUCK |
-| `external_blocker` | Dependency on external service/team | 0 | Research cycle (SIGN-008), then STUCK |
+| `external_blocker` | Dependency on external service/team | 0 | STUCK (SIGN-008 research happens during build, not as retry) |
 
 Oracle classification replaces the v3.0 model where the team lead made retry decisions.
 

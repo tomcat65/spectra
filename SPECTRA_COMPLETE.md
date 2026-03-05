@@ -1,4 +1,4 @@
-# SPECTRA v5.1 — Complete Reference
+# SPECTRA v5.4.1 — Complete Reference
 
 **S**ystematic **P**lanning, **E**xecution via **C**lean-context loops, **T**racking & verification with **R**eal-time **A**gent orchestration
 
@@ -26,7 +26,7 @@ Each source framework optimizes for a different bottleneck. SPECTRA unifies them
 
 ---
 
-## 2. Agent Roster (v5.1)
+## 2. Agent Roster (v5.4.1)
 
 | Agent | Model | Permission | Key Constraint |
 |-------|-------|------------|----------------|
