@@ -13,7 +13,7 @@ Each framework optimizes for a different bottleneck, and none solves all three:
 |-----------|--------------|------------|
 | **Your Claude Engineer** | Reliability & traceability (Linear tracking, screenshot evidence, verification gates) | Setup complexity, token cost on orchestration overhead |
 | **Enhanced Ralph Wiggum** | Simplicity & context freshness (bash loop, clean restarts, zero infrastructure) | Planning depth, can burn tokens on retry loops |
-| **BMAD Method** | Planning completeness & governance (4-phase methodology, 21+ agents, audit trails) | Speed-to-first-code, overhead for small projects |
+| **BMAD Method (BMM)** | Planning completeness & governance (4-phase methodology, 21+ agents, audit trails) | Speed-to-first-code, overhead for small projects |
 
 ### Efficiency Verdict
 

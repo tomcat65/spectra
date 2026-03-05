@@ -895,8 +895,10 @@ if [[ -f "${SIGNALS_DIR}/RECONCILE" ]]; then
             }
         fi
     else
-        # Non-interactive — log warning and continue
-        echo "  (Non-interactive mode: continuing with existing plan)"
+        # Non-interactive — FAIL: RECONCILE requires interactive session
+        rm -f "${SIGNALS_DIR}/RECONCILE"
+        echo "FAIL: RECONCILE signal requires interactive session." >&2
+        exit 1
     fi
     rm -f "${SIGNALS_DIR}/RECONCILE"
 fi
