@@ -4,6 +4,10 @@ description: >
   SPECTRA Builder agent (Ralph Wiggum heritage). Implements one task per session
   from plan.md with fresh context. Reads guardrails before building, runs wiring
   proof checklist before committing, reflects on failures for institutional memory.
+  Use when: plan.md has unchecked task ready for implementation.
+  Use when: spectra-loop invokes with task ID.
+  Do NOT use for: planning, verification, review, STUCK triage, or any task without plan.md.
+  Do NOT use if: all tasks in plan.md are already checked.
 model: opus
 tools:
   - Read
@@ -19,6 +23,16 @@ tools:
 permissionMode: acceptEdits
 memory: project
 maxTurns: 50
+compatibility: >
+  Claude Code with Bash, Edit, Write, Read tools.
+  Invoked by spectra-loop.sh in WSL Ubuntu.
+  Expects .spectra/ directory with plan.md and context files.
+metadata:
+  framework: SPECTRA
+  version: "5.4"
+  role: builder
+  orchestrator: spectra-loop.sh
+  memory: project
 hooks:
   PostToolUse:
     - matcher: "Edit|Write"

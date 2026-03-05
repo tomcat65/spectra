@@ -5,6 +5,10 @@ description: >
   assurance against Opus-generated plans. Also performs final PR review.
   Cheaper model provides genuine diversity of perspective, not same-weights
   self-validation. Outputs machine-readable verdicts.
+  Use when: adversarial plan validation needed or PR review requested.
+  Use when: plan needs stress-testing before execution.
+  Do NOT use for: implementation, wiring verification, or Sign pre-flight.
+  Do NOT use if: no planning artifacts exist to review.
 model: sonnet
 tools:
   - Read
@@ -18,6 +22,16 @@ tools:
 permissionMode: plan
 memory: project
 maxTurns: 25
+compatibility: >
+  Claude Code with Read tools (plan mode).
+  Invoked by spectra-loop.sh in WSL Ubuntu.
+  Expects .spectra/ directory with plan.md and context files.
+metadata:
+  framework: SPECTRA
+  version: "5.4"
+  role: reviewer
+  orchestrator: spectra-loop.sh
+  memory: project
 ---
 
 # SPECTRA Reviewer — Agent Instructions

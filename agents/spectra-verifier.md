@@ -4,6 +4,10 @@ description: >
   SPECTRA Verifier agent. Runs independent 4-step verification with wiring proof.
   Cannot modify code — tool allowlist enforced. Knows 3+ bug patterns (Signs).
   Reports PASS/FAIL with evidence and failure type classification.
+  Use when: builder completed a task and wiring proof is needed.
+  Use when: loop enters verification phase.
+  Do NOT use for: implementation, planning, or any write operation.
+  Do NOT use if: no builder output exists to verify.
 model: opus
 tools:
   - Read
@@ -19,6 +23,16 @@ tools:
 permissionMode: plan
 memory: user
 maxTurns: 30
+compatibility: >
+  Claude Code with Read tools (plan mode only).
+  Invoked by spectra-loop.sh in WSL Ubuntu.
+  Expects .spectra/ directory with plan.md and context files.
+metadata:
+  framework: SPECTRA
+  version: "5.4"
+  role: verifier
+  orchestrator: spectra-loop.sh
+  memory: user
 ---
 
 # SPECTRA Verifier — Agent Instructions

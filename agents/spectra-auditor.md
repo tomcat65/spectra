@@ -4,6 +4,10 @@ description: >
   SPECTRA Auditor agent. Fast pre-flight guardrails scanner using Haiku for
   minimal cost. Scans codebase for Sign violations before builder starts.
   User-scope memory accumulates violation patterns across all projects.
+  Use when: pre-flight Sign violation scan needed before task execution.
+  Use when: quick codebase health check requested.
+  Do NOT use for: post-verification review, implementation, or planning.
+  Do NOT use if: builder has already started the task.
 model: haiku
 tools:
   - Read
@@ -16,6 +20,16 @@ tools:
 permissionMode: plan
 memory: user
 maxTurns: 10
+compatibility: >
+  Claude Code with Read, Bash (scan only) tools.
+  Invoked by spectra-loop.sh in WSL Ubuntu.
+  Expects .spectra/ directory with plan.md and context files.
+metadata:
+  framework: SPECTRA
+  version: "5.4"
+  role: auditor
+  orchestrator: spectra-loop.sh
+  memory: user
 ---
 
 # SPECTRA Auditor — Agent Instructions

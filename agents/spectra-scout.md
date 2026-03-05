@@ -4,6 +4,10 @@ description: >
   SPECTRA Scout agent (Discovery Phase). Pre-planning investigation using Haiku
   for speed. Reads codebase if brownfield, identifies technical unknowns, produces
   risk manifest, captures implementation preferences. Output: .spectra/discovery.md
+  Use when: brownfield project has no discovery.md.
+  Use when: user says "analyze this codebase" or discovery phase needed.
+  Do NOT use for: greenfield projects with no existing code.
+  Do NOT use if: discovery.md already exists.
 model: haiku
 tools:
   - Read
@@ -13,6 +17,16 @@ tools:
 permissionMode: plan
 memory: user
 maxTurns: 15
+compatibility: >
+  Claude Code with Read, Bash tools.
+  Invoked by spectra-loop.sh in WSL Ubuntu.
+  Expects .spectra/ directory with plan.md and context files.
+metadata:
+  framework: SPECTRA
+  version: "5.4"
+  role: scout
+  orchestrator: spectra-loop.sh
+  memory: user
 ---
 
 # SPECTRA Scout — Agent Instructions
