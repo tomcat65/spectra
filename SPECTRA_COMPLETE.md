@@ -178,7 +178,7 @@ For each batch of independent tasks, the bash orchestrator coordinates:
 3. **Verify** — invoke verifier (Opus) sequentially for each completed task (never parallel)
 4. On PASS: check off task, commit, continue to next batch
 5. On FAIL: oracle (Haiku) classifies failure type, retry with diminishing budget
-6. On exhausted retries or compound failure: write STUCK signal
+6. On exhausted retries or compound failure: attempt Party Mode recovery, then STUCK if unrecoverable
 
 ### Phase 4: Completion
 - spectra-reviewer (Sonnet) performs final PR review
@@ -209,13 +209,13 @@ For each batch of independent tasks, the bash orchestrator coordinates:
 | Test failure / flake | 3 | Retry |
 | Missing dependency | 3 | Retry |
 | Wiring gap / integration | 2 | Retry |
-| External blocker (researchable) | 1 | Research + Retry (SIGN-008: builder must web search/docs lookup before STUCK) |
+| External blocker (researchable) | 0 | STUCK (SIGN-008 research happens during build; Party Mode recovery attempted before escalation) |
 | Architecture mismatch | 0 | STUCK |
 | Ambiguous spec | 0 | STUCK |
 | Verifier non-determinism | 0 | STUCK |
 | External blocker (hard) | 0 | STUCK |
 
-**Compound failure rule:** Two different failure types on the same task → IMMEDIATE STUCK.
+**Compound failure rule:** Two different failure types on the same task → Party Mode recovery attempted first. If recovery fails or type is non-recoverable → STUCK.
 
 ---
 

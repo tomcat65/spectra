@@ -157,7 +157,7 @@ The verifier's report must include a `failure_type` field. The loop uses this to
 | Test failure / flake | 3 | Retry | Mechanical fixes, builder can resolve |
 | Missing dependency | 3 | Retry | Add to requirements, straightforward |
 | Wiring gap / integration | 2 | Retry | Repeats signal a design flaw |
-| External blocker (researchable) | 1 | Research + Retry | Dependency install, build errors, missing packages — builder must web search/docs lookup before STUCK (SIGN-008) |
+| External blocker (researchable) | 0 | STUCK | Builder should research during build (SIGN-008), but retry budget is 0 — recovery attempted via Party Mode (Section 4.7) |
 | Architecture mismatch | 0 | STUCK | Builder cannot fix architecture — planning problem |
 | Ambiguous spec | 0 | STUCK | Execution cannot resolve intent |
 | Verifier non-determinism | 0 | STUCK | Determinism breach — system integrity at risk |
