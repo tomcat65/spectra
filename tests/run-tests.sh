@@ -236,6 +236,24 @@ TOTAL_FAIL=$((TOTAL_FAIL + phase9_fail))
 [[ ${phase9_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
 
 # ══════════════════════════════════════════
+# Suite 12: Agent routing tests
+# ══════════════════════════════════════════
+echo "=== Suite: agent-routing ==="
+set +e
+output=$("${SCRIPT_DIR}/test-agent-routing.sh" 2>&1)
+routing_exit=$?
+set -e
+echo "${output}"
+echo ""
+
+# Parse pass/fail counts from the sub-test output
+routing_pass=$(echo "${output}" | grep -oP 'agent-routing: \K[0-9]+(?= passed)' || echo "0")
+routing_fail=$(echo "${output}" | grep -oP 'passed, \K[0-9]+(?= failed)' || echo "0")
+TOTAL_PASS=$((TOTAL_PASS + routing_pass))
+TOTAL_FAIL=$((TOTAL_FAIL + routing_fail))
+[[ ${routing_exit} -ne 0 ]] && SUITE_FAILURES=$((SUITE_FAILURES + 1))
+
+# ══════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════
 echo "==============================="
