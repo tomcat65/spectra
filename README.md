@@ -29,6 +29,15 @@ SPECTRA right-sizes process to project complexity. You tell it how big the job i
 
 SPECTRA is installed globally at `~/.spectra/` and integrates with Claude Code via agent definitions at `~/.claude/agents/`.
 
+### Quick Install
+
+```bash
+git clone https://github.com/tomcat65/spectra.git ~/.spectra
+~/.spectra/install.sh
+```
+
+`install.sh` adds `~/.spectra/bin` to your PATH (via `.bashrc`). Agent definitions in `~/.claude/agents/` are managed separately.
+
 ### Prerequisites
 
 - [Claude Code CLI](https://claude.com/claude-code) (Opus 4.6+)
@@ -66,9 +75,10 @@ SPECTRA is installed globally at `~/.spectra/` and integrates with Claude Code v
     loop-build.sh                   #   Build prompts and parallel build orchestration
     loop-verify.sh                  #   Verify prompts and oracle failure classifier
     loop-lessons.sh                 #   Continuous learning system (Phase 9+10)
+    loop-stuck-recovery.sh          #   Party Mode STUCK recovery (classify, attempt, escalate)
   hooks/                            # Git lifecycle hooks
     pre-commit                      #   Wiring verification gate (auto-installed by loop)
-  tests/                            # Test suites (195 tests across 11 suites)
+  tests/                            # Test suites (290 tests across 15 suites)
     run-tests.sh                    #   Test runner (aggregates all suites)
     test-plan-validate.sh           #   Plan schema validation (11 tests)
     test-assess.sh                  #   Assessment YAML validation (5 tests)
@@ -81,6 +91,9 @@ SPECTRA is installed globally at `~/.spectra/` and integrates with Claude Code v
     test-phase7-shellcheck.sh       #   ShellCheck burn-down (0 warnings, RATIONALE policy) (8 tests)
     test-phase8-behavior.sh         #   Behavior parity (timeout, infra-fail, oracle fallback) (10 tests)
     test-phase9-lessons.sh          #   Continuous learning + bidirectional lessons (72 tests)
+    test-agent-routing.sh           #   Agent YAML frontmatter validation (63 tests)
+    test-phase-d-stuck.sh           #   Party Mode STUCK recovery (16 tests)
+    test-phase-d-langprofile.sh     #   Language profile detection + SIGN-010 (12 tests)
   .github/workflows/
     spectra-ci.yml                  #   CI pipeline (Lint, Tests, Wiring jobs)
   templates/                        # Project scaffolding templates
@@ -100,6 +113,13 @@ SPECTRA is installed globally at `~/.spectra/` and integrates with Claude Code v
       lessons.jsonl                 #     Append-only lesson entries (flock-locked)
       lessons.snapshot              #     Compacted snapshot (post-run)
   agents/                           # Canonical agent definitions (mirrored to ~/.claude/agents/)
+    references/                     #   Agent reference docs (failure-types, signs-taxonomy, etc.)
+    scripts/                        #   Executable agent scripts
+      builder-self-audit.sh         #     4-step self-audit (reachability, spec fidelity, integration, SSOT)
+  lang-profiles/                    # Language-specific wiring profiles (sourceable bash)
+    python.profile                  #   Python: import patterns, entry points, dep manifests
+  install.sh                        # Installer (adds bin/ to PATH via .bashrc)
+  SKILL.md                          # Claude Code skill definition (spectra-method, spectra-plan, etc.)
   signals/                          # Signal file definitions
 
 ~/.claude/agents/                   # Canonical agent definitions
@@ -253,11 +273,7 @@ Complex BMAD stories are split into multiple plan tasks (1:N ratio) — one task
 
 These examples walk through SPECTRA from simplest to most complex. Start with Example 1 — you can stop reading at any point and still have enough to use SPECTRA.
 
-> **PATH setup:** SPECTRA scripts live in `~/.spectra/bin/` with `.sh` extensions. Add it to your PATH:
-> ```bash
-> export PATH="$HOME/.spectra/bin:$PATH"
-> ```
-> Then invoke as `spectra-loop.sh`, `spectra-plan.sh`, etc. Or use full paths (e.g., `~/.spectra/bin/spectra-loop.sh`).
+> **PATH setup:** Run `~/.spectra/install.sh` once to add `~/.spectra/bin` to your PATH automatically. Then invoke as `spectra-loop.sh`, `spectra-plan.sh`, etc. Or use full paths (e.g., `~/.spectra/bin/spectra-loop.sh`).
 
 ### Example 1: Fix a Bug (Level 0)
 
@@ -505,7 +521,15 @@ spectra-status.sh --watch
 
 You don't need to do anything during retries — they happen automatically.
 
-**A task gets stuck** (exhausted retries or hit a non-retryable failure):
+**Party Mode STUCK Recovery** — Before escalating to the user, the loop attempts autonomous recovery via `lib/loop-stuck-recovery.sh`:
+
+1. **Classify** — pattern-match the STUCK reason (`dependency_failure`, `environment_issue`, `spec_conflict`, `unknown`)
+2. **Attempt recovery** — for recoverable types (dependency/environment), generate a `RECOVERY_PLAN` and retry
+3. **Escalate** — non-recoverable types (`spec_conflict`, `unknown`) stay STUCK for human intervention
+
+On successful recovery, the STUCK signal is cleared, failure history is reset, and the task re-enters the retry loop. Recovery attempts are logged to `logs/task-{id}-recovery.md` and the STUCK signal includes a `Recovery-Attempted: yes/no` field.
+
+**A task gets stuck** (exhausted retries, non-retryable failure, or failed recovery):
 ```
   Progress: 4/5 tasks (1 stuck)
   ────────────────────────────────────
@@ -542,7 +566,7 @@ To fix manually and continue:
 
 ## Agent Architecture (v5.4)
 
-Model selection and tool restrictions are defined in agent YAML frontmatter at `~/.claude/agents/spectra-*.md`. There are no env vars for model routing. Bash is the orchestrator — agents are workers with <500 byte prompts that read context from disk.
+Model selection, tool restrictions, and routing signals are defined in agent YAML frontmatter at `~/.claude/agents/spectra-*.md`. There are no env vars for model routing. Bash is the orchestrator — agents are workers with <500 byte prompts that read context from disk. Each agent's frontmatter declares its `model`, `tools`, `permissionMode`, and `maxTurns` — 63 routing tests in CI validate trigger/exclusion/compatibility and orchestrator semantics across all 7 agents.
 
 | Agent | Model | Role | Key Tools | Constraint |
 |-------|-------|------|-----------|------------|
@@ -656,11 +680,16 @@ SPECTRA v5.1 adds automated wiring verification to catch the most common builder
 
 ### Builder Self-Audit
 
-Before every commit, the builder runs 4 mandatory checks:
-1. **Reachability** — every new function has callsites in runtime code (not just tests)
-2. **Spec Fidelity** — specific values from the task (model names, status codes) appear literally in code
-3. **Integration Test** — at least one test traces from entry point through new code without mocking the connection
-4. **Single Source** — IDs and computed values generated once, not duplicated
+Before every commit, the builder runs 4 mandatory checks (implemented in `agents/scripts/builder-self-audit.sh`):
+1. **Reachability** — every new public function/class has external callsites in runtime code (not just tests or the defining file)
+2. **Spec Fidelity** — literal values from the task spec (quoted strings, backtick values, AC colon-values) appear in the codebase, plus plan.md Assertions block execution
+3. **Integration Test** — at least one test exercises real wiring (subprocess, e2e, integration markers)
+4. **Single Source of Truth** — value generation patterns (uuid, datetime, random) appear in at most one file per concept
+
+```bash
+# Run standalone (used by builder agent before commit)
+agents/scripts/builder-self-audit.sh [TASK_FILE] [PROJECT_ROOT]
+```
 
 ### verify.yaml
 
@@ -693,8 +722,8 @@ SPECTRA includes a GitHub Actions CI pipeline (`.github/workflows/spectra-ci.yml
 
 | Job | What It Checks |
 |-----|---------------|
-| **Lint** | `bash -n` syntax, module anti-drift (8 modules), ShellCheck errors, ShellCheck ratchet (per-file warning budget), suppress-rationale guard (every `# shellcheck disable=` needs a `# RATIONALE:` comment), actionlint |
-| **Tests** | Full test suite via `tests/run-tests.sh` (195 tests across 11 suites) |
+| **Lint** | `bash -n` syntax, module anti-drift (9 modules), ShellCheck errors, ShellCheck ratchet (per-file warning budget), suppress-rationale guard (every `# shellcheck disable=` needs a `# RATIONALE:` comment), actionlint |
+| **Tests** | Full test suite via `tests/run-tests.sh` (290 tests across 15 suites) |
 | **Wiring** | Anti-bypass guard (`SPECTRA_SKIP_WIRING` blocked in CI), wiring verification against pass/fail fixtures |
 
 The **ShellCheck ratchet** enforces a per-file, per-rule warning baseline (`shellcheck-baseline.json`). New warnings must be fixed before merge — the baseline can only decrease, never increase. Run `bin/spectra-shellcheck-ratchet.sh --update-baseline` locally to regenerate after fixing warnings.
@@ -728,6 +757,7 @@ Signs are hard-won lessons from execution failures — things that went wrong an
 | SIGN-007 | Silent Failure — teammate errors must be surfaced, not swallowed |
 | SIGN-008 | Research Before STUCK — web search before declaring external blockers |
 | SIGN-009 | Test Ordering Pollution — tests must pass in isolation and full suite |
+| SIGN-010 | Language Blindspot — wiring proof must cover all project languages |
 
 New Signs are discovered through FAIL -> FIX cycles. The continuous learning system (Phase 9+10) tracks lessons from TEMP through CONFIRMED/PROMOTED to SIGN status, with adaptive TTL, cross-project fingerprint deduplication, and automatic propagation via `lessons-active.md`.
 
@@ -791,6 +821,7 @@ SPECTRA agents can coordinate with external agents (codex-cli, claude-desktop, C
 | v5.2 | Feb 17, 2026 | CI pipeline (Lint, Tests, Wiring jobs), pre-commit wiring enforcement, ShellCheck ratchet (0 warnings across 20 files), loop modularization (7 sourced modules), plan.json typed bridge, DAG cycle validation, oracle failure classifier with type-specific retry budgets, 127 tests across 11 suites |
 | v5.3 | Feb 17, 2026 | Phase 9: Continuous learning system — JSONL + flock append-only storage, normalized fingerprint dedup, adaptive TTL (severity-based with recurrence extension), promotion lifecycle (TEMP→CONFIRMED→PROMOTED→SIGN), snapshot compaction, prompt injection guard (`sanitize_for_propagation()`), schema versioning/migration, cross-project correlation. 8 sourced modules (added `loop-lessons.sh`). 182 tests across 11 suites |
 | v5.4 | Feb 24, 2026 | Phase 10: Bidirectional lessons architecture — `inject_active_lessons()` merges project-local + global CONFIRMED+ lessons into live `lessons-active.md` feed (rank-sorted, capped at 25), `spectra_upgrade_project()` non-destructive brownfield migration with VERSION marker, builder reads lessons at session start, verifier checks for lesson violations. Dry-run guards prevent state mutation. 195 tests across 11 suites |
+| v5.4.1 | Mar 5, 2026 | Phases A-D: Builder self-audit script (`agents/scripts/builder-self-audit.sh` — 4-step executable audit), agent routing tests (63 tests validating YAML frontmatter), Party Mode STUCK recovery (`lib/loop-stuck-recovery.sh` — classify/recover/escalate with compound failure integration), language profiles (`lang-profiles/python.profile`), SIGN-010 (Language Blindspot), `install.sh` installer, `SKILL.md` skill definition. 9 loop modules. 290 tests across 15 suites |
 
 ## Continuous Learning (v5.3+)
 
@@ -848,7 +879,7 @@ Pre-v5.4 projects auto-upgrade on first loop run:
 - **RECONCILE signal is interactive only** — In interactive mode, prompts user to re-run assessment and planning. In non-interactive mode, logs a warning and continues with the existing plan.
 - **No Level 4 (Enterprise) implementation** — The level table defines it but no sprint delivery logic exists in the loop scripts.
 - **spectra-scout auto-runs when discovery is missing** — The planner automatically invokes scout when `discovery.md` is absent. Manual flags (`--discover`, `--skip-discovery`) are also available.
-- **Wiring checks are Python-centric** — Dead import detection in `spectra-verify.sh` only covers `.py` files.
+- **Language profiles are Python-first** — `lang-profiles/python.profile` is complete; JavaScript, Go, and Rust profiles are planned (Phase E). Auto-detection falls back to a generic check with a SIGN-010 warning when no profile exists.
 
 ## Reference
 
