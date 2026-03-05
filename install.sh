@@ -15,7 +15,7 @@ fi
 # Add to PATH in shell RC
 SHELL_RC="${HOME}/.bashrc"
 PATH_ENTRY="export PATH=\"${SPECTRA_HOME}/bin:\${PATH}\""
-if ! grep -qF "${SPECTRA_HOME}/bin" "${SHELL_RC}" 2>/dev/null; then
+if ! grep -q 'spectra.*/bin' "${SHELL_RC}" 2>/dev/null; then
     {
         echo ''
         echo '# SPECTRA CLI tools'

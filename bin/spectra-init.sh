@@ -326,7 +326,7 @@ if [[ ":${PATH}:" != *":${SPECTRA_HOME}/bin:"* ]]; then
     if [[ -n "${ZSH_VERSION:-}" ]] || [[ "$(basename "${SHELL:-/bin/bash}")" == "zsh" ]]; then
         SHELL_RC="${HOME}/.zshrc"
     fi
-    if ! grep -q 'spectra/bin' "$SHELL_RC" 2>/dev/null; then
+    if ! grep -q 'spectra.*/bin' "$SHELL_RC" 2>/dev/null; then
         echo "" >> "$SHELL_RC"
         echo '# SPECTRA CLI tools' >> "$SHELL_RC"
         echo "export PATH=\"${SPECTRA_HOME}/bin:\$PATH\"" >> "$SHELL_RC"
