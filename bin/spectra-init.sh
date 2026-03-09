@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║  SPECTRA v5.1 Project Initializer                                ║
+# ║  SPECTRA v5.4 Project Initializer                                ║
 # ║  Scaffolds .spectra/ + CLAUDE.md for All-Anthropic subagents     ║
 # ╚══════════════════════════════════════════════════════════════════╝
 #
@@ -40,7 +40,7 @@ while [[ $# -gt 0 ]]; do
         --per-task-budget) PER_TASK_BUDGET="$2"; shift 2 ;;
         -h|--help)
             cat <<EOF
-SPECTRA v5.1 Project Initializer
+SPECTRA v5.4 Project Initializer
 
 Usage: spectra-init --name "Project Name" [OPTIONS]
 
@@ -54,7 +54,7 @@ Options:
   --per-task-budget N  Per-task budget in USD (default: 10.00)
   -h, --help           Show this help
 
-Architecture (v5.1 — All-Anthropic):
+Architecture (v5.4 — All-Anthropic):
   spectra-planner   Opus    Planning artifacts
   spectra-reviewer  Sonnet  Cross-model plan validation
   spectra-auditor   Haiku   Pre-flight Sign scanning
@@ -74,7 +74,7 @@ fi
 DATE=$(date +%Y-%m-%d)
 
 echo "╔══════════════════════════════════════════╗"
-echo "║  SPECTRA v5.1 Project Initializer         ║"
+echo "║  SPECTRA v5.4 Project Initializer         ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 echo "  Project: ${PROJECT_NAME}"
@@ -191,9 +191,9 @@ else
     echo "  WARN: verify.yaml.template not found. Skipping wiring verification setup."
 fi
 
-# ── Generate project.yaml (v5.0 — All-Anthropic agents) ──
+# ── Generate project.yaml (v5.4 — All-Anthropic agents) ──
 cat > .spectra/project.yaml <<YAML
-# SPECTRA v5.1 Project Configuration
+# SPECTRA v5.4 Project Configuration
 name: ${PROJECT_NAME}
 level: ${LEVEL}
 created: ${DATE}
@@ -304,7 +304,7 @@ if [[ "$USE_SLACK" == true ]]; then
     if [[ -n "${SLACK_WEBHOOK_URL:-}" ]]; then
         curl -s -X POST "${SLACK_WEBHOOK_URL}" \
             -H "Content-Type: application/json" \
-            -d "{\"text\":\"🚀 SPECTRA v5.1 initialized: *${PROJECT_NAME}* (Level ${LEVEL})\"}" > /dev/null 2>&1 || true
+            -d "{\"text\":\"🚀 SPECTRA v5.4 initialized: *${PROJECT_NAME}* (Level ${LEVEL})\"}" > /dev/null 2>&1 || true
         echo "→ Slack notified."
     fi
 fi
@@ -337,7 +337,7 @@ fi
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
-echo "║  SPECTRA v5.1 initialized!                ║"
+echo "║  SPECTRA v5.4 initialized!                ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 echo "  Files created:"

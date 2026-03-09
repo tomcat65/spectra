@@ -1,6 +1,6 @@
 {
   "shellcheck_version": "0.10.0",
-  "generated_at": "2026-03-05T21:08:50Z",
+  "generated_at": "2026-03-09T19:32:52Z",
   "files": {
     "bin/plan-extract.sh": {
       "total": 0,
@@ -34,6 +34,10 @@
       "total": 0,
       "rules": {}
     },
+    "bin/spectra-refactor-clean.sh": {
+      "total": 0,
+      "rules": {}
+    },
     "bin/spectra-shellcheck-ratchet.sh": {
       "total": 0,
       "rules": {}
@@ -58,6 +62,10 @@
       "total": 0,
       "rules": {}
     },
+    "lib/loop-context.sh": {
+      "total": 0,
+      "rules": {}
+    },
     "lib/loop-git.sh": {
       "total": 0,
       "rules": {}
@@ -67,6 +75,10 @@
       "rules": {}
     },
     "lib/loop-retry.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "lib/loop-session.sh": {
       "total": 0,
       "rules": {}
     },

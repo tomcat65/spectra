@@ -19,16 +19,21 @@ build_prompt() {
     local preflight_advisory="${3:-}"
 
     local prompt="Implement Task ${task_id}: ${title}."
-    prompt+=" Read CLAUDE.md for project context."
-    prompt+=" Read .spectra/plan.md section '## Task ${task_id}' for full acceptance criteria and file ownership."
-    prompt+=" Read .spectra/guardrails.md for active Signs."
 
-    if [[ "$iteration" -gt 1 ]]; then
-        prompt+=" This is retry ${iteration}. Read .spectra/logs/task-${task_id}-verify.md for the failure report. Fix the specific issues."
-    fi
-
-    if [[ -n "$preflight_advisory" ]]; then
-        prompt+=" Pre-flight advisory: ${preflight_advisory}"
+    # Centralized context loading (lib/loop-context.sh)
+    if declare -f context_files_for_build >/dev/null 2>&1; then
+        prompt+=" $(context_files_for_build "$task_id" "$iteration" "$preflight_advisory")"
+    else
+        # Fallback: inline context if loop-context.sh not sourced
+        prompt+=" Read CLAUDE.md for project context."
+        prompt+=" Read .spectra/plan.md section '## Task ${task_id}' for full acceptance criteria and file ownership."
+        prompt+=" Read .spectra/guardrails.md for active Signs."
+        if [[ "$iteration" -gt 1 ]]; then
+            prompt+=" This is retry ${iteration}. Read .spectra/logs/task-${task_id}-verify.md for the failure report. Fix the specific issues."
+        fi
+        if [[ -n "$preflight_advisory" ]]; then
+            prompt+=" Pre-flight advisory: ${preflight_advisory}"
+        fi
     fi
 
     # Enforce prompt budget (<500 bytes)

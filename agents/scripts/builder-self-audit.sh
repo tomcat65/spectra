@@ -317,6 +317,27 @@ check_single_source_of_truth() {
     return 0
 }
 
+# ── Quality Gate (pre-audit, language-aware) ──
+# Runs cheap lint/format checks before the 4-step audit.
+# Quality gate is advisory: failures are reported but don't block the audit.
+run_quality_gate() {
+    local quality_gate="${SPECTRA_HOME:-${HOME}/.spectra}/scripts/spectra-quality-gate.sh"
+    if [[ -x "${quality_gate}" ]]; then
+        echo "  [pre] Running quality gate..."
+        set +e
+        "${quality_gate}" "${PROJECT_ROOT}" 2>&1 | sed 's/^/    /'
+        local gate_exit=$?
+        set -e
+        if [[ ${gate_exit} -eq 0 ]]; then
+            echo "  [pre] Quality gate: PASS"
+        elif [[ ${gate_exit} -eq 2 ]]; then
+            echo "  [pre] Quality gate: SKIP (no tools available)"
+        else
+            echo "  [pre] Quality gate: ISSUES found (advisory, continuing audit)"
+        fi
+    fi
+}
+
 # ── Main ──
 main() {
     echo "══════════════════════════════════════════"
@@ -325,6 +346,8 @@ main() {
     echo "  Root: ${PROJECT_ROOT}"
     echo "══════════════════════════════════════════"
     echo ""
+
+    run_quality_gate
 
     check_reachability         || ((FAILURES++))
     check_spec_fidelity        || ((FAILURES++))

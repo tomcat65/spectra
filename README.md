@@ -872,7 +872,7 @@ Pre-v5.4 projects auto-upgrade on first loop run:
 
 ## Known Limitations
 
-- **RECONCILE signal is interactive only** — In interactive mode, prompts user to re-run assessment and planning. In non-interactive mode, logs a warning and continues with the existing plan.
+- **RECONCILE signal requires operator decision** — In interactive mode, prompts user to re-run assessment. In non-interactive mode (CI/piped), exits with error and actionable next steps. Remove the signal file manually if drift is acceptable.
 - **No Level 4 (Enterprise) implementation** — The level table defines it but no sprint delivery logic exists in the loop scripts.
 - **spectra-scout auto-runs when discovery is missing** — The planner automatically invokes scout when `discovery.md` is absent. Manual flags (`--discover`, `--skip-discovery`) are also available.
 - **Language profiles are Python-first** — `lang-profiles/python.profile` is complete; JavaScript, Go, and Rust profiles are planned (Phase E). Auto-detection falls back to a generic check with a SIGN-010 warning when no profile exists.

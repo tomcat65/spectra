@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
         --show-prompt)  SHOW_PROMPT=true; shift ;;
         -h|--help)
             cat <<EOF
-SPECTRA v5.1 Plan Generator
+SPECTRA v5.4 Plan Generator
 
 Usage: spectra-plan [OPTIONS]
 

@@ -14,7 +14,17 @@ verify_prompt() {
     local verify_depth="${2:-full}"
     local task_id="${TASK_IDS[$idx]}"
 
-    local prompt="Verify Task ${task_id}. Read CLAUDE.md and .spectra/plan.md section '## Task ${task_id}' for context. Output your verification report with 'Result: PASS' or 'Result: FAIL' and 'Failure Type:' if applicable. Depth: ${verify_depth}."
+    local prompt="Verify Task ${task_id}."
+
+    # Centralized context loading (lib/loop-context.sh)
+    if declare -f context_files_for_verify >/dev/null 2>&1; then
+        prompt+=" $(context_files_for_verify "$task_id" "$verify_depth")"
+    else
+        # Fallback: inline context if loop-context.sh not sourced
+        prompt+=" Read CLAUDE.md and .spectra/plan.md section '## Task ${task_id}' for context. Depth: ${verify_depth}."
+    fi
+
+    prompt+=" Output your verification report with 'Result: PASS' or 'Result: FAIL' and 'Failure Type:' if applicable."
 
     # Enforce prompt budget (<500 bytes)
     if [[ ${#prompt} -gt 480 ]]; then

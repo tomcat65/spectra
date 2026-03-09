@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║  SPECTRA v5.1 Verification Gate                                  ║
+# ║  SPECTRA v5.4 Verification Gate                                  ║
 # ║  4-Step Audit: Verify → Regression → Evidence Chain → Wiring     ║
 # ║  Auto-logs PASS/FAIL to lessons-learned.md                       ║
 # ╚══════════════════════════════════════════════════════════════════╝
@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
         --full-sweep)      FULL_SWEEP=true; shift ;;
         -h|--help)
             cat <<EOF
-SPECTRA v5.1 Verification Gate
+SPECTRA v5.4 Verification Gate
 
 Usage: spectra-verify [OPTIONS]
 
@@ -198,18 +198,50 @@ else
     fi
 fi
 
+# ── Auto-detect project language (shared by Step 2 and Step 4) ──
+DETECTED_LANG=""
+if [[ -f "pyproject.toml" || -f "requirements.txt" || -f "setup.py" || -f "setup.cfg" || -f "Pipfile" || -f "pytest.ini" ]]; then
+    DETECTED_LANG="python"
+elif [[ -f "package.json" ]]; then
+    DETECTED_LANG="javascript"
+elif [[ -f "go.mod" ]]; then
+    DETECTED_LANG="go"
+elif [[ -f "Cargo.toml" ]]; then
+    DETECTED_LANG="rust"
+elif [[ -f "Makefile" ]] && ls bin/*.sh tests/*.sh >/dev/null 2>&1; then
+    DETECTED_LANG="bash"
+fi
+
+# ── Load language profile (shared by Step 2 and Step 4) ──
+LANG_PROFILE_LOADED=false
+REGRESSION_CMD=""
+if [[ -n "$DETECTED_LANG" ]]; then
+    LANG_PROFILE="${SPECTRA_HOME}/lang-profiles/${DETECTED_LANG}.profile"
+    if [[ -f "$LANG_PROFILE" ]]; then
+        # shellcheck source=/dev/null
+        source "$LANG_PROFILE"
+        LANG_PROFILE_LOADED=true
+        echo "  Language detected: ${DETECTED_LANG} (profile loaded)"
+    else
+        echo "  WARNING: No language profile for '${DETECTED_LANG}'. Using fallback detection."
+        echo "  SIGN-010: Language Blindspot — create ${SPECTRA_HOME}/lang-profiles/${DETECTED_LANG}.profile"
+    fi
+fi
+
 # ══════════════════════════════════════════
 # Step 2: Full Regression Suite
 # ══════════════════════════════════════════
 echo "  [2/4] Full regression suite..."
 
-REGRESSION_CMD=""
-if [[ -f "pytest.ini" || -f "setup.cfg" || -f "pyproject.toml" || -d "tests" ]]; then
-    REGRESSION_CMD="python -m pytest -q 2>&1"
-elif [[ -f "package.json" ]]; then
-    REGRESSION_CMD="npm test 2>&1"
-elif [[ -f "Cargo.toml" ]]; then
-    REGRESSION_CMD="cargo test 2>&1"
+# Profile-based regression command takes priority.
+# If no profile loaded, use deterministic fallback based on manifest files.
+# A tests/ directory alone does NOT imply Python.
+if [[ -z "${REGRESSION_CMD:-}" ]]; then
+    if [[ -f "Cargo.toml" ]]; then
+        REGRESSION_CMD="cargo test"
+    elif [[ -f "go.mod" ]]; then
+        REGRESSION_CMD="go test ./..."
+    fi
 fi
 
 if [[ -n "$REGRESSION_CMD" ]]; then
@@ -270,33 +302,13 @@ if [[ "$USE_WIRING_PROOF" == true ]]; then
     echo "  [4/4] Wiring proof checks..."
     WIRING_ISSUES=0
 
-    # ── Auto-detect project language ──
-    DETECTED_LANG=""
-    if [[ -f "pyproject.toml" || -f "requirements.txt" || -f "setup.py" || -f "setup.cfg" || -f "Pipfile" ]]; then
-        DETECTED_LANG="python"
-    elif [[ -f "package.json" ]]; then
-        DETECTED_LANG="javascript"
-    elif [[ -f "go.mod" ]]; then
-        DETECTED_LANG="go"
-    elif [[ -f "Cargo.toml" ]]; then
-        DETECTED_LANG="rust"
-    fi
-
-    # ── Load language profile ──
-    LANG_PROFILE_LOADED=false
-    if [[ -n "$DETECTED_LANG" ]]; then
-        LANG_PROFILE="${SPECTRA_HOME}/lang-profiles/${DETECTED_LANG}.profile"
-        if [[ -f "$LANG_PROFILE" ]]; then
-            # shellcheck source=/dev/null
-            source "$LANG_PROFILE"
-            LANG_PROFILE_LOADED=true
-            echo "  Language detected: ${DETECTED_LANG} (profile loaded)"
+    # Language detection and profile loading already done before Step 2.
+    if [[ "$LANG_PROFILE_LOADED" != true ]]; then
+        if [[ -z "${DETECTED_LANG:-}" ]]; then
+            echo "  WARNING: No language detected (no manifest files found). Skipping wiring proof."
         else
             echo "  WARNING: No language profile for '${DETECTED_LANG}'. Wiring proof may be incomplete."
-            echo "  SIGN-010: Language Blindspot — create ${SPECTRA_HOME}/lang-profiles/${DETECTED_LANG}.profile"
         fi
-    else
-        echo "  WARNING: No language detected (no manifest files found). Skipping wiring proof."
     fi
 
     if [[ "$LANG_PROFILE_LOADED" == true ]]; then

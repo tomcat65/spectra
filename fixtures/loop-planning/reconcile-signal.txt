@@ -1,0 +1,9 @@
+RECONCILE
+reason: assessment_drift
+details:
+  max_iterations_exceeds_budget:
+    - task: "003"
+      plan_max_iter: 10
+      assessment_retry_budget: 5
+  source: spectra-plan --from-bmad
+  timestamp: 2026-01-01T12:00:00Z

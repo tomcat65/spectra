@@ -25,3 +25,6 @@ TEST_PATTERNS=("test_*.py" "*_test.py")
 
 # Common stdlib/test imports to skip in dead import detection
 SKIP_IMPORTS="patch|MagicMock|Mock|pytest|unittest|mock|subprocess|os|sys|json|tempfile|shutil|pathlib|Path|Any|Dict|List|Optional|call|PropertyMock|fixture"
+
+# Regression command for Step 2
+REGRESSION_CMD="python -m pytest -q"

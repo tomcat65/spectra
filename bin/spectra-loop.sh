@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║  SPECTRA v5.0 Execution Loop — Bash-Native Parallel Architecture ║
-# ║  Heritage: v2.0 sequential engine (removed in v5.0)              ║
-# ║  New: parse_plan(), next_batch(), parallel_build(), checkpoint   ║
+# ║  SPECTRA v5.4 Execution Loop — Bash-Native Parallel Architecture ║
+# ║  Heritage: v5.0 introduced bash-native arch (replaced LLM lead)  ║
+# ║  Core: parse_plan(), next_batch(), parallel_build(), checkpoint  ║
 # ║  Architecture: Bash orchestrates. LLMs are workers.              ║
 # ╚══════════════════════════════════════════════════════════════════╝
 #
@@ -37,9 +37,11 @@ source "${SPECTRA_HOME}/lib/loop-retry.sh"
 source "${SPECTRA_HOME}/lib/loop-wiring.sh"
 source "${SPECTRA_HOME}/lib/loop-git.sh"
 source "${SPECTRA_HOME}/lib/loop-checkpoint.sh"
+source "${SPECTRA_HOME}/lib/loop-context.sh"
 source "${SPECTRA_HOME}/lib/loop-build.sh"
 source "${SPECTRA_HOME}/lib/loop-verify.sh"
 source "${SPECTRA_HOME}/lib/loop-lessons.sh"
+source "${SPECTRA_HOME}/lib/loop-session.sh"
 source "${SPECTRA_HOME}/lib/loop-stuck-recovery.sh"
 
 # ── Guard: CLAUDECODE env var (FIX-1, Phase 9) ──
@@ -101,9 +103,9 @@ while [[ $# -gt 0 ]]; do
             BUILDER_TIMEOUT="$2"; shift 2 ;;
         -h|--help)
             cat <<EOF
-SPECTRA v5.0 Execution Loop — Bash-Native Parallel Architecture
+SPECTRA v5.4 Execution Loop — Bash-Native Parallel Architecture
 
-Usage: spectra-loop-v5 [OPTIONS]
+Usage: spectra-loop [OPTIONS]
 
 Options:
   --plan-only       Run planning + review gate only, then exit
@@ -116,7 +118,7 @@ Options:
   --builder-timeout N  Seconds before killing a hung builder (default: 600)
   -h, --help        Show this help
 
-Architecture (v5.0):
+Architecture (v5.4):
   Bash is the orchestrator. LLMs are workers.
   - Planner (Opus)  — generates plan artifacts
   - Reviewer (Sonnet) — validates plan + final PR review
@@ -137,6 +139,18 @@ done
 # ── Source env ──
 if [[ -f "${SPECTRA_HOME}/.env" ]]; then
     set +u; source "${SPECTRA_HOME}/.env"; set -u
+fi
+
+# ── Integration token preflight ──
+PREFLIGHT_SCRIPT="${SPECTRA_HOME}/bin/spectra-preflight.sh"
+if [[ -x "${PREFLIGHT_SCRIPT}" ]]; then
+    if ! "${PREFLIGHT_SCRIPT}"; then
+        echo ""
+        echo "  Preflight failed. Fix integration tokens in ${SPECTRA_HOME}/.env"
+        echo "  Re-run: spectra-preflight --force"
+        echo "  Or remove tokens you don't need from .env and try again."
+        exit 1
+    fi
 fi
 
 # ── Verify project ──
@@ -797,10 +811,20 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
         echo "  [DRY RUN] Would spawn: spectra-planner (Opus)"
         echo "  [DRY RUN] Would spawn: spectra-reviewer (Sonnet)"
     else
-        echo "  Spawning spectra-planner (Opus)..."
-        claude --agent spectra-planner -p --permission-mode plan \
-            "Read the project description and generate all required SPECTRA planning artifacts for this project. Write to .spectra/ directory." \
-            2>&1 | tee "${LOGS_DIR}/planning.log" || true
+        echo "  Delegating to spectra-plan.sh (handles planner invocation, validation, plan.json)..."
+        PLAN_GENERATOR="${SPECTRA_HOME}/bin/spectra-plan.sh"
+        set +e
+        "${PLAN_GENERATOR}" --skip-discovery 2>&1 | tee "${LOGS_DIR}/planning.log"
+        PLAN_GEN_EXIT=$?
+        set -e
+
+        if [[ ${PLAN_GEN_EXIT} -ne 0 ]]; then
+            signal_stuck "Plan generation failed (spectra-plan.sh exit ${PLAN_GEN_EXIT}). Check ${LOGS_DIR}/planning.log"
+        fi
+
+        if [[ ! -f "${SPECTRA_DIR}/plan.md" ]]; then
+            signal_stuck "Plan generation completed but .spectra/plan.md not found. Check ${LOGS_DIR}/planning.log"
+        fi
 
         echo "  Spawning spectra-reviewer (Sonnet) for plan validation..."
         claude --agent spectra-reviewer -p --permission-mode plan \
@@ -808,7 +832,7 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
             2>&1 | tee "${LOGS_DIR}/plan-review.log" "${SIGNALS_DIR}/plan-review.md" || true
 
         if [[ -f "${SIGNALS_DIR}/plan-review.md" ]]; then
-            VERDICT=$(grep -oP 'Verdict:\s*\K\S+' "${SIGNALS_DIR}/plan-review.md" | head -1 || echo "UNKNOWN")
+            VERDICT=$(grep -oP 'Verdict:\*{0,2}\s*\K[A-Z_]+' "${SIGNALS_DIR}/plan-review.md" | head -1 || echo "UNKNOWN")
             echo "  Plan review verdict: ${VERDICT}"
 
             case "$VERDICT" in
@@ -827,17 +851,22 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
                     done < <(sed -n '/### Warnings/,/### /p' "${SIGNALS_DIR}/plan-review.md" | grep '^\-' 2>/dev/null || true)
                     ;;
                 REJECTED)
-                    echo "  Plan rejected. Attempting one revision..."
-                    claude --agent spectra-planner -p --permission-mode plan \
-                        "Your plan was REJECTED. Read .spectra/signals/plan-review.md for rejection reasons. Revise the planning artifacts to address all blocking issues. This is your ONE revision attempt." \
-                        2>&1 | tee "${LOGS_DIR}/planning-revision.log" || true
+                    echo "  Plan rejected. Regenerating via spectra-plan.sh (ONE revision attempt)..."
+                    set +e
+                    "${PLAN_GENERATOR}" --skip-discovery 2>&1 | tee "${LOGS_DIR}/planning-revision.log"
+                    REVISION_EXIT=$?
+                    set -e
+
+                    if [[ ${REVISION_EXIT} -ne 0 ]]; then
+                        signal_stuck "Plan revision failed (spectra-plan.sh exit ${REVISION_EXIT}). Check ${LOGS_DIR}/planning-revision.log"
+                    fi
 
                     rm -f "${SIGNALS_DIR}/plan-review.md"
                     claude --agent spectra-reviewer -p --permission-mode plan \
                         "Re-review the revised planning artifacts in .spectra/. This is the second review. Output your verdict with a 'Verdict:' line." \
                         2>&1 | tee "${LOGS_DIR}/plan-re-review.log" "${SIGNALS_DIR}/plan-review.md" || true
 
-                    RE_VERDICT=$(grep -oP 'Verdict:\s*\K\S+' "${SIGNALS_DIR}/plan-review.md" 2>/dev/null | head -1 || echo "UNKNOWN")
+                    RE_VERDICT=$(grep -oP 'Verdict:\*{0,2}\s*\K[A-Z_]+' "${SIGNALS_DIR}/plan-review.md" 2>/dev/null | head -1 || echo "UNKNOWN")
                     if [[ "$RE_VERDICT" == "REJECTED" ]] || [[ "$RE_VERDICT" == "UNKNOWN" ]]; then
                         signal_stuck "Plan rejected twice. Human must revise planning artifacts."
                     fi
@@ -848,7 +877,7 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
                     ;;
             esac
         else
-            echo "  No plan-review.md generated. Proceeding without formal review."
+            signal_stuck "No plan-review.md generated. Reviewer may have failed silently. Check ${LOGS_DIR}/plan-review.log"
         fi
     fi
 
@@ -897,9 +926,16 @@ if [[ -f "${SIGNALS_DIR}/RECONCILE" ]]; then
             }
         fi
     else
-        # Non-interactive — FAIL: RECONCILE requires interactive session
+        # Non-interactive — FAIL: RECONCILE requires operator decision
+        echo "" >&2
+        echo "FAIL: RECONCILE signal detected in non-interactive mode." >&2
+        echo "  Assessment drift: plan parameters diverge from assessment.yaml." >&2
+        echo "" >&2
+        echo "  Next steps:" >&2
+        echo "    1. Run 'spectra-loop' interactively to review and decide, or" >&2
+        echo "    2. Run 'spectra-assess' to regenerate assessment.yaml, then re-plan, or" >&2
+        echo "    3. Remove ${SIGNALS_DIR}/RECONCILE if drift is acceptable." >&2
         rm -f "${SIGNALS_DIR}/RECONCILE"
-        echo "FAIL: RECONCILE signal requires interactive session." >&2
         exit 1
     fi
     rm -f "${SIGNALS_DIR}/RECONCILE"
@@ -942,7 +978,7 @@ fi
 # ── Display banner ──
 read TOTAL DONE REMAINING STUCK_COUNT <<< "$(count_tasks)"
 echo ""
-echo "  SPECTRA v5.0 Execution Loop"
+echo "  SPECTRA v5.4 Execution Loop"
 echo "  ────────────────────────────────────"
 echo "  Tasks:        ${DONE}/${TOTAL} complete (${REMAINING} remaining, ${STUCK_COUNT} stuck)"
 echo "  Cost Ceiling: \$${COST_CEILING}"
@@ -1312,7 +1348,7 @@ FAILEOF
 
         if [[ -f "${SIGNALS_DIR}/NEGOTIATE_REVIEW" ]]; then
             neg_verdict=""
-            neg_verdict=$(grep -oP 'Verdict:\s*\K\S+' "${SIGNALS_DIR}/NEGOTIATE_REVIEW" | head -1 || echo "UNKNOWN")
+            neg_verdict=$(grep -oP 'Verdict:\*{0,2}\s*\K[A-Z_]+' "${SIGNALS_DIR}/NEGOTIATE_REVIEW" | head -1 || echo "UNKNOWN")
             echo "  Negotiate verdict: ${neg_verdict}"
 
             case "$neg_verdict" in
