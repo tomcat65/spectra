@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║  SPECTRA v5.4 Project Initializer                                ║
+# ║  SPECTRA v5.5 Project Initializer                                ║
 # ║  Scaffolds .spectra/ + CLAUDE.md for All-Anthropic subagents     ║
 # ╚══════════════════════════════════════════════════════════════════╝
 #
@@ -40,7 +40,7 @@ while [[ $# -gt 0 ]]; do
         --per-task-budget) PER_TASK_BUDGET="$2"; shift 2 ;;
         -h|--help)
             cat <<EOF
-SPECTRA v5.4 Project Initializer
+SPECTRA v5.5 Project Initializer
 
 Usage: spectra-init --name "Project Name" [OPTIONS]
 
@@ -54,7 +54,7 @@ Options:
   --per-task-budget N  Per-task budget in USD (default: 10.00)
   -h, --help           Show this help
 
-Architecture (v5.4 — All-Anthropic):
+Architecture (v5.5 — All-Anthropic):
   spectra-planner   Opus    Planning artifacts
   spectra-reviewer  Sonnet  Cross-model plan validation
   spectra-auditor   Haiku   Pre-flight Sign scanning
@@ -74,7 +74,7 @@ fi
 DATE=$(date +%Y-%m-%d)
 
 echo "╔══════════════════════════════════════════╗"
-echo "║  SPECTRA v5.4 Project Initializer         ║"
+echo "║  SPECTRA v5.5 Project Initializer         ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 echo "  Project: ${PROJECT_NAME}"
@@ -191,9 +191,9 @@ else
     echo "  WARN: verify.yaml.template not found. Skipping wiring verification setup."
 fi
 
-# ── Generate project.yaml (v5.4 — All-Anthropic agents) ──
+# ── Generate project.yaml (v5.5 — All-Anthropic agents) ──
 cat > .spectra/project.yaml <<YAML
-# SPECTRA v5.4 Project Configuration
+# SPECTRA v5.5 Project Configuration
 name: ${PROJECT_NAME}
 level: ${LEVEL}
 created: ${DATE}
@@ -238,7 +238,7 @@ cp "${TEMPLATE_DIR}/screenshots/.gitkeep" ".spectra/screenshots/.gitkeep" 2>/dev
 touch ".spectra/logs/.gitkeep" ".spectra/signals/.gitkeep"
 
 # ── Write VERSION marker (Phase 10) ──
-echo "v5.4" > ".spectra/VERSION"
+echo "v5.5" > ".spectra/VERSION"
 
 # ── Generate CLAUDE.md (single integration point for all subagents) ──
 echo "→ Generating CLAUDE.md..."
@@ -304,7 +304,7 @@ if [[ "$USE_SLACK" == true ]]; then
     if [[ -n "${SLACK_WEBHOOK_URL:-}" ]]; then
         curl -s -X POST "${SLACK_WEBHOOK_URL}" \
             -H "Content-Type: application/json" \
-            -d "{\"text\":\"🚀 SPECTRA v5.4 initialized: *${PROJECT_NAME}* (Level ${LEVEL})\"}" > /dev/null 2>&1 || true
+            -d "{\"text\":\"🚀 SPECTRA v5.5 initialized: *${PROJECT_NAME}* (Level ${LEVEL})\"}" > /dev/null 2>&1 || true
         echo "→ Slack notified."
     fi
 fi
@@ -314,7 +314,7 @@ if [[ "$NO_COMMIT" == false ]]; then
     if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
         echo "→ Creating initial SPECTRA commit..."
         git add .spectra/ CLAUDE.md
-        git commit -m "chore: initialize SPECTRA v5.4 framework (Level ${LEVEL})" --no-verify 2>/dev/null || echo "  Nothing to commit."
+        git commit -m "chore: initialize SPECTRA v5.5 framework (Level ${LEVEL})" --no-verify 2>/dev/null || echo "  Nothing to commit."
     else
         echo "⚠  Not a git repository. Run 'git init' first."
     fi
@@ -337,7 +337,7 @@ fi
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
-echo "║  SPECTRA v5.4 initialized!                ║"
+echo "║  SPECTRA v5.5 initialized!                ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 echo "  Files created:"

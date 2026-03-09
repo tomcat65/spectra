@@ -1,11 +1,11 @@
-# SPECTRA v5.4.1 — Complete Reference
+# SPECTRA v5.5 — Complete Reference
 
 **S**ystematic **P**lanning, **E**xecution via **C**lean-context loops, **T**racking & verification with **R**eal-time **A**gent orchestration
 
 > Plan like BMAD. Execute like Ralph. Orchestrate like Your Claude Engineer.
 
-**Version:** 5.4.1
-**Date:** March 5, 2026
+**Version:** 5.5
+**Date:** March 9, 2026
 **Architecture:** All-Anthropic (Bash-native parallel orchestration via Claude Code Opus 4.6)
 **Heritage:** BMAD (planning) + Ralph Wiggum (execution) + YCE (orchestration)
 
@@ -26,7 +26,7 @@ Each source framework optimizes for a different bottleneck. SPECTRA unifies them
 
 ---
 
-## 2. Agent Roster (v5.4.1)
+## 2. Agent Roster (v5.5)
 
 | Agent | Model | Permission | Key Constraint |
 |-------|-------|------------|----------------|
@@ -378,8 +378,15 @@ project/
 | SKILL.md | `~/.spectra/` | Claude Code skill definition |
 | lib/loop-stuck-recovery.sh | `~/.spectra/lib/` | Party Mode STUCK recovery |
 | lib/loop-lessons.sh | `~/.spectra/lib/` | Continuous learning system |
+| lib/loop-context.sh | `~/.spectra/lib/` | Centralized context loading policy |
+| lib/loop-session.sh | `~/.spectra/lib/` | Runtime profiles + session persistence |
 | lang-profiles/python.profile | `~/.spectra/lang-profiles/` | Python language wiring profile |
+| lang-profiles/javascript.profile | `~/.spectra/lang-profiles/` | JavaScript/TypeScript wiring profile |
+| lang-profiles/bash.profile | `~/.spectra/lang-profiles/` | Bash wiring profile |
+| scripts/spectra-quality-gate.sh | `~/.spectra/scripts/` | Language-aware lint/format quality gates |
+| hooks/post-verify-learn.sh | `~/.spectra/hooks/` | Opt-in Sign candidate discovery |
 | agents/scripts/builder-self-audit.sh | `~/.spectra/agents/scripts/` | 4-step builder self-audit |
+| bin/spectra-refactor-clean.sh | `~/.spectra/bin/` | Post-project cleanup (dry-run default) |
 | settings.json | `~/.claude/` | Claude Code settings (env vars, permissions) |
 
 ---
@@ -445,10 +452,15 @@ Recurring bug class: "Unit Tests Green, Integration Wiring Missing" — agents w
 - [x] Language profiles v5.4.1 (python.profile, auto-detection, SIGN-010)
 - [x] Builder self-audit script v5.4.1 (4-step executable audit)
 - [x] Agent routing validation v5.4.1 (63 frontmatter tests)
+- [x] Dogfood sprint v5.5 (11 self-executed tasks, 522 tests across 28 suites)
+- [x] Language-aware verifier + quality gates v5.5 (JS/bash profiles, 5-language quality gate)
+- [x] Progressive context loading v5.5 (centralized loop-context.sh)
+- [x] Runtime profiles v5.5 (quick/standard/thorough, session persistence)
+- [x] Post-project cleanup v5.5 (spectra-refactor-clean.sh, dry-run default)
 - [ ] spectra-doctor (project health diagnostics)
 - [ ] Cost tracking integration (real-time token metering)
 - [ ] Multi-project orchestration
-- [ ] Additional language profiles (JavaScript, Go, Rust)
+- [ ] Additional language profiles (Go, Rust)
 
 ---
 
@@ -461,6 +473,6 @@ Recurring bug class: "Unit Tests Green, Integration Wiring Missing" — agents w
 
 ---
 
-*SPECTRA v5.4.1 — A unified AI software engineering methodology.*
+*SPECTRA v5.5 — A unified AI software engineering methodology.*
 *Combining the planning depth of BMAD, the execution simplicity of Ralph Wiggum, and the orchestration rigor of Your Claude Engineer.*
-*v5.0: Bash-native parallel architecture. v5.3+: Continuous learning. v5.4.1: Party Mode STUCK recovery + language profiles.*
+*v5.0: Bash-native parallel architecture. v5.3+: Continuous learning. v5.4.1: Party Mode STUCK recovery. v5.5: Dogfood sprint — 11 self-executed tasks, progressive context, runtime profiles, quality gates.*

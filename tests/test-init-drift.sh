@@ -31,8 +31,8 @@ fi
 # Test 2: Version strings in spectra-init.sh — detect drift
 # KNOWN BUG: init emits multiple conflicting version strings:
 #   - Banner/help: v5.1
-#   - VERSION file: v5.4
-#   - Git commit: v5.4
+#   - VERSION file: v5.5
+#   - Git commit: v5.5
 #   - project.yaml comment: v5.1
 #   - Slack notification: v5.1
 # Task 004 AC requires a single consistent version.
@@ -233,7 +233,7 @@ fi
 # ══════════════════════════════════════════
 echo "  Test: cross-script version consistency (bin/*.sh)"
 
-CANONICAL_VERSION="v5.4"
+CANONICAL_VERSION="v5.5"
 BIN_DIR="${SPECTRA_DIR}/bin"
 version_mismatch=""
 for script in "${BIN_DIR}"/*.sh; do

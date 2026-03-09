@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# SPECTRA Post-Project Cleanup — v5.4
+# SPECTRA Post-Project Cleanup — v5.5
 # End-of-project hygiene tool. Identifies dead scaffolds, stale fixtures,
 # and cleanup candidates. Defaults to DRY-RUN (report only).
 #

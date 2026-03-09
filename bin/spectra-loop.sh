@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║  SPECTRA v5.4 Execution Loop — Bash-Native Parallel Architecture ║
+# ║  SPECTRA v5.5 Execution Loop — Bash-Native Parallel Architecture ║
 # ║  Heritage: v5.0 introduced bash-native arch (replaced LLM lead)  ║
 # ║  Core: parse_plan(), next_batch(), parallel_build(), checkpoint  ║
 # ║  Architecture: Bash orchestrates. LLMs are workers.              ║
@@ -103,7 +103,7 @@ while [[ $# -gt 0 ]]; do
             BUILDER_TIMEOUT="$2"; shift 2 ;;
         -h|--help)
             cat <<EOF
-SPECTRA v5.4 Execution Loop — Bash-Native Parallel Architecture
+SPECTRA v5.5 Execution Loop — Bash-Native Parallel Architecture
 
 Usage: spectra-loop [OPTIONS]
 
@@ -118,7 +118,7 @@ Options:
   --builder-timeout N  Seconds before killing a hung builder (default: 600)
   -h, --help        Show this help
 
-Architecture (v5.4):
+Architecture (v5.5):
   Bash is the orchestrator. LLMs are workers.
   - Planner (Opus)  — generates plan artifacts
   - Reviewer (Sonnet) — validates plan + final PR review
@@ -978,7 +978,7 @@ fi
 # ── Display banner ──
 read TOTAL DONE REMAINING STUCK_COUNT <<< "$(count_tasks)"
 echo ""
-echo "  SPECTRA v5.4 Execution Loop"
+echo "  SPECTRA v5.5 Execution Loop"
 echo "  ────────────────────────────────────"
 echo "  Tasks:        ${DONE}/${TOTAL} complete (${REMAINING} remaining, ${STUCK_COUNT} stuck)"
 echo "  Cost Ceiling: \$${COST_CEILING}"

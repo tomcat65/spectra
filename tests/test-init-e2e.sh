@@ -102,10 +102,10 @@ echo "  Test: VERSION marker created"
     cd "${tmp_dir}"
     if [[ -f ".spectra/VERSION" ]]; then
         ver=$(cat .spectra/VERSION)
-        if [[ "${ver}" == "v5.4" ]]; then
-            echo "  PASS  VERSION marker is v5.4"
+        if [[ "${ver}" == "v5.5" ]]; then
+            echo "  PASS  VERSION marker is v5.5"
         else
-            echo "  FAIL  VERSION marker is '${ver}' (expected v5.4)"
+            echo "  FAIL  VERSION marker is '${ver}' (expected v5.5)"
             exit 1
         fi
     else
