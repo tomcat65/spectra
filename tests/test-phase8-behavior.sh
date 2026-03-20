@@ -313,6 +313,7 @@ set +e
 ORACLE_FALLBACK_OUT=$(timeout 15 bash -c '
 set -euo pipefail
 SPECTRA_HOME="'"${SPECTRA_HOME}"'"
+source "${SPECTRA_HOME}/lib/loop-verdict.sh"
 source "${SPECTRA_HOME}/lib/loop-verify.sh"
 
 DRY_RUN=false
@@ -354,6 +355,7 @@ set +e
 ORACLE_MISSING_OUT=$(timeout 15 bash -c '
 set -euo pipefail
 SPECTRA_HOME="'"${SPECTRA_HOME}"'"
+source "${SPECTRA_HOME}/lib/loop-verdict.sh"
 source "${SPECTRA_HOME}/lib/loop-verify.sh"
 
 DRY_RUN=false
@@ -389,6 +391,7 @@ rm -rf "$TMPDIR_T10"
 # ══════════════════════════════════════════
 echo ""
 echo "  phase8-behavior: ${PASS} passed, ${FAIL} failed"
+echo "SPECTRA_TEST_RESULT suite=phase8-behavior pass=${PASS} fail=${FAIL} skip=0 total=$((PASS + FAIL))"
 
 if [[ ${FAIL} -gt 0 ]]; then
     exit 1

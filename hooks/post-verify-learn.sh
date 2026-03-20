@@ -49,7 +49,13 @@ fi
 # Check that the latest verification passed (recovery complete)
 LATEST_RESULT=""
 if [[ -f "${LOGS_DIR}/task-${TASK_ID}-verify-script.md" ]]; then
-    LATEST_RESULT=$(grep -oP 'Result:\*{0,2}\s*\K\S+' "${LOGS_DIR}/task-${TASK_ID}-verify-script.md" | head -1 || true)
+    # Source verdict extraction if available, otherwise regex fallback
+    if [[ -f "${SPECTRA_HOME}/lib/loop-verdict.sh" ]]; then
+        source "${SPECTRA_HOME}/lib/loop-verdict.sh"
+        LATEST_RESULT=$(extract_verdict "${LOGS_DIR}/task-${TASK_ID}-verify-script.md" "result" PASS FAIL)
+    else
+        LATEST_RESULT=$(tr -d '*#' < "${LOGS_DIR}/task-${TASK_ID}-verify-script.md" | grep -oiP 'Result:\s*\K(PASS|FAIL)' | head -1 || true)
+    fi
 fi
 if [[ "${LATEST_RESULT}" != "PASS" ]]; then
     # Still failing — not a completed recovery cycle

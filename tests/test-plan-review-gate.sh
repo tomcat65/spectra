@@ -177,12 +177,13 @@ fi
 # ══════════════════════════════════════════
 echo "  Test: verdict parsing pattern is consistent across initial and re-review"
 
-VERDICT_PATTERNS=$(grep -cP "grep -oP 'Verdict:" "${LOOP_SCRIPT}" 2>/dev/null || echo "0")
+# extract_verdict should be used for all verdict parsing (replaces raw grep patterns)
+VERDICT_PATTERNS=$(grep -c "extract_verdict" "${LOOP_SCRIPT}" 2>/dev/null || echo "0")
 if [[ "${VERDICT_PATTERNS}" -ge 2 ]]; then
-    echo "  PASS  verdict parsing pattern used ${VERDICT_PATTERNS} times (initial + re-review)"
+    echo "  PASS  extract_verdict used ${VERDICT_PATTERNS} times (initial + re-review + verifier)"
     PASS=$((PASS + 1))
 else
-    echo "  FAIL  verdict parsing pattern used only ${VERDICT_PATTERNS} time(s) (expected >= 2)"
+    echo "  FAIL  extract_verdict used only ${VERDICT_PATTERNS} time(s) (expected >= 2)"
     FAIL=$((FAIL + 1))
 fi
 
@@ -259,17 +260,16 @@ else
 fi
 
 # ══════════════════════════════════════════
-# Test 13: Loop verdict regex matches the pattern used in tests
-# Verify the actual regex in spectra-loop.sh is the same one we test above.
+# Test 13: Loop uses extract_verdict for structured verdict parsing
+# extract_verdict handles JSON trailers + regex fallback (replaces brittle regexes)
 # ══════════════════════════════════════════
-echo "  Test: loop uses robust verdict regex with bold-handling"
+echo "  Test: loop uses extract_verdict for structured parsing"
 
-if grep -qP 'Verdict:\\\\\\*\{0,2\}' "${LOOP_SCRIPT}" 2>/dev/null || \
-   grep -q 'Verdict:.*0,2' "${LOOP_SCRIPT}" 2>/dev/null; then
-    echo "  PASS  loop verdict regex includes bold-marker handling"
+if grep -q 'extract_verdict.*verdict.*APPROVED' "${LOOP_SCRIPT}" 2>/dev/null; then
+    echo "  PASS  loop uses extract_verdict with whitelist validation"
     PASS=$((PASS + 1))
 else
-    echo "  FAIL  loop verdict regex does not handle bold markers"
+    echo "  FAIL  loop does not use extract_verdict for verdict parsing"
     FAIL=$((FAIL + 1))
 fi
 
@@ -298,6 +298,7 @@ fi
 # ══════════════════════════════════════════
 echo ""
 echo "  plan-review-gate: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped"
+echo "SPECTRA_TEST_RESULT suite=plan-review-gate pass=${PASS} fail=${FAIL} skip=${SKIP} total=$((PASS + FAIL + SKIP))"
 
 export TEST_PLAN_REVIEW_GATE_PASS=${PASS}
 export TEST_PLAN_REVIEW_GATE_FAIL=${FAIL}

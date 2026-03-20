@@ -56,9 +56,8 @@ oracle_classify() {
             # If oracle returned garbage, fall back to verifier's reported type
             local verifier_type=""
             if [[ -f "${LOGS_DIR}/task-${task_id}-verify.md" ]]; then
-                verifier_type=$(tr -d '*#' < "${LOGS_DIR}/task-${task_id}-verify.md" \
-                    | grep -oiP 'Failure Type:\s*\K(test_failure|missing_dependency|wiring_gap|architecture_mismatch|ambiguous_spec|external_blocker)' \
-                    | head -1 || echo "")
+                verifier_type=$(extract_verdict "${LOGS_DIR}/task-${task_id}-verify.md" "failure_type" \
+                    test_failure missing_dependency wiring_gap architecture_mismatch ambiguous_spec external_blocker)
             fi
             echo "${verifier_type:-test_failure}"
             ;;

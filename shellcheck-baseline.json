@@ -1,6 +1,6 @@
 {
   "shellcheck_version": "0.10.0",
-  "generated_at": "2026-03-09T19:32:52Z",
+  "generated_at": "2026-03-20T16:53:09Z",
   "files": {
     "bin/plan-extract.sh": {
       "total": 0,
@@ -74,6 +74,10 @@
       "total": 0,
       "rules": {}
     },
+    "lib/loop-metrics.sh": {
+      "total": 0,
+      "rules": {}
+    },
     "lib/loop-retry.sh": {
       "total": 0,
       "rules": {}
@@ -86,7 +90,15 @@
       "total": 0,
       "rules": {}
     },
+    "lib/loop-structured.sh": {
+      "total": 0,
+      "rules": {}
+    },
     "lib/loop-stuck-recovery.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "lib/loop-verdict.sh": {
       "total": 0,
       "rules": {}
     },

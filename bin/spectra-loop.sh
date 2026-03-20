@@ -40,6 +40,7 @@ source "${SPECTRA_HOME}/lib/loop-structured.sh"
 source "${SPECTRA_HOME}/lib/loop-checkpoint.sh"
 source "${SPECTRA_HOME}/lib/loop-context.sh"
 source "${SPECTRA_HOME}/lib/loop-build.sh"
+source "${SPECTRA_HOME}/lib/loop-verdict.sh"
 source "${SPECTRA_HOME}/lib/loop-verify.sh"
 source "${SPECTRA_HOME}/lib/loop-lessons.sh"
 source "${SPECTRA_HOME}/lib/loop-session.sh"
@@ -730,11 +731,13 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
 
         echo "  Spawning spectra-reviewer (Sonnet) for plan validation..."
         claude --agent spectra-reviewer -p --permission-mode plan --fallback-model haiku \
+            --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
             "Review all planning artifacts in .spectra/ (constitution.md, plan.md, prd.md if present). Output your verdict following the exact format in your instructions. Include a 'Verdict:' line (APPROVED, APPROVED_WITH_WARNINGS, or REJECTED)." \
             2>&1 | tee "${LOGS_DIR}/plan-review.log" "${SIGNALS_DIR}/plan-review.md" || true
 
         if [[ -f "${SIGNALS_DIR}/plan-review.md" ]]; then
-            VERDICT=$(grep -oP 'Verdict:\*{0,2}\s*\K[A-Z_]+' "${SIGNALS_DIR}/plan-review.md" | head -1 || echo "UNKNOWN")
+            VERDICT=$(extract_verdict "${SIGNALS_DIR}/plan-review.md" "verdict" APPROVED APPROVED_WITH_WARNINGS REJECTED)
+            [[ -z "$VERDICT" ]] && VERDICT="UNKNOWN"
             echo "  Plan review verdict: ${VERDICT}"
 
             case "$VERDICT" in
@@ -765,10 +768,12 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
 
                     rm -f "${SIGNALS_DIR}/plan-review.md"
                     claude --agent spectra-reviewer -p --permission-mode plan --fallback-model haiku \
+                        --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
                         "Re-review the revised planning artifacts in .spectra/. This is the second review. Output your verdict with a 'Verdict:' line." \
                         2>&1 | tee "${LOGS_DIR}/plan-re-review.log" "${SIGNALS_DIR}/plan-review.md" || true
 
-                    RE_VERDICT=$(grep -oP 'Verdict:\*{0,2}\s*\K[A-Z_]+' "${SIGNALS_DIR}/plan-review.md" 2>/dev/null | head -1 || echo "UNKNOWN")
+                    RE_VERDICT=$(extract_verdict "${SIGNALS_DIR}/plan-review.md" "verdict" APPROVED APPROVED_WITH_WARNINGS REJECTED)
+                    [[ -z "$RE_VERDICT" ]] && RE_VERDICT="UNKNOWN"
                     if [[ "$RE_VERDICT" == "REJECTED" ]] || [[ "$RE_VERDICT" == "UNKNOWN" ]]; then
                         signal_stuck "Plan rejected twice. Human must revise planning artifacts."
                     fi
@@ -1063,6 +1068,7 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
         set +e
         claude --agent spectra-verifier -p --permission-mode bypassPermissions \
             --fallback-model sonnet \
+            --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
             "$(verify_prompt "$idx" "$verify_depth")" \
             2>&1 | tee "${LOGS_DIR}/task-${task_id}-verify.log" "${LOGS_DIR}/task-${task_id}-verify.md"
         VERIFY_EXIT=${PIPESTATUS[0]}
@@ -1070,27 +1076,13 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
         VERIFY_ELAPSED=$(( $(date +%s) - VERIFY_START ))
 
         # ── Step D: Parse verification result ──
-        # The verifier agent outputs verdicts in various markdown formats:
-        #   Result: PASS, **Result:** PASS, ## Result: PASS, Result: **PASS**
-        # We strip markdown formatting and search broadly.
-        RESULT="UNKNOWN"
-        FAILURE_TYPE=""
-        if [[ -f "${LOGS_DIR}/task-${task_id}-verify.md" ]]; then
-            verify_text=$(tr -d '*#' < "${LOGS_DIR}/task-${task_id}-verify.md")
-            # Extract Result — case-insensitive, flexible whitespace
-            RESULT=$(echo "$verify_text" | grep -oiP 'Result:\s*\K(PASS|FAIL)' | head -1 || echo "")
-            # Extract Failure Type — known types only
-            FAILURE_TYPE=$(echo "$verify_text" | grep -oiP 'Failure Type:\s*\K(test_failure|missing_dependency|wiring_gap|architecture_mismatch|ambiguous_spec|external_blocker)' | head -1 || echo "")
-            # Fallback: scan for PASS/FAIL keywords if Result: line not found
-            if [[ -z "$RESULT" ]]; then
-                if echo "$verify_text" | grep -qiP '\b(all.*passed|verdict.*pass|4.*steps.*pass|wiring.*clean)\b'; then
-                    RESULT="PASS"
-                fi
-            fi
-        fi
+        # extract_verdict tries JSON trailer first, falls back to regex on markdown-stripped text.
+        RESULT=$(extract_verdict "${LOGS_DIR}/task-${task_id}-verify.md" "result" PASS FAIL)
+        FAILURE_TYPE=$(extract_verdict "${LOGS_DIR}/task-${task_id}-verify.md" "failure_type" \
+            test_failure missing_dependency wiring_gap architecture_mismatch ambiguous_spec external_blocker)
 
         # Exit code fallback: if agent output had no clear verdict
-        if [[ -z "$RESULT" ]] || [[ "$RESULT" == "UNKNOWN" ]]; then
+        if [[ -z "$RESULT" ]]; then
             if [[ $VERIFY_EXIT -eq 0 ]]; then
                 RESULT="PASS"
             else
@@ -1288,12 +1280,13 @@ FAILEOF
         echo "  Negotiate signal detected — routing to reviewer..."
         last_task_id="${TASK_IDS[${BATCH[-1]}]}"
         claude --agent spectra-reviewer -p --permission-mode plan --fallback-model haiku \
+            --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
             "A builder has raised a spec negotiation for Task ${last_task_id}. Read .spectra/signals/NEGOTIATE for the proposed adaptation. Evaluate against constitution.md and non-goals.md. Output your verdict with a 'Verdict:' line." \
             2>&1 | tee "${LOGS_DIR}/negotiate-review.log" "${SIGNALS_DIR}/NEGOTIATE_REVIEW" | tail -5 || true
 
         if [[ -f "${SIGNALS_DIR}/NEGOTIATE_REVIEW" ]]; then
-            neg_verdict=""
-            neg_verdict=$(grep -oP 'Verdict:\*{0,2}\s*\K[A-Z_]+' "${SIGNALS_DIR}/NEGOTIATE_REVIEW" | head -1 || echo "UNKNOWN")
+            neg_verdict=$(extract_verdict "${SIGNALS_DIR}/NEGOTIATE_REVIEW" "verdict" APPROVED ESCALATE)
+            [[ -z "$neg_verdict" ]] && neg_verdict="UNKNOWN"
             echo "  Negotiate verdict: ${neg_verdict}"
 
             case "$neg_verdict" in
@@ -1344,6 +1337,7 @@ if [[ $REMAINING -eq 0 ]] && [[ $TOTAL -gt 0 ]]; then
     if [[ "$DRY_RUN" == false ]]; then
         echo "  Spawning spectra-reviewer (Sonnet) for final PR review..."
         claude --agent spectra-reviewer -p --permission-mode plan --fallback-model haiku \
+            --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
             "Perform a final PR review. Read .spectra/logs/ for all task reports. Review the git diff. Check the JSONL lessons in ~/.spectra/lessons/projects/ for patterns worth promoting. Output your review." \
             2>&1 | tee "${LOGS_DIR}/pr-review-session.log" "${LOGS_DIR}/pr-review.md" || true
     fi
