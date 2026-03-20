@@ -56,8 +56,9 @@ oracle_classify() {
             # If oracle returned garbage, fall back to verifier's reported type
             local verifier_type=""
             if [[ -f "${LOGS_DIR}/task-${task_id}-verify.md" ]]; then
-                # Strip markdown bold markers (**) from verifier output
-                verifier_type=$(grep -oiP 'Failure Type:\s*\K\S+' "${LOGS_DIR}/task-${task_id}-verify.md" | head -1 | tr -d '*' || echo "")
+                verifier_type=$(tr -d '*#' < "${LOGS_DIR}/task-${task_id}-verify.md" \
+                    | grep -oiP 'Failure Type:\s*\K(test_failure|missing_dependency|wiring_gap|architecture_mismatch|ambiguous_spec|external_blocker)' \
+                    | head -1 || echo "")
             fi
             echo "${verifier_type:-test_failure}"
             ;;

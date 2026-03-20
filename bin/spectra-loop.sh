@@ -1070,16 +1070,32 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
         VERIFY_ELAPSED=$(( $(date +%s) - VERIFY_START ))
 
         # ── Step D: Parse verification result ──
+        # The verifier agent outputs verdicts in various markdown formats:
+        #   Result: PASS, **Result:** PASS, ## Result: PASS, Result: **PASS**
+        # We strip markdown formatting and search broadly.
         RESULT="UNKNOWN"
         FAILURE_TYPE=""
         if [[ -f "${LOGS_DIR}/task-${task_id}-verify.md" ]]; then
-            # Strip markdown bold markers (**) — verifier template uses **Result:** and **Failure Type:**
-            RESULT=$(grep -oiP 'Result:\s*\K\S+' "${LOGS_DIR}/task-${task_id}-verify.md" | head -1 | tr -d '*' || echo "UNKNOWN")
-            FAILURE_TYPE=$(grep -oiP 'Failure Type:\s*\K\S+' "${LOGS_DIR}/task-${task_id}-verify.md" | head -1 | tr -d '*' || echo "")
+            verify_text=$(tr -d '*#' < "${LOGS_DIR}/task-${task_id}-verify.md")
+            # Extract Result — case-insensitive, flexible whitespace
+            RESULT=$(echo "$verify_text" | grep -oiP 'Result:\s*\K(PASS|FAIL)' | head -1 || echo "")
+            # Extract Failure Type — known types only
+            FAILURE_TYPE=$(echo "$verify_text" | grep -oiP 'Failure Type:\s*\K(test_failure|missing_dependency|wiring_gap|architecture_mismatch|ambiguous_spec|external_blocker)' | head -1 || echo "")
+            # Fallback: scan for PASS/FAIL keywords if Result: line not found
+            if [[ -z "$RESULT" ]]; then
+                if echo "$verify_text" | grep -qiP '\b(all.*passed|verdict.*pass|4.*steps.*pass|wiring.*clean)\b'; then
+                    RESULT="PASS"
+                fi
+            fi
         fi
 
-        if [[ $VERIFY_EXIT -eq 0 ]] && [[ "$RESULT" == "UNKNOWN" ]]; then
-            RESULT="PASS"
+        # Exit code fallback: if agent output had no clear verdict
+        if [[ -z "$RESULT" ]] || [[ "$RESULT" == "UNKNOWN" ]]; then
+            if [[ $VERIFY_EXIT -eq 0 ]]; then
+                RESULT="PASS"
+            else
+                RESULT="FAIL"
+            fi
         fi
 
         if [[ "${RESULT^^}" == "PASS" ]]; then
