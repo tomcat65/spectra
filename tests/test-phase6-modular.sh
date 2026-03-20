@@ -207,6 +207,7 @@ LOGS_DIR="${SPECTRA_DIR}/logs"
 BRANCH_NAME=""
 DRY_RUN=true
 RESUME=false
+FRESH_BRANCH=false
 PASS_HISTORY=""
 CHECKPOINT_FILE="/dev/null"
 PLAN_CHECKSUM=""
@@ -410,6 +411,7 @@ rm -rf "$TMPDIR_T15"
 # ══════════════════════════════════════════
 echo ""
 echo "  phase6-modular: ${PASS} passed, ${FAIL} failed"
+echo "SPECTRA_TEST_RESULT suite=phase6-modular pass=${PASS} fail=${FAIL} skip=0 total=$((PASS + FAIL))"
 
 if [[ ${FAIL} -gt 0 ]]; then
     exit 1

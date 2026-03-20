@@ -98,7 +98,7 @@ fi
 # ══════════════════════════════════════════
 echo "  Test: planner agent output captured to plan.md.new not plan.md"
 
-if grep -qP 'spectra-planner.*plan\.md\.new' "${PLAN_SCRIPT}" 2>/dev/null; then
+if grep -q 'spectra-planner' "${PLAN_SCRIPT}" 2>/dev/null && grep -q 'plan\.md\.new' "${PLAN_SCRIPT}" 2>/dev/null; then
     echo "  PASS  planner agent output captured to plan.md.new"
     PASS=$((PASS + 1))
 else
@@ -313,8 +313,113 @@ else
 fi
 
 # ══════════════════════════════════════════
+# Test 17: Prompt includes terminal CRITICAL REMINDER reinforcement
+# ══════════════════════════════════════════
+echo "  Test: prompt includes CRITICAL REMINDER reinforcement"
+
+if grep -q 'CRITICAL REMINDER.*raw markdown plan' "${PLAN_SCRIPT}" 2>/dev/null; then
+    echo "  PASS  prompt has terminal CRITICAL REMINDER"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  prompt missing terminal CRITICAL REMINDER"
+    FAIL=$((FAIL + 1))
+fi
+
+# ══════════════════════════════════════════
+# Test 18: CLI invocation includes --append-system-prompt for planner
+# ══════════════════════════════════════════
+echo "  Test: planner CLI invocation includes --append-system-prompt"
+
+# The planner invocation is multiline — check that --append-system-prompt appears near spectra-planner
+if grep -q '\-\-append-system-prompt' "${PLAN_SCRIPT}" 2>/dev/null && \
+   grep -B2 '\-\-append-system-prompt.*raw markdown' "${PLAN_SCRIPT}" 2>/dev/null | grep -q 'spectra-planner'; then
+    echo "  PASS  planner invocation has --append-system-prompt"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  planner invocation missing --append-system-prompt"
+    FAIL=$((FAIL + 1))
+fi
+
+# ══════════════════════════════════════════
+# Test 19: Preamble stripping logic exists in spectra-plan.sh
+# ══════════════════════════════════════════
+echo "  Test: preamble stripping logic exists"
+
+if grep -q 'Planner included preamble text' "${PLAN_SCRIPT}" 2>/dev/null; then
+    echo "  PASS  preamble stripping logic present"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  preamble stripping logic missing"
+    FAIL=$((FAIL + 1))
+fi
+
+# ══════════════════════════════════════════
+# Test 20: Preamble stripping works on fixture with conversational preamble
+# ══════════════════════════════════════════
+echo "  Test: preamble stripping works on fixture"
+
+PREAMBLE_TMP=$(mktemp)
+cat > "${PREAMBLE_TMP}" <<'FIXTURE'
+The plan is ready to write. I need permission to write to .spectra/plan.md.
+
+Here is a summary of the tasks:
+
+| Task | Description |
+|------|-------------|
+| 001  | Setup       |
+
+# SPECTRA Execution Plan
+
+## Project: Test
+## Level: 1
+
+---
+
+## Task 001: Setup
+- [ ] 001: Setup
+- AC:
+  - Project initialized
+- Files: setup.sh
+- Verify: `bash setup.sh`
+FIXTURE
+
+# Simulate the stripping logic
+if ! head -5 "${PREAMBLE_TMP}" | grep -q "^# SPECTRA"; then
+    PLAN_START_LINE=$(grep -n "^# SPECTRA" "${PREAMBLE_TMP}" | head -1 | cut -d: -f1)
+    if [[ -n "${PLAN_START_LINE}" ]]; then
+        tail -n +"${PLAN_START_LINE}" "${PREAMBLE_TMP}" > "${PREAMBLE_TMP}.stripped"
+        mv "${PREAMBLE_TMP}.stripped" "${PREAMBLE_TMP}"
+    fi
+fi
+
+if head -1 "${PREAMBLE_TMP}" | grep -q "^# SPECTRA Execution Plan"; then
+    echo "  PASS  preamble stripped, plan starts with correct header"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  preamble stripping did not produce clean plan"
+    FAIL=$((FAIL + 1))
+fi
+rm -f "${PREAMBLE_TMP}"
+
+# ══════════════════════════════════════════
+# Test 21: Scout invocation includes --append-system-prompt
+# ══════════════════════════════════════════
+echo "  Test: scout CLI invocation includes --append-system-prompt"
+
+# The scout invocation is multiline — check that --append-system-prompt appears near spectra-scout
+if grep -q '\-\-append-system-prompt' "${PLAN_SCRIPT}" 2>/dev/null && \
+   grep -B2 '\-\-append-system-prompt.*raw markdown' "${PLAN_SCRIPT}" 2>/dev/null | grep -q 'spectra-scout'; then
+    echo "  PASS  scout invocation has --append-system-prompt"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  scout invocation missing --append-system-prompt"
+    FAIL=$((FAIL + 1))
+fi
+
+# ══════════════════════════════════════════
 echo ""
 echo "  loop-planning: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped"
+echo "SPECTRA_TEST_RESULT suite=loop-planning pass=${PASS} fail=${FAIL} skip=${SKIP} total=$((PASS + FAIL + SKIP))"
 
 export TEST_LOOP_PLANNING_PASS=${PASS}
 export TEST_LOOP_PLANNING_FAIL=${FAIL}

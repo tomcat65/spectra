@@ -21,6 +21,11 @@ USE_SLACK=false
 NO_COMMIT=false
 COST_CEILING="50.00"
 PER_TASK_BUDGET="10.00"
+SKIP_PATH_SETUP=false
+
+if [[ "${SPECTRA_SKIP_PATH_SETUP:-}" =~ ^(1|true|yes)$ ]] || [[ -n "${CI:-}" ]]; then
+    SKIP_PATH_SETUP=true
+fi
 
 # Cross-platform sed -i helper (GNU vs BSD)
 sed_inplace() {
@@ -155,38 +160,42 @@ fi
 # ── Wiring Verification Setup ──
 echo "→ Setting up wiring verification..."
 if [[ -f "${SPECTRA_HOME}/templates/verify.yaml.template" ]]; then
-    cp "${SPECTRA_HOME}/templates/verify.yaml.template" ".spectra/verify.yaml"
-
-    if [[ -t 0 ]]; then
-        # Interactive mode: ask user for project-specific values
-        echo ""
-        echo "=== Wiring Verification Setup ==="
-        read -p "  Source directories (comma-separated, e.g. src/,lib/): " WV_SOURCE_DIRS
-        read -p "  Test directories (comma-separated, default: tests/): " WV_TEST_DIRS
-        WV_TEST_DIRS="${WV_TEST_DIRS:-tests/}"
-        read -p "  Entry point files (comma-separated, e.g. src/server.py): " WV_ENTRY_POINTS
-        read -p "  Language (python/typescript/javascript/go/rust): " WV_LANGUAGE
-
-        # Format as YAML lists
-        fmt_list() { echo "$1" | tr ',' '\n' | sed 's/^\s*//;s/\s*$//' | grep -v '^$' \
-            | sed 's/.*/"&"/' | paste -sd, | sed 's/^/[/;s/$/]/'; }
-
-        [[ -n "$WV_SOURCE_DIRS" ]] && sed_inplace "s|source_dirs: \[\]|source_dirs: $(fmt_list "$WV_SOURCE_DIRS")|" .spectra/verify.yaml
-        sed_inplace "s|test_dirs: \[\"tests/\"\]|test_dirs: $(fmt_list "$WV_TEST_DIRS")|" .spectra/verify.yaml
-        [[ -n "$WV_ENTRY_POINTS" ]] && sed_inplace "s|entry_points: \[\]|entry_points: $(fmt_list "$WV_ENTRY_POINTS")|" .spectra/verify.yaml
-        [[ -n "$WV_LANGUAGE" ]] && sed_inplace "s|language: \"\"|language: \"$WV_LANGUAGE\"|" .spectra/verify.yaml
-
-        # Framework auto-detection
-        if [[ "$WV_LANGUAGE" == "python" ]]; then
-            if grep -qi "fastapi" requirements.txt 2>/dev/null || grep -qi "fastapi" pyproject.toml 2>/dev/null; then
-                echo "  Detected FastAPI — adding framework checks..."
-                sed_inplace '/framework_checks: \[\]/c\  framework_checks:\n    - name: "no-flask-tuple-returns"\n      pattern: '"'"'return\\s+\\{.*\\},\\s*[0-9]{3}'"'"'\n      paths: '"$(fmt_list "$WV_SOURCE_DIRS")"'\n      severity: error\n      message: "Flask-style tuple return in FastAPI — use JSONResponse"' .spectra/verify.yaml
-            fi
-        fi
+    if [[ -f ".spectra/verify.yaml" ]]; then
+        echo "  Preserving existing .spectra/verify.yaml"
     else
-        echo "  Non-interactive: verify.yaml template copied (edit manually)"
+        cp "${SPECTRA_HOME}/templates/verify.yaml.template" ".spectra/verify.yaml"
+
+        if [[ -t 0 ]]; then
+            # Interactive mode: ask user for project-specific values
+            echo ""
+            echo "=== Wiring Verification Setup ==="
+            read -p "  Source directories (comma-separated, e.g. src/,lib/): " WV_SOURCE_DIRS
+            read -p "  Test directories (comma-separated, default: tests/): " WV_TEST_DIRS
+            WV_TEST_DIRS="${WV_TEST_DIRS:-tests/}"
+            read -p "  Entry point files (comma-separated, e.g. src/server.py): " WV_ENTRY_POINTS
+            read -p "  Language (python/typescript/javascript/go/rust): " WV_LANGUAGE
+
+            # Format as YAML lists
+            fmt_list() { echo "$1" | tr ',' '\n' | sed 's/^\s*//;s/\s*$//' | grep -v '^$' \
+                | sed 's/.*/"&"/' | paste -sd, | sed 's/^/[/;s/$/]/'; }
+
+            [[ -n "$WV_SOURCE_DIRS" ]] && sed_inplace "s|source_dirs: \[\]|source_dirs: $(fmt_list "$WV_SOURCE_DIRS")|" .spectra/verify.yaml
+            sed_inplace "s|test_dirs: \[\"tests/\"\]|test_dirs: $(fmt_list "$WV_TEST_DIRS")|" .spectra/verify.yaml
+            [[ -n "$WV_ENTRY_POINTS" ]] && sed_inplace "s|entry_points: \[\]|entry_points: $(fmt_list "$WV_ENTRY_POINTS")|" .spectra/verify.yaml
+            [[ -n "$WV_LANGUAGE" ]] && sed_inplace "s|language: \"\"|language: \"$WV_LANGUAGE\"|" .spectra/verify.yaml
+
+            # Framework auto-detection
+            if [[ "$WV_LANGUAGE" == "python" ]]; then
+                if grep -qi "fastapi" requirements.txt 2>/dev/null || grep -qi "fastapi" pyproject.toml 2>/dev/null; then
+                    echo "  Detected FastAPI — adding framework checks..."
+                    sed_inplace '/framework_checks: \[\]/c\  framework_checks:\n    - name: "no-flask-tuple-returns"\n      pattern: '"'"'return\\s+\\{.*\\},\\s*[0-9]{3}'"'"'\n      paths: '"$(fmt_list "$WV_SOURCE_DIRS")"'\n      severity: error\n      message: "Flask-style tuple return in FastAPI — use JSONResponse"' .spectra/verify.yaml
+                fi
+            fi
+        else
+            echo "  Non-interactive: verify.yaml template copied (edit manually)"
+        fi
+        echo "  Created: .spectra/verify.yaml"
     fi
-    echo "  Created: .spectra/verify.yaml"
 else
     echo "  WARN: verify.yaml.template not found. Skipping wiring verification setup."
 fi
@@ -321,7 +330,7 @@ if [[ "$NO_COMMIT" == false ]]; then
 fi
 
 # ── PATH setup ──
-if [[ ":${PATH}:" != *":${SPECTRA_HOME}/bin:"* ]]; then
+if [[ "${SKIP_PATH_SETUP}" != true ]] && [[ ":${PATH}:" != *":${SPECTRA_HOME}/bin:"* ]]; then
     SHELL_RC="${HOME}/.bashrc"
     if [[ -n "${ZSH_VERSION:-}" ]] || [[ "$(basename "${SHELL:-/bin/bash}")" == "zsh" ]]; then
         SHELL_RC="${HOME}/.zshrc"

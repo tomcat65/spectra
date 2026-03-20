@@ -7,15 +7,21 @@ set -euo pipefail
 [[ -t 1 ]] && { RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; NC='\033[0m'; } \
             || { RED=''; GREEN=''; YELLOW=''; NC=''; }
 
-VERBOSE=false; FIX_HINTS=false; PROJECT_ROOT="."
-for arg in "$@"; do
-    case "$arg" in
-        --verbose)   VERBOSE=true ;;
-        --fix-hints) FIX_HINTS=true ;;
-        --self-test) SELF_TEST=true ;;
-        --help|-h)   echo "Usage: spectra-verify-wiring.sh [ROOT] [--verbose] [--fix-hints] [--self-test]"; exit 0 ;;
-        --*) echo "Unknown: $arg"; exit 1 ;;
-        *)   PROJECT_ROOT="$arg" ;;
+VERBOSE=false; FIX_HINTS=false; PROJECT_ROOT="."; TASK_FILTER=""; ASSERT_ALL=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --verbose)   VERBOSE=true; shift ;;
+        --fix-hints) FIX_HINTS=true; shift ;;
+        --self-test) SELF_TEST=true; shift ;;
+        --task)      TASK_FILTER="$2"; shift 2 ;;
+        --all)       ASSERT_ALL=true; shift ;;
+        --help|-h)   echo "Usage: spectra-verify-wiring.sh [ROOT] [--verbose] [--fix-hints] [--self-test] [--task NNN] [--all]"
+                     echo "  --task NNN  Evaluate assertions for completed + stuck + specified task only"
+                     echo "  --all       Evaluate ALL assertions (original global behavior)"
+                     echo "  (default)   Evaluate assertions for completed [x] and stuck [!] tasks only"
+                     exit 0 ;;
+        --*) echo "Unknown: $1"; exit 1 ;;
+        *)   PROJECT_ROOT="$1"; shift ;;
     esac
 done
 
@@ -32,6 +38,10 @@ from src.helper import compute
 def process(): return compute()
 F
     echo 'def compute(): return 42' > "$T/src/helper.py"
+    cat > "$T/src/service.py" <<'F'
+def public_api(): return internal_helper()
+def internal_helper(): return 99
+F
     echo 'def orphan_function(): return "never called"' > "$T/src/dead_module.py"
     cat > "$T/tests/test_dead.py" <<'F'
 from src.dead_module import orphan_function
@@ -60,6 +70,7 @@ F
     check() { if eval "$1"; then printf "${GREEN}[self-test] PASS: $2${NC}\n"; PASS=$((PASS+1))
               else printf "${RED}[self-test] FAIL: $2${NC}\n"; FAIL=$((FAIL+1)); echo "$OUT"; fi; }
     check 'echo "$OUT" | grep -q "PASS.*compute"' "helper.py::compute detected as wired"
+    check 'echo "$OUT" | grep -q "PASS.*internal_helper"' "service.py::internal_helper wired via same-file call"
     check 'echo "$OUT" | grep -q "FAIL.*orphan_function"' "dead_module.py::orphan_function detected as dead"
     check '[[ "$EC" -eq 1 ]]' "exit code is 1 (violations found)"
     [[ $FAIL -eq 0 ]] && { printf "\n${GREEN}[self-test] ALL $PASS ASSERTIONS PASSED${NC}\n"; exit 0; } || exit 1
@@ -158,8 +169,11 @@ if [[ "$WIRING" == "true" && -n "$FDEF" && -n "$SRC_DIRS" ]]; then
                     [[ -z "$s2" ]] && continue; s2p="$PROJECT_ROOT/${s2%/}"; [[ -d "$s2p" ]] || continue
                     # RATIONALE: $TEXCL is intentionally unquoted — contains multiple --exclude flags for grep
                     # shellcheck disable=SC2086
+                    # Same-file references ARE counted — only definitions and comments excluded.
+                    # Prior code excluded all same-file lines (grep -v "^${sf}:"), causing
+                    # false positives on internal functions called within the same module.
                     c=$( (grep -rn --include="*.${EXT}" $TEXCL "$fn" "$s2p" 2>/dev/null \
-                        | grep -v "^${sf}:" | grep -v "def ${fn}" | grep -v "class ${fn}" \
+                        | grep -v "def ${fn}" | grep -v "class ${fn}" \
                         | grep -v '^\s*#' || true) | wc -l); c=$(echo "$c" | tr -d ' '); c=${c:-0}
                     hits=$((hits+c))
                 done <<< "$SRC_DIRS"
@@ -255,10 +269,41 @@ if [[ -n "$CS" ]]; then
     done <<< "$CS"; echo ""
 fi
 
-# ── Section 5: Plan assertions ──
+# ── Section 5: Plan assertions (task-scoped) ──
+# --all: evaluate ALL assertions (original global behavior)
+# --task NNN: evaluate completed [x] + stuck [!] + specified task
+# (default): evaluate completed [x] + stuck [!] tasks only (safe for pre-commit)
 PF="$PROJECT_ROOT/.spectra/plan.md"
 if [[ -f "$PF" ]]; then
-    AS=$(grep -E '^\s+- (GREP|CALLSITE|COUNT|NOT_EXISTS) ' "$PF" 2>/dev/null || true)
+    if [[ "${ASSERT_ALL}" == true ]]; then
+        # Global mode: all assertions from entire plan
+        AS=$(grep -E '^\s+- (GREP|CALLSITE|COUNT|NOT_EXISTS) ' "$PF" 2>/dev/null || true)
+    else
+        # Scoped mode: completed + stuck + optionally current task
+        AS=$(awk -v target_task="${TASK_FILTER}" '
+            BEGIN { in_task=0; current_task=""; include=0 }
+            # Header assertions (before any ## Task block) — always include
+            !in_task && /^\s+- (GREP|CALLSITE|COUNT|NOT_EXISTS) / { print; next }
+            # Detect task header
+            /^## Task ([0-9]+):/ {
+                in_task=1; include=0
+                match($0, /Task ([0-9]+):/, m)
+                current_task=m[1]
+            }
+            # Completed tasks — always include
+            in_task && /^- \[x\]/ { include=1 }
+            in_task && /^- \[X\]/ { include=1 }
+            # Stuck tasks — include (they attempted execution)
+            in_task && /^- \[!\]/ { include=1 }
+            # Pending tasks — only include if it matches --task target
+            in_task && /^- \[ \]/ {
+                if (target_task != "" && current_task == target_task) { include=1 }
+                else { include=0 }
+            }
+            # Collect assertions from in-scope tasks
+            include && /^\s+- (GREP|CALLSITE|COUNT|NOT_EXISTS) / { print }
+        ' "$PF" 2>/dev/null || true)
+    fi
     if [[ -n "$AS" ]]; then
         echo "[spectra-verify] Section 5: Plan assertions"
         while IFS= read -r a; do
@@ -266,6 +311,7 @@ if [[ -f "$PF" ]]; then
             TY=$(echo "$a" | awk '{print $1}')
             case "$TY" in
                 GREP) af=$(echo "$a" | awk '{print $2}'); ap=$(echo "$a" | sed 's/.*"\(.*\)".*/\1/')
+                    ap="${ap//\\|/|}"  # Convert BRE \| to ERE | for grep -E compatibility
                     ae=$(echo "$a" | awk '{print $NF}'); fp="$PROJECT_ROOT/$af"
                     [[ -f "$fp" ]] || { report "FAIL" "GREP ${af} — file not found"; continue; }
                     fc=$(grep -cE "$ap" "$fp" 2>/dev/null || true); fc=${fc:-0}
@@ -280,12 +326,14 @@ if [[ -f "$PF" ]]; then
                     [[ $cc -gt 0 ]] && report "PASS" "CALLSITE ${fn} (${cc} outside ${ed})" \
                         || report "FAIL" "CALLSITE ${fn} — only in ${ed}" ;;
                 COUNT) af=$(echo "$a" | awk '{print $2}'); ap=$(echo "$a" | sed 's/.*"\(.*\)".*/\1/')
+                    ap="${ap//\\|/|}"  # Convert BRE \| to ERE | for grep -E compatibility
                     am=$(echo "$a" | awk '{print $NF}'); fp="$PROJECT_ROOT/$af"
                     [[ -f "$fp" ]] || { report "FAIL" "COUNT ${af} — file not found"; continue; }
                     ac=$(grep -cE "$ap" "$fp" 2>/dev/null || true); ac=${ac:-0}
                     [[ $ac -ge $am ]] && report "PASS" "COUNT ${af} \"${ap}\" >= ${am} (${ac})" \
                         || report "FAIL" "COUNT ${af} \"${ap}\" expected >= ${am}, got ${ac}" ;;
                 NOT_EXISTS) af=$(echo "$a" | awk '{print $2}'); ap=$(echo "$a" | sed 's/.*"\(.*\)".*/\1/')
+                    ap="${ap//\\|/|}"  # Convert BRE \| to ERE | for grep -E compatibility
                     fp="$PROJECT_ROOT/$af"
                     [[ -f "$fp" ]] || { report "PASS" "NOT_EXISTS ${af} — file absent"; continue; }
                     fc=$(grep -cE "$ap" "$fp" 2>/dev/null || true); fc=${fc:-0}

@@ -81,8 +81,9 @@ SPECTRA_DIR=".spectra"
 if [[ "${DISCOVER}" == "true" ]] || { [[ "${SKIP_DISCOVERY}" != "true" ]] && [[ ! -f "${SPECTRA_DIR}/discovery.md" ]]; }; then
     echo "  Running discovery phase (spectra-scout)..."
     DISCOVERY_TMP="${SPECTRA_DIR}/discovery.md.tmp"
-    if timeout 120 claude --agent spectra-scout --output-format text -p \
-        "Investigate the codebase at $(pwd). Read key files, identify technical unknowns, risks, and implementation preferences. Output a discovery report." \
+    if timeout 120 claude --agent spectra-scout --output-format text \
+        --append-system-prompt "You MUST output ONLY raw markdown to stdout. No preamble, no commentary, no permission requests." \
+        -p "Investigate the codebase at $(pwd). Read key files, identify technical unknowns, risks, and implementation preferences. Output a discovery report." \
         > "${DISCOVERY_TMP}" 2>/dev/null && [[ -s "${DISCOVERY_TMP}" ]]; then
         mv "${DISCOVERY_TMP}" "${SPECTRA_DIR}/discovery.md"
     else
@@ -399,6 +400,7 @@ For each task, append an Assertions block with machine-checkable rules derived f
 - New function names → \`  - CALLSITE function_name NOT_ONLY_IN tests/ EXISTS\`
 - \"N fields/dimensions/items\" → \`  - COUNT file \"pattern\" MIN N\`
 - Patterns that should NOT exist → \`  - GREP file \"pattern\" NOT_EXISTS\`
+- Patterns use Extended Regular Expression (ERE) syntax: use \`|\` for alternation (NOT \`\\|\`). Example: \`\"pattern1|pattern2\"\`
 
 Example:
 \`\`\`
@@ -425,7 +427,12 @@ Rules:
 - For Level 3+: file ownership must be explicit and non-overlapping (SIGN-005)
 - For Level 3+: owns = exclusive, touches = shared-modify, reads = read-only
 
-Output ONLY the markdown content, no code fences wrapping it."
+Output ONLY the markdown content, no code fences wrapping it.
+
+CRITICAL REMINDER: Your response must be ONLY the raw markdown plan starting with '# SPECTRA Execution Plan'.
+No summaries, no tables, no permission requests, no 'Here is what I generated'.
+The calling script captures your stdout directly into a file via shell redirect.
+If you cannot write to a file, that is correct — output the markdown to stdout instead."
 
 # ── Show-prompt mode: print prompt and exit without invoking agent ──
 if [[ "${SHOW_PROMPT}" == true ]]; then
@@ -467,7 +474,9 @@ show_progress() {
 # ── Timeout-wrapped invocation (BUG #6 fix) ──
 PLAN_TIMEOUT=${PLAN_TIMEOUT:-300}
 set +e
-timeout "${PLAN_TIMEOUT}" claude --agent spectra-planner --output-format text -p "${PLAN_PROMPT}" > .spectra/plan.md.new &
+timeout "${PLAN_TIMEOUT}" claude --agent spectra-planner --output-format text \
+    --append-system-prompt "You MUST output ONLY raw markdown to stdout. No preamble, no commentary, no permission requests. Start with '# SPECTRA Execution Plan'." \
+    -p "${PLAN_PROMPT}" > .spectra/plan.md.new &
 CLAUDE_PID=$!
 show_progress $CLAUDE_PID
 wait $CLAUDE_PID
@@ -490,6 +499,17 @@ if [[ ! -s .spectra/plan.md.new ]]; then
     echo "  Check: claude --agent spectra-planner -p 'test' to verify agent works."
     rm -f .spectra/plan.md.new
     exit 1
+fi
+
+# ── Preamble stripping (output sanitization) ──
+# If the planner included conversational text before the plan header, strip it.
+if ! head -5 .spectra/plan.md.new | grep -q "^# SPECTRA"; then
+    PLAN_START=$(grep -n "^# SPECTRA" .spectra/plan.md.new | head -1 | cut -d: -f1)
+    if [[ -n "${PLAN_START}" ]]; then
+        echo "  Warning: Planner included preamble text. Stripping $((PLAN_START - 1)) lines."
+        tail -n +"${PLAN_START}" .spectra/plan.md.new > .spectra/plan.md.stripped
+        mv .spectra/plan.md.stripped .spectra/plan.md.new
+    fi
 fi
 
 # ══════════════════════════════════════════
