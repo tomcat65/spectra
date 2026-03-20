@@ -43,6 +43,7 @@ oracle_classify() {
 
     local classification
     classification=$(claude --agent spectra-oracle -p --permission-mode plan \
+        --fallback-model sonnet \
         "Read .spectra/logs/task-${task_id}-verify.md. Classify the failure as EXACTLY one of: test_failure, missing_dependency, wiring_gap, architecture_mismatch, ambiguous_spec, external_blocker. Respond with ONLY the classification word, nothing else." \
         2>&1 | tail -1 | tr -d '[:space:]' || echo "")
 
@@ -55,7 +56,8 @@ oracle_classify() {
             # If oracle returned garbage, fall back to verifier's reported type
             local verifier_type=""
             if [[ -f "${LOGS_DIR}/task-${task_id}-verify.md" ]]; then
-                verifier_type=$(grep -oiP 'Failure Type:\s*\K\S+' "${LOGS_DIR}/task-${task_id}-verify.md" | head -1 || echo "")
+                # Strip markdown bold markers (**) from verifier output
+                verifier_type=$(grep -oiP 'Failure Type:\s*\K\S+' "${LOGS_DIR}/task-${task_id}-verify.md" | head -1 | tr -d '*' || echo "")
             fi
             echo "${verifier_type:-test_failure}"
             ;;

@@ -1060,8 +1060,9 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
         RESULT="UNKNOWN"
         FAILURE_TYPE=""
         if [[ -f "${LOGS_DIR}/task-${task_id}-verify.md" ]]; then
-            RESULT=$(grep -oiP 'Result:\s*\K\S+' "${LOGS_DIR}/task-${task_id}-verify.md" | head -1 || echo "UNKNOWN")
-            FAILURE_TYPE=$(grep -oiP 'Failure Type:\s*\K\S+' "${LOGS_DIR}/task-${task_id}-verify.md" | head -1 || echo "")
+            # Strip markdown bold markers (**) — verifier template uses **Result:** and **Failure Type:**
+            RESULT=$(grep -oiP 'Result:\s*\K\S+' "${LOGS_DIR}/task-${task_id}-verify.md" | head -1 | tr -d '*' || echo "UNKNOWN")
+            FAILURE_TYPE=$(grep -oiP 'Failure Type:\s*\K\S+' "${LOGS_DIR}/task-${task_id}-verify.md" | head -1 | tr -d '*' || echo "")
         fi
 
         if [[ $VERIFY_EXIT -eq 0 ]] && [[ "$RESULT" == "UNKNOWN" ]]; then
