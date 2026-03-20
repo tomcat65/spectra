@@ -151,6 +151,19 @@ if [[ -f "${SPECTRA_HOME}/.env" ]]; then
     set +u; source "${SPECTRA_HOME}/.env"; set -u
 fi
 
+# ── Virtualenv detection ──
+# Prepend project's .venv/bin to PATH so builder/verifier agents inherit it.
+# Without this, agents use system Python which lacks project dependencies.
+if [[ -d ".venv/bin" ]]; then
+    PATH="$(pwd)/.venv/bin:${PATH}"
+    export PATH
+    echo "  Virtualenv: .venv/bin prepended to PATH"
+elif [[ -d "venv/bin" ]]; then
+    PATH="$(pwd)/venv/bin:${PATH}"
+    export PATH
+    echo "  Virtualenv: venv/bin prepended to PATH"
+fi
+
 # ── Integration token preflight ──
 PREFLIGHT_SCRIPT="${SPECTRA_HOME}/bin/spectra-preflight.sh"
 if [[ -x "${PREFLIGHT_SCRIPT}" ]]; then
