@@ -112,15 +112,20 @@ parallel_build() {
             echo "  TIMEOUT: Builder for Task ${batch_task_ids[$i]} killed after ${BUILDER_TIMEOUT}s"
             # Auto-commit salvage: if builder left modified/staged files, commit them
             # before declaring failure. The work is done, just didn't finish in time.
-            # Only commit tracked+modified files — do NOT add untracked files (git add -A is too broad).
+            # Only runs on spectra/run-* branches (not during tests or on main).
+            # Only stages tracked modified files (git add -u, not -A).
             if git rev-parse --is-inside-work-tree &>/dev/null; then
-                local _changed
-                _changed=$(git diff --name-only 2>/dev/null | wc -l)
-                _changed=$(( _changed + $(git diff --cached --name-only 2>/dev/null | wc -l) ))
-                if [[ "$_changed" -gt 0 ]]; then
-                    echo "  SALVAGE: Builder left ${_changed} modified files — auto-committing"
-                    git add -u 2>/dev/null || true  # Only stage tracked modified files, not untracked
-                    git commit -m "feat(task-${batch_task_ids[$i]}): auto-salvage — builder timeout after ${BUILDER_TIMEOUT}s" 2>/dev/null || true
+                local _current_branch
+                _current_branch=$(git branch --show-current 2>/dev/null || echo "")
+                if [[ "$_current_branch" == spectra/run-* ]]; then
+                    local _changed
+                    _changed=$(git diff --name-only 2>/dev/null | wc -l)
+                    _changed=$(( _changed + $(git diff --cached --name-only 2>/dev/null | wc -l) ))
+                    if [[ "$_changed" -gt 0 ]]; then
+                        echo "  SALVAGE: Builder left ${_changed} modified files — auto-committing"
+                        git add -u 2>/dev/null || true
+                        git commit -m "feat(task-${batch_task_ids[$i]}): auto-salvage — builder timeout after ${BUILDER_TIMEOUT}s" 2>/dev/null || true
+                    fi
                 fi
             fi
             echo "TIMEOUT" > "${SIGNALS_DIR}/TIMEOUT_${batch_task_ids[$i]}"
