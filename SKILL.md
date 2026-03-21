@@ -55,6 +55,7 @@ spectra-quick.sh   # ad-hoc single task (skips planning)
 - **Wiring Proof** — 5-check verification that code is actually connected
 - **Clean Context** — Each builder session starts fresh, state lives in files
 - **Scale Levels** — 0 (micro) to 4 (enterprise), right-sized planning depth
+- **Feedback Loops** — Per-task metrics, adaptive retry, auto-profile selection from execution history
 
 ## Reference
 

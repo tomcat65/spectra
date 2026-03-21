@@ -402,6 +402,7 @@ fi
 # ══════════════════════════════════════════
 echo ""
 echo "  verify-command-detection: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped"
+echo "SPECTRA_TEST_RESULT suite=verify-command-detection pass=${PASS} fail=${FAIL} skip=${SKIP} total=$((PASS + FAIL + SKIP))"
 
 export TEST_VERIFY_COMMAND_DETECTION_PASS=${PASS}
 export TEST_VERIFY_COMMAND_DETECTION_FAIL=${FAIL}

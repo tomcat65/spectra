@@ -210,6 +210,7 @@ echo "  Test: unknown option exits with error"
 # ══════════════════════════════════════════
 echo ""
 echo "  status: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped"
+echo "SPECTRA_TEST_RESULT suite=status pass=${PASS} fail=${FAIL} skip=${SKIP} total=$((PASS + FAIL + SKIP))"
 
 export TEST_STATUS_PASS=${PASS}
 export TEST_STATUS_FAIL=${FAIL}

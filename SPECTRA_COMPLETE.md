@@ -380,6 +380,7 @@ project/
 | lib/loop-lessons.sh | `~/.spectra/lib/` | Continuous learning system |
 | lib/loop-context.sh | `~/.spectra/lib/` | Centralized context loading policy |
 | lib/loop-session.sh | `~/.spectra/lib/` | Runtime profiles + session persistence |
+| lib/loop-metrics.sh | `~/.spectra/lib/` | Per-task execution metrics + retrospective (Phase F) |
 | lang-profiles/python.profile | `~/.spectra/lang-profiles/` | Python language wiring profile |
 | lang-profiles/javascript.profile | `~/.spectra/lang-profiles/` | JavaScript/TypeScript wiring profile |
 | lang-profiles/bash.profile | `~/.spectra/lang-profiles/` | Bash wiring profile |
@@ -452,11 +453,12 @@ Recurring bug class: "Unit Tests Green, Integration Wiring Missing" — agents w
 - [x] Language profiles v5.4.1 (python.profile, auto-detection, SIGN-010)
 - [x] Builder self-audit script v5.4.1 (4-step executable audit)
 - [x] Agent routing validation v5.4.1 (63 frontmatter tests)
-- [x] Dogfood sprint v5.5 (11 self-executed tasks, 522 tests across 28 suites)
+- [x] Dogfood sprint v5.5 (11 self-executed tasks)
 - [x] Language-aware verifier + quality gates v5.5 (JS/bash profiles, 5-language quality gate)
 - [x] Progressive context loading v5.5 (centralized loop-context.sh)
 - [x] Runtime profiles v5.5 (quick/standard/thorough, session persistence)
 - [x] Post-project cleanup v5.5 (spectra-refactor-clean.sh, dry-run default)
+- [x] Closed-loop self-improvement v5.5 Phase F (per-task metrics, adaptive retry, model fallback, retrospective, auto-profile)
 - [ ] spectra-doctor (project health diagnostics)
 - [ ] Cost tracking integration (real-time token metering)
 - [ ] Multi-project orchestration

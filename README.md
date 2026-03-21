@@ -70,6 +70,7 @@ git clone https://github.com/tomcat65/spectra.git ~/.spectra
     loop-retry.sh                   #   Retry budgets and signs propagation
     loop-wiring.sh                  #   Wiring gate for pre-commit verification
     loop-git.sh                     #   Branch isolation and commit management
+    loop-structured.sh              #   Typed helper bridge for plan/status/metrics
     loop-checkpoint.sh              #   Checkpoint save/restore and plan checksum
     loop-build.sh                   #   Build prompts and parallel build orchestration
     loop-verify.sh                  #   Verify prompts and oracle failure classifier
@@ -77,12 +78,14 @@ git clone https://github.com/tomcat65/spectra.git ~/.spectra
     loop-stuck-recovery.sh          #   Party Mode STUCK recovery (classify, attempt, escalate)
     loop-context.sh                 #   Centralized context loading policy (build + verify)
     loop-session.sh                 #   Runtime profiles + orchestrator session persistence
+    loop-metrics.sh                 #   Per-task execution metrics + retrospective (Phase F)
   hooks/                            # Git lifecycle hooks
     pre-commit                      #   Wiring verification gate (auto-installed by loop)
     post-verify-learn.sh            #   Opt-in Sign candidate discovery after FAIL→PASS recovery
   scripts/                          # Standalone utility scripts
     spectra-quality-gate.sh         #   Language-aware lint/format pre-checks (5 languages)
-  tests/                            # Test suites (522 tests across 28 suites)
+    spectra-structured.py           #   Typed parser/status/metrics helper (Python)
+  tests/                            # Test suites (575 tests across 32 suites)
     run-tests.sh                    #   Test runner (aggregates all suites)
     test-plan-validate.sh           #   Plan schema validation (11 tests)
     test-assess.sh                  #   Assessment + BMAD/plan bridge fixtures (26 tests)
@@ -111,6 +114,10 @@ git clone https://github.com/tomcat65/spectra.git ~/.spectra
     test-phase11-quality-gate.sh    #   Language-aware quality gates (15 tests)
     test-phase11-runtime-profiles.sh #  Runtime profiles + session persistence (26 tests)
     test-refactor-clean.sh          #   Post-project cleanup command (20 tests)
+    test-phaseF-metrics.sh          #   Per-task metrics + retrospective + profile suggest (22 tests)
+    test-phaseF-feedback-loops.sh   #   Prior failure context, adaptive retry, fallback-model (18 tests)
+    test-structured-helper.sh       #   Typed helper plan/status generation (7 tests)
+    test-verify-project-trials.sh   #   Python/JS/polyglot verifier regression trials (5 tests)
   .github/workflows/
     spectra-ci.yml                  #   CI pipeline (Lint, Tests, Wiring jobs)
   templates/                        # Project scaffolding templates
@@ -174,6 +181,9 @@ your-project/
     PROMPT_verify.md                # Verifier context prompt
     PROMPT_split.md                 # Stuck task splitter prompt
     screenshots/                    # Visual evidence
+    metrics/                        # Execution metrics (Phase F)
+      tasks.jsonl                   #   Per-task timing, retries, outcomes (append-only)
+    status.json                     #   Generated runtime snapshot (authoritative dashboard state)
     signals/                        # Runtime status signals
       PHASE                         #   Current execution phase
       AGENT                         #   Active agent name
@@ -288,9 +298,32 @@ Complex BMAD stories are split into multiple plan tasks (1:N ratio) — one task
 
 ## Examples
 
-These examples walk through SPECTRA from simplest to most complex. Start with Example 1 — you can stop reading at any point and still have enough to use SPECTRA.
+These examples walk through SPECTRA from disposable bootstrap to larger project work. Start with Example 0 if you're trialing SPECTRA in CI or a scratch repo. Otherwise Example 1 is the fastest real workflow.
 
 > **PATH setup:** Run `~/.spectra/install.sh` once to add `~/.spectra/bin` to your PATH automatically. Then invoke as `spectra-loop.sh`, `spectra-plan.sh`, etc. Or use full paths (e.g., `~/.spectra/bin/spectra-loop.sh`).
+> **Tests/CI:** Set `SPECTRA_SKIP_PATH_SETUP=true` before `spectra-init.sh` if you need scaffolding without mutating `~/.bashrc` or `~/.zshrc`.
+> **Bootstrap commits:** The examples below use `--no-commit` to avoid surprise scaffold commits while learning the tool. Remove that flag if you want `spectra-init.sh` to create the initial SPECTRA commit.
+
+### Example 0: Trial SPECTRA in CI or a Scratch Repo
+
+Use this when you want to verify that SPECTRA scaffolds correctly without touching your shell configuration.
+
+```bash
+mkdir -p /tmp/spectra-smoke
+cd /tmp/spectra-smoke
+git init -q .
+
+SPECTRA_SKIP_PATH_SETUP=true ~/.spectra/bin/spectra-init.sh \
+  --name "smoke-trial" \
+  --level 0 \
+  --no-commit
+
+# Describe one tiny task, then preview the generated plan
+$EDITOR .spectra/stories/001-smoke-test.md
+~/.spectra/bin/spectra-plan.sh --dry-run
+```
+
+This is the safest bootstrap path for CI, temporary repos, and external trial runs because it scaffolds `.spectra/` without writing PATH exports into `~/.bashrc` or `~/.zshrc`.
 
 ### Example 1: Fix a Bug (Level 0)
 
@@ -301,7 +334,7 @@ The simplest case. You found a bug and want an AI agent to fix it.
 cd my-web-app
 
 # Initialize SPECTRA for a quick fix
-spectra-init.sh --name "fix-login-redirect" --level 0
+spectra-init.sh --name "fix-login-redirect" --level 0 --no-commit
 ```
 
 This creates a `.spectra/` directory in your project with template files. The important one is the story file. Open it and describe the bug:
@@ -339,12 +372,17 @@ spectra-loop.sh
 
 # Check status anytime while it's running
 spectra-status.sh
+
+# Same snapshot, but machine-readable
+spectra-status.sh --json
 ```
 
 For a Level 0 fix, `spectra-loop` runs a single builder agent that reads the plan, makes the fix, and runs verification. If verification passes, you're done. If it fails, the oracle classifier categorizes the failure type and the builder retries (up to the type-specific retry budget — see Example 5).
 
 **What gets created:**
 - `.spectra/plan.md` — one task with your bug description, files to change, and a verify command
+- `.spectra/plan.json` — generated task payload used by the loop fast path
+- `.spectra/status.json` — authoritative runtime snapshot for dashboards and scripts
 - `.spectra/signals/PROGRESS` — shows `1/1 done` when complete
 - `.spectra/signals/COMPLETE` — written when the loop finishes successfully
 
@@ -354,7 +392,7 @@ Adding a dark mode toggle to an existing app. This needs 2-3 stories and sequent
 
 ```bash
 cd my-web-app
-spectra-init.sh --name "dark-mode" --level 1
+spectra-init.sh --name "dark-mode" --level 1 --no-commit
 ```
 
 Write 2 stories:
@@ -399,6 +437,9 @@ spectra-loop.sh
 
 # Watch progress
 spectra-status.sh
+
+# Re-run the verifier manually for a completed task if you want a fresh 4-step audit
+spectra-verify.sh --task 1 --full-sweep
 ```
 
 Expected `spectra-status` output during execution:
@@ -418,9 +459,11 @@ Expected `spectra-status` output during execution:
   Progress: 1/2 tasks (0 stuck)
 ```
 
-### Example 3: Build from BMAD Artifacts (Level 2-3)
+The same information is also written to `.spectra/status.json`, so scripts and dashboards should read that file or `spectra-status.sh --json` instead of scraping the text dashboard.
 
-You already ran BMAD planning and have docs ready. SPECTRA consumes them directly.
+### Example 3: Build from BMAD Artifacts in a Polyglot Repo (Level 2-3)
+
+You already ran BMAD planning and have docs ready. This example assumes a Python backend plus a JavaScript frontend, because that is the strongest current multi-language path SPECTRA supports first-class.
 
 ```bash
 # Your project already has:
@@ -428,6 +471,8 @@ You already ran BMAD planning and have docs ready. SPECTRA consumes them directl
 #   bmad/architecture.md           — System design
 #   bmad/stories/001-user-auth.md  — Detailed stories
 #   bmad/stories/002-dashboard.md
+#   backend/pyproject.toml         — Python service
+#   frontend/package.json          — JavaScript app
 
 cd my-project
 
@@ -437,7 +482,7 @@ spectra-assess.sh
 # → Output: "Level 2, medium verification, retry_budget: 3"
 
 # Step 2: Initialize with assessment-driven defaults
-spectra-init.sh --name "user-dashboard"
+spectra-init.sh --name "user-dashboard" --no-commit
 # → Picks up level from assessment.yaml automatically
 
 # Step 3: Generate plan from BMAD artifacts
@@ -455,9 +500,13 @@ spectra-loop.sh
 
 # Step 5: Watch progress live (refreshes every 5 seconds)
 spectra-status.sh --watch
+
+# Optional: verify one task explicitly after the loop finishes
+# In a polyglot repo, full-sweep covers every detected first-class language surface
+spectra-verify.sh --task 2 --full-sweep
 ```
 
-At Level 3, SPECTRA spawns multiple builders in parallel (`&` + `wait`) on independent tasks with no file ownership overlap, then verifies each task sequentially with the full 4-step audit (including wiring proof).
+At Level 3, SPECTRA spawns multiple builders in parallel (`&` + `wait`) on independent tasks with no file ownership overlap, then verifies each task sequentially with the full 4-step audit (including wiring proof). If the repo is polyglot, `spectra-verify.sh --full-sweep` now runs every detected first-class language surface it has a profile or fallback for, instead of stopping at the first manifest.
 
 ### Example 4: Monitor a Running Build
 
@@ -489,6 +538,9 @@ Output:
 ```bash
 # JSON for scripts and CI
 spectra-status.sh --json
+
+# The same payload is also written to:
+cat .spectra/status.json
 ```
 
 Output:
@@ -506,7 +558,9 @@ Output:
     "remaining": 1
   },
   "complete": false,
+  "complete_elapsed": null,
   "stuck_signal": "Task 003 — test timeout after 30s",
+  "progress": "3/5 tasks (1 stuck)",
   "timestamp": "2026-02-17T06:00:00Z"
 }
 ```
@@ -568,8 +622,8 @@ cat .spectra/lessons-learned.md
 
 To fix manually and continue:
 1. Fix the underlying issue (maybe a missing env var, a database that's down, etc.)
-2. Edit `.spectra/plan.md` — change `[!]` back to `[ ]` for the stuck task
-3. Run `spectra-loop.sh --resume` — it picks up from the checkpoint
+2. Edit `.spectra/plan.md` — change `[!]` back to `[ ]` for the stuck task. This is a recovery-only manual edit; normal loop updates are generated for you.
+3. Run `spectra-loop.sh --resume` — it picks up from the checkpoint and re-reads the plan
 
 **Common mistakes and what they mean:**
 
@@ -740,7 +794,7 @@ SPECTRA includes a GitHub Actions CI pipeline (`.github/workflows/spectra-ci.yml
 | Job | What It Checks |
 |-----|---------------|
 | **Lint** | `bash -n` syntax, module anti-drift (9 modules), ShellCheck errors, ShellCheck ratchet (per-file warning budget), suppress-rationale guard (every `# shellcheck disable=` needs a `# RATIONALE:` comment), actionlint |
-| **Tests** | Full test suite via `tests/run-tests.sh` (522 tests across 28 suites) |
+| **Tests** | Full test suite via `tests/run-tests.sh` (575 tests across 32 suites) |
 | **Wiring** | Anti-bypass guard (`SPECTRA_SKIP_WIRING` blocked in CI), wiring verification against pass/fail fixtures |
 
 The **ShellCheck ratchet** enforces a per-file, per-rule warning baseline (`shellcheck-baseline.json`). New warnings must be fixed before merge — the baseline can only decrease, never increase. Run `bin/spectra-shellcheck-ratchet.sh --update-baseline` locally to regenerate after fixing warnings.
@@ -839,7 +893,7 @@ SPECTRA agents can coordinate with external agents (codex-cli, claude-desktop, C
 | v5.3 | Feb 17, 2026 | Phase 9: Continuous learning system — JSONL + flock append-only storage, normalized fingerprint dedup, adaptive TTL (severity-based with recurrence extension), promotion lifecycle (TEMP→CONFIRMED→PROMOTED→SIGN), snapshot compaction, prompt injection guard (`sanitize_for_propagation()`), schema versioning/migration, cross-project correlation. 8 sourced modules (added `loop-lessons.sh`). 182 tests across 11 suites |
 | v5.4 | Feb 24, 2026 | Phase 10: Bidirectional lessons architecture — `inject_active_lessons()` merges project-local + global CONFIRMED+ lessons into live `lessons-active.md` feed (rank-sorted, capped at 25), `spectra_upgrade_project()` non-destructive brownfield migration with VERSION marker, builder reads lessons at session start, verifier checks for lesson violations. Dry-run guards prevent state mutation. 195 tests across 11 suites |
 | v5.4.1 | Mar 5, 2026 | Phases A-D: Builder self-audit script (`agents/scripts/builder-self-audit.sh` — 4-step executable audit), agent routing tests (63 tests validating YAML frontmatter), Party Mode STUCK recovery (`lib/loop-stuck-recovery.sh` — classify/recover/escalate with compound failure integration), language profiles (`lang-profiles/python.profile`), SIGN-010 (Language Blindspot), `install.sh` installer, `SKILL.md` skill definition. 9 loop modules. 290 tests across 15 suites |
-| v5.5 | Mar 9, 2026 | Dogfood sprint (11 tasks self-executed): in-loop planning persistence, reviewer gate enforcement, preflight/RECONCILE alignment, version drift removal, language-aware verifier command selection (JS/bash/python profiles), operational coverage expansion (status/quick/init-e2e/assess fixtures), progressive context loading (`loop-context.sh`), opt-in Sign candidate discovery (`hooks/post-verify-learn.sh`), language-aware quality gates (`scripts/spectra-quality-gate.sh` — 5 languages), runtime profiles + session persistence (`loop-session.sh` — quick/standard/thorough), post-project cleanup (`spectra-refactor-clean.sh`). 11 loop modules, 25 shellcheck-clean scripts. 522 tests across 28 suites |
+| v5.5 | Mar 9, 2026 | Dogfood sprint (11 tasks self-executed): in-loop planning persistence, reviewer gate enforcement, preflight/RECONCILE alignment, version drift removal, language-aware verifier command selection (JS/bash/python profiles), operational coverage expansion (status/quick/init-e2e/assess fixtures), progressive context loading (`loop-context.sh`), opt-in Sign candidate discovery (`hooks/post-verify-learn.sh`), language-aware quality gates (`scripts/spectra-quality-gate.sh` — 5 languages), runtime profiles + session persistence (`loop-session.sh` — quick/standard/thorough), post-project cleanup (`spectra-refactor-clean.sh`). Phase F closed-loop self-improvement: per-task execution metrics (`loop-metrics.sh`), generated `status.json` snapshots, typed plan/status/metrics parsing via `scripts/spectra-structured.py`, adaptive retry intelligence, model fallback (`--fallback-model`), post-run retrospective, auto-profile selection from metrics history, multi-language regression sweeps across detected manifests, and profile-owned dependency verification with JS semantic wiring checks. Test runner hardening now streams live suite output, requires a structured `SPECTRA_TEST_RESULT` contract per suite, and supports `SPECTRA_SKIP_PATH_SETUP=true` / `CI` init scaffolding without shell rc mutation. 13 loop modules, 26 shellcheck-clean scripts. 575 tests across 32 suites |
 
 ## Continuous Learning (v5.3+)
 
@@ -897,7 +951,7 @@ Pre-v5.4 projects auto-upgrade on first loop run:
 - **RECONCILE signal requires operator decision** — In interactive mode, prompts user to re-run assessment. In non-interactive mode (CI/piped), exits with error and actionable next steps. Remove the signal file manually if drift is acceptable.
 - **No Level 4 (Enterprise) implementation** — The level table defines it but no sprint delivery logic exists in the loop scripts.
 - **spectra-scout auto-runs when discovery is missing** — The planner automatically invokes scout when `discovery.md` is absent. Manual flags (`--discover`, `--skip-discovery`) are also available.
-- **Language profiles cover Python, JavaScript, and Bash** — Go and Rust profiles are planned. Auto-detection falls back to a generic check with a SIGN-010 warning when no profile exists for the detected language.
+- **Language profiles cover Python, JavaScript, and Bash** — Verification now sweeps every detected first-class language in a repo, but Go and Rust still rely on fallback regression commands and do not have profile-backed wiring proof yet.
 
 ## Reference
 

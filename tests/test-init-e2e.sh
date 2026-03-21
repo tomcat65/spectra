@@ -40,7 +40,7 @@ echo "  Test: init creates .spectra/ directory structure"
 (
     cd "${tmp_dir}"
     git init -q .
-    "${INIT_SCRIPT}" --name "test-e2e" --level 2 --no-commit 2>&1 >/dev/null
+    SPECTRA_SKIP_PATH_SETUP=true "${INIT_SCRIPT}" --name "test-e2e" --level 2 --no-commit </dev/null 2>&1 >/dev/null
 
     missing=""
     [[ -d ".spectra" ]] || missing="${missing} .spectra"
@@ -209,7 +209,7 @@ echo "  Test: level 0 init produces minimal scaffolding"
     level0_dir=$(mktemp -d)
     cd "${level0_dir}"
     git init -q .
-    "${INIT_SCRIPT}" --name "minimal" --level 0 --no-commit 2>&1 >/dev/null
+    SPECTRA_SKIP_PATH_SETUP=true "${INIT_SCRIPT}" --name "minimal" --level 0 --no-commit </dev/null 2>&1 >/dev/null
 
     if [[ -f ".spectra/project.yaml" ]]; then
         level=$(grep -oP '^level:\s*\K\d+' .spectra/project.yaml | head -1)
@@ -227,7 +227,33 @@ echo "  Test: level 0 init produces minimal scaffolding"
 ) && PASS=$((PASS + 1)) || FAIL=$((FAIL + 1))
 
 # ══════════════════════════════════════════
-# Test 12: Init without --name shows help
+# Test 12: PATH setup can be suppressed for tests/CI
+# ══════════════════════════════════════════
+echo "  Test: skip path setup leaves shell rc untouched"
+
+(
+    pathskip_dir=$(mktemp -d)
+    test_home="${pathskip_dir}/home"
+    mkdir -p "${test_home}"
+    printf '# test-home\n' > "${test_home}/.bashrc"
+    before_rc=$(cat "${test_home}/.bashrc")
+
+    cd "${pathskip_dir}"
+    git init -q .
+    HOME="${test_home}" SPECTRA_SKIP_PATH_SETUP=true "${INIT_SCRIPT}" --name "no-path-mutation" --level 1 --no-commit </dev/null > /dev/null 2>&1
+
+    after_rc=$(cat "${test_home}/.bashrc")
+    if [[ "${after_rc}" == "${before_rc}" ]]; then
+        echo "  PASS  shell rc unchanged when path setup is suppressed"
+    else
+        echo "  FAIL  shell rc mutated despite SPECTRA_SKIP_PATH_SETUP=true"
+        exit 1
+    fi
+    rm -rf "${pathskip_dir}"
+) && PASS=$((PASS + 1)) || FAIL=$((FAIL + 1))
+
+# ══════════════════════════════════════════
+# Test 13: Init without --name shows help
 # ══════════════════════════════════════════
 echo "  Test: init without --name shows error"
 
@@ -252,6 +278,7 @@ echo "  Test: init without --name shows error"
 # ══════════════════════════════════════════
 echo ""
 echo "  init-e2e: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped"
+echo "SPECTRA_TEST_RESULT suite=init-e2e pass=${PASS} fail=${FAIL} skip=${SKIP} total=$((PASS + FAIL + SKIP))"
 
 export TEST_INIT_E2E_PASS=${PASS}
 export TEST_INIT_E2E_FAIL=${FAIL}

@@ -554,42 +554,39 @@ else
 fi
 
 # ══════════════════════════════════════════
-# Test 17: Fresh plan.json uses jq fast path (runtime integration)
+# Test 17: Fresh plan.json uses typed-helper fast path (runtime integration)
 # ══════════════════════════════════════════
-echo "  Test: fresh plan.json uses jq fast path (runtime)"
+echo "  Test: fresh plan.json uses typed-helper fast path (runtime)"
 
-if command -v jq &>/dev/null; then
-    FAST_DIR="${tmp_dir}/fastpath"
-    mkdir -p "${FAST_DIR}/.spectra/signals"
+FAST_DIR="${tmp_dir}/fastpath"
+mkdir -p "${FAST_DIR}/.spectra/signals"
 
-    cp "${FIXTURE_DIR}/valid-level0.md" "${FAST_DIR}/.spectra/plan.md"
-    "${EXTRACTOR}" --file "${FAST_DIR}/.spectra/plan.md" --output "${FAST_DIR}/.spectra/plan.json" 2>/dev/null
+cp "${FIXTURE_DIR}/valid-level0.md" "${FAST_DIR}/.spectra/plan.md"
+"${EXTRACTOR}" --file "${FAST_DIR}/.spectra/plan.md" --output "${FAST_DIR}/.spectra/plan.json" 2>/dev/null
 
-    # Ensure plan.json is fresh (same or newer mtime)
-    touch "${FAST_DIR}/.spectra/plan.json"
+# Ensure plan.json is fresh (same or newer mtime)
+touch "${FAST_DIR}/.spectra/plan.json"
 
-    cat > "${FAST_DIR}/.spectra/project.yaml" <<'YAML'
+cat > "${FAST_DIR}/.spectra/project.yaml" <<'YAML'
 name: fastpath-test
 level: 0
 YAML
 
-    # Unset CLAUDECODE so the fail-fast guard doesn't block runtime tests inside Claude Code.
-    set +e
-    loop_output=$(cd "${FAST_DIR}" && unset CLAUDECODE && bash "${LOOP_SCRIPT}" --skip-planning --dry-run 2>&1)
-    set -e
+# Unset CLAUDECODE so the fail-fast guard doesn't block runtime tests inside Claude Code.
+set +e
+loop_output=$(cd "${FAST_DIR}" && unset CLAUDECODE && bash "${LOOP_SCRIPT}" --skip-planning --dry-run 2>&1)
+set -e
 
-    if echo "$loop_output" | grep -q "jq fast path"; then
-        assert_pass "fresh plan.json: loop used jq fast path"
-    else
-        assert_fail "fresh plan.json: jq fast path not used" "output: $(echo "$loop_output" | grep -i 'parsed\|plan' | head -3)"
-    fi
+if echo "$loop_output" | grep -q "typed helper fast path"; then
+    assert_pass "fresh plan.json: loop used typed helper fast path"
 else
-    assert_pass "fresh plan.json fast path test skipped (no jq)"
+    assert_fail "fresh plan.json: typed helper fast path not used" "output: $(echo "$loop_output" | grep -i 'parsed\|plan' | head -3)"
 fi
 
 # ══════════════════════════════════════════
 echo ""
 echo "  plan-extract: ${PASS} passed, ${FAIL} failed"
+echo "SPECTRA_TEST_RESULT suite=plan-extract pass=${PASS} fail=${FAIL} skip=0 total=$((PASS + FAIL))"
 
 export TEST_EXTRACT_PASS=${PASS}
 export TEST_EXTRACT_FAIL=${FAIL}

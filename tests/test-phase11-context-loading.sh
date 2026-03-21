@@ -377,6 +377,7 @@ echo "  Test: preflight advisory flows through context"
 # ══════════════════════════════════════════
 echo ""
 echo "  phase11-context-loading: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped"
+echo "SPECTRA_TEST_RESULT suite=phase11-context-loading pass=${PASS} fail=${FAIL} skip=${SKIP} total=$((PASS + FAIL + SKIP))"
 
 export TEST_PHASE11_CONTEXT_LOADING_PASS=${PASS}
 export TEST_PHASE11_CONTEXT_LOADING_FAIL=${FAIL}

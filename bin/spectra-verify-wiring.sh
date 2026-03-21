@@ -313,8 +313,12 @@ if [[ -f "$PF" ]]; then
                 GREP) af=$(echo "$a" | awk '{print $2}'); ap=$(echo "$a" | sed 's/.*"\(.*\)".*/\1/')
                     ap="${ap//\\|/|}"  # Convert BRE \| to ERE | for grep -E compatibility
                     ae=$(echo "$a" | awk '{print $NF}'); fp="$PROJECT_ROOT/$af"
-                    [[ -f "$fp" ]] || { report "FAIL" "GREP ${af} — file not found"; continue; }
-                    fc=$(grep -cE "$ap" "$fp" 2>/dev/null || true); fc=${fc:-0}
+                    [[ -e "$fp" ]] || { report "FAIL" "GREP ${af} — file not found"; continue; }
+                    if [[ -d "$fp" ]]; then
+                        fc=$( (grep -rlE "$ap" "$fp" 2>/dev/null || true) | wc -l); fc=$(echo "$fc" | tr -d ' ')
+                    else
+                        fc=$(grep -cE "$ap" "$fp" 2>/dev/null || true)
+                    fi; fc=${fc:-0}
                     if [[ "$ae" == "EXISTS" ]]; then [[ $fc -gt 0 ]] && report "PASS" "GREP ${af} \"${ap}\" EXISTS" \
                         || report "FAIL" "GREP ${af} — \"${ap}\" not found"
                     elif [[ "$ae" == "NOT_EXISTS" ]]; then [[ $fc -eq 0 ]] && report "PASS" "GREP ${af} \"${ap}\" NOT_EXISTS" \

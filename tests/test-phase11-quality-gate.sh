@@ -267,6 +267,7 @@ fi
 # ══════════════════════════════════════════
 echo ""
 echo "  phase11-quality-gate: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped"
+echo "SPECTRA_TEST_RESULT suite=phase11-quality-gate pass=${PASS} fail=${FAIL} skip=${SKIP} total=$((PASS + FAIL + SKIP))"
 
 export TEST_PHASE11_QUALITY_GATE_PASS=${PASS}
 export TEST_PHASE11_QUALITY_GATE_FAIL=${FAIL}

@@ -263,6 +263,7 @@ fi
 
 echo ""
 echo "  assess: ${PASS} passed, ${FAIL} failed"
+echo "SPECTRA_TEST_RESULT suite=assess pass=${PASS} fail=${FAIL} skip=0 total=$((PASS + FAIL))"
 
 # Export counts for runner aggregation
 export TEST_ASSESS_PASS=${PASS}

@@ -65,6 +65,8 @@ mkdir -p "${LOGS_DIR}"
 
 # Source env
 if [[ -f "${SPECTRA_HOME}/.env" ]]; then
+    # RATIONALE: .env is optional runtime configuration outside the checked source graph.
+    # shellcheck disable=SC1091
     set +u; source "${SPECTRA_HOME}/.env"; set -u
 fi
 
@@ -118,6 +120,358 @@ get_task_section() {
     fi
 }
 
+reset_profile_contract() {
+    DEP_MANIFESTS=()
+    TEST_PATTERNS=()
+    FILE_EXTENSION=""
+    SKIP_IMPORTS=""
+    REGRESSION_CMD=""
+    unset -f extract_dependency_modules 2>/dev/null || true
+    unset -f dependency_module_declared 2>/dev/null || true
+}
+
+detect_project_languages() {
+    DETECTED_LANG=""
+    DETECTED_LANGS=()
+
+    if [[ -f "pyproject.toml" || -f "requirements.txt" || -f "setup.py" || -f "setup.cfg" || -f "Pipfile" || -f "pytest.ini" ]]; then
+        DETECTED_LANGS+=("python")
+    fi
+    if [[ -f "package.json" ]]; then
+        DETECTED_LANGS+=("javascript")
+    fi
+    if [[ -f "go.mod" ]]; then
+        DETECTED_LANGS+=("go")
+    fi
+    if [[ -f "Cargo.toml" ]]; then
+        DETECTED_LANGS+=("rust")
+    fi
+    if [[ -f "Makefile" ]] && compgen -G "bin/*.sh" > /dev/null && compgen -G "tests/*.sh" > /dev/null; then
+        DETECTED_LANGS+=("bash")
+    fi
+
+    if [[ ${#DETECTED_LANGS[@]} -gt 0 ]]; then
+        DETECTED_LANG="${DETECTED_LANGS[0]}"
+    fi
+}
+
+format_detected_languages() {
+    if [[ ${#DETECTED_LANGS[@]} -eq 1 ]] && [[ -n "${DETECTED_LANG}" ]]; then
+        echo "${DETECTED_LANG}"
+        return 0
+    fi
+    local IFS=", "
+    echo "${DETECTED_LANGS[*]}"
+}
+
+load_language_profile() {
+    local lang="$1"
+
+    reset_profile_contract
+    LANG_PROFILE="${SPECTRA_HOME}/lang-profiles/${lang}.profile"
+    if [[ -f "${LANG_PROFILE}" ]]; then
+        # shellcheck source=/dev/null
+        source "${LANG_PROFILE}"
+        return 0
+    fi
+    return 1
+}
+
+fallback_regression_cmd_for_language() {
+    case "$1" in
+        rust) echo "cargo test" ;;
+        go) echo "go test ./..." ;;
+        *) return 1 ;;
+    esac
+}
+
+summarize_regression_output() {
+    local output="$1"
+    local summary=""
+
+    summary=$(echo "${output}" | grep -oP '\d+ passed' | head -1 || true)
+    if [[ -n "${summary}" ]]; then
+        echo "${summary}"
+        return 0
+    fi
+
+    summary=$(echo "${output}" | grep -oP '# pass \K\d+' | head -1 || true)
+    if [[ -n "${summary}" ]]; then
+        echo "${summary} pass"
+        return 0
+    fi
+
+    echo "command succeeded"
+}
+
+collect_test_files() {
+    local pattern
+    for pattern in "${TEST_PATTERNS[@]}"; do
+        find . -name "${pattern}" 2>/dev/null
+    done | grep -v __pycache__ | sort -u || true
+}
+
+dependency_manifest_path() {
+    local manifest
+    for manifest in "${DEP_MANIFESTS[@]}"; do
+        if [[ -f "${manifest}" ]]; then
+            echo "${manifest}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+run_python_wiring_checks() {
+    local test_file imports imported_symbol usage_count project_imports invoked
+    mapfile -t TEST_FILES < <(collect_test_files)
+
+    for test_file in "${TEST_FILES[@]}"; do
+        imports=$(grep -oP 'from\s+\S+\s+import\s+\K\w+' "${test_file}" 2>/dev/null || true)
+        for imported_symbol in ${imports}; do
+            if [[ "${imported_symbol}" =~ ^(${SKIP_IMPORTS})$ ]]; then
+                continue
+            fi
+            usage_count=$(grep -c "${imported_symbol}" "${test_file}" 2>/dev/null || echo "0")
+            if [[ "${usage_count}" -le 1 ]]; then
+                echo "  ⚠  SIGN-001: Dead import '${imported_symbol}' in ${test_file}"
+                WIRING_ISSUES=$((WIRING_ISSUES + 1))
+            fi
+        done
+
+        if echo "${test_file}" | grep -qi "integration"; then
+            echo "  → Integration test: ${test_file}"
+            project_imports=$(grep -oP 'from\s+\w+\s+import\s+\K\w+' "${test_file}" 2>/dev/null || true)
+            for imported_symbol in ${project_imports}; do
+                if [[ "${imported_symbol}" =~ ^(patch|MagicMock|Mock|pytest|unittest)$ ]]; then
+                    continue
+                fi
+                invoked=$(grep -cP "${imported_symbol}\s*\(" "${test_file}" 2>/dev/null || echo "0")
+                if [[ "${invoked}" -eq 0 ]]; then
+                    echo "  ⚠  SIGN-001: '${imported_symbol}' imported but never invoked in ${test_file}"
+                    WIRING_ISSUES=$((WIRING_ISSUES + 1))
+                fi
+            done
+        fi
+    done
+}
+
+run_javascript_wiring_checks() {
+    local test_file issue_type symbol
+    mapfile -t TEST_FILES < <(collect_test_files)
+
+    for test_file in "${TEST_FILES[@]}"; do
+        while IFS='|' read -r issue_type symbol; do
+            [[ -n "${issue_type}" ]] || continue
+            case "${issue_type}" in
+                dead)
+                    echo "  ⚠  SIGN-001: Dead import '${symbol}' in ${test_file}"
+                    WIRING_ISSUES=$((WIRING_ISSUES + 1))
+                    ;;
+                uninvoked)
+                    echo "  ⚠  SIGN-001: '${symbol}' imported but never invoked in ${test_file}"
+                    WIRING_ISSUES=$((WIRING_ISSUES + 1))
+                    ;;
+            esac
+        done < <(python3 - "${test_file}" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8", errors="ignore")
+integration = "integration" in str(path).lower()
+imports: list[tuple[str, str]] = []
+body_lines: list[str] = []
+
+
+def add_symbol(kind: str, symbol: str) -> None:
+    if symbol and symbol != "default":
+        imports.append((kind, symbol))
+
+
+def parse_import_clause(clause: str) -> None:
+    clause = clause.strip()
+    if not clause:
+        return
+
+    if clause.startswith("{") and clause.endswith("}"):
+        inner = clause[1:-1].strip()
+        if not inner:
+            return
+        for part in inner.split(","):
+            item = part.strip()
+            if not item or item.startswith("type "):
+                continue
+            alias = re.split(r"\s+as\s+", item)
+            add_symbol("named", alias[-1].strip())
+        return
+
+    if clause.startswith("* as "):
+        add_symbol("namespace", clause[5:].strip())
+        return
+
+    if "," in clause:
+        head, tail = clause.split(",", 1)
+        add_symbol("default", head.strip())
+        parse_import_clause(tail.strip())
+        return
+
+    add_symbol("default", clause)
+
+
+for line in text.splitlines():
+    stripped = line.strip()
+    matched_import = False
+
+    if stripped.startswith("import ") and " from " in stripped:
+        match = re.match(r'import\s+(type\s+)?(.+?)\s+from\s+[\'"]([^\'"]+)[\'"]', stripped)
+        if match:
+            spec = match.group(3)
+            if spec.startswith((".", "..")):
+                parse_import_clause(match.group(2))
+            matched_import = True
+
+    if not matched_import:
+        match = re.match(r'(?:const|let|var)\s+\{([^}]+)\}\s*=\s*require\([\'"]([^\'"]+)[\'"]\)', stripped)
+        if match:
+            spec = match.group(2)
+            if spec.startswith((".", "..")):
+                for part in match.group(1).split(","):
+                    item = part.strip()
+                    if not item:
+                        continue
+                    alias = item.split(":")
+                    add_symbol("named", alias[-1].strip())
+            matched_import = True
+
+    if not matched_import:
+        match = re.match(r'(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\([\'"]([^\'"]+)[\'"]\)', stripped)
+        if match:
+            spec = match.group(2)
+            if spec.startswith((".", "..")):
+                add_symbol("default", match.group(1))
+            matched_import = True
+
+    if not matched_import:
+        body_lines.append(line)
+
+body = "\n".join(body_lines)
+seen: set[tuple[str, str]] = set()
+for kind, symbol in imports:
+    key = (kind, symbol)
+    if key in seen:
+        continue
+    seen.add(key)
+
+    if not re.search(rf'\b{re.escape(symbol)}\b', body):
+        print(f"dead|{symbol}")
+        continue
+
+    if integration:
+        if kind == "namespace":
+            invoked = re.search(rf'\b{re.escape(symbol)}\s*\.', body)
+        else:
+            invoked = re.search(rf'\b{re.escape(symbol)}\s*\(|\bnew\s+{re.escape(symbol)}\s*\(|\b{re.escape(symbol)}\s*\.', body)
+        if not invoked:
+            print(f"uninvoked|{symbol}")
+PY
+)
+    done
+}
+
+run_javascript_cli_boundary_check() {
+    local has_subprocess_tests="false"
+    local cli_name cli_path
+
+    mapfile -t TEST_FILES < <(collect_test_files)
+    if [[ ${#TEST_FILES[@]} -gt 0 ]]; then
+        if grep -Eq 'child_process|node:child_process|spawnSync?\(|execSync?\(|execa|cross-spawn' "${TEST_FILES[@]}" 2>/dev/null; then
+            has_subprocess_tests="true"
+        fi
+    fi
+
+    while IFS='|' read -r cli_name cli_path; do
+        [[ -n "${cli_name}" ]] || continue
+        if [[ "${has_subprocess_tests}" != "true" ]]; then
+            echo "  ⚠  SIGN-002: CLI entry point ${cli_path} (${cli_name}) has no subprocess-level tests"
+            WIRING_ISSUES=$((WIRING_ISSUES + 1))
+        fi
+    done < <(python3 - <<'PY'
+import json
+from pathlib import Path
+
+package_json = Path("package.json")
+if not package_json.exists():
+    raise SystemExit(0)
+
+data = json.loads(package_json.read_text(encoding="utf-8"))
+bin_field = data.get("bin")
+if isinstance(bin_field, str):
+    print(f"{data.get('name', 'package')}|{bin_field}")
+elif isinstance(bin_field, dict):
+    for name, path in sorted(bin_field.items()):
+        print(f"{name}|{path}")
+PY
+)
+}
+
+run_cli_boundary_check() {
+    local cli_entry_files entry_point cli_cmds subprocess_tests
+
+    [[ -n "${FILE_EXTENSION:-}" ]] || return 0
+    cli_entry_files=$(find . \( -name "__main__.${FILE_EXTENSION}" -o -name "cli.${FILE_EXTENSION}" \) 2>/dev/null | grep -v __pycache__ || true)
+    [[ -n "${cli_entry_files}" ]] || return 0
+
+    for entry_point in ${cli_entry_files}; do
+        cli_cmds=$(grep -oP "add_parser\(['\"](\K[^'\"]+)" "${entry_point}" 2>/dev/null || true)
+        if [[ -z "${cli_cmds}" ]]; then
+            cli_cmds=$(grep -oP "command=['\"](\K[^'\"]+)" "${entry_point}" 2>/dev/null || true)
+        fi
+        subprocess_tests=$(grep -rl "subprocess" tests/ 2>/dev/null | head -5 || true)
+        if [[ -z "${subprocess_tests}" ]] && [[ -n "${cli_cmds}" ]]; then
+            echo "  ⚠  SIGN-002: CLI entry point ${entry_point} has no subprocess-level tests"
+            WIRING_ISSUES=$((WIRING_ISSUES + 1))
+        fi
+    done
+}
+
+run_dependency_verification() {
+    local dep_file module_name
+
+    dep_file=$(dependency_manifest_path || true)
+    [[ -n "${dep_file}" ]] || return 0
+
+    if ! declare -f extract_dependency_modules >/dev/null 2>&1 || ! declare -f dependency_module_declared >/dev/null 2>&1; then
+        return 0
+    fi
+
+    while IFS= read -r module_name; do
+        [[ -n "${module_name}" ]] || continue
+        if dependency_module_declared "${module_name}" "${dep_file}"; then
+            continue
+        fi
+        echo "  ⚠  Missing dependency: '${module_name}' imported but not in ${dep_file}"
+        WIRING_ISSUES=$((WIRING_ISSUES + 1))
+        [[ -z "${FAILURE_TYPE}" ]] && FAILURE_TYPE="missing_dependency"
+    done < <(extract_dependency_modules)
+}
+
+run_language_wiring_checks() {
+    local lang="$1"
+
+    echo "  → ${lang}: wiring proof"
+    case "${lang}" in
+        python) run_python_wiring_checks ;;
+        javascript)
+            run_javascript_wiring_checks
+            run_javascript_cli_boundary_check
+            ;;
+    esac
+    run_cli_boundary_check
+    run_dependency_verification
+}
+
 # ── Find task to verify ──
 if [[ -n "$TASK_OVERRIDE" ]]; then
     if ! TASK_ID=$(normalize_task_id "${TASK_OVERRIDE}"); then
@@ -167,7 +521,7 @@ echo "  Verification Depth: ${VERIFICATION_DEPTH}"
 # ── Extract verify command from plan.md ──
 VERIFY_CMD=""
 # Look in lines following the task header for Verify: `command`
-VERIFY_CMD=$(echo "$TASK_SECTION" | grep -oP '(?:Verify|verify):\s*`\K[^`]+' | head -1 || true)
+VERIFY_CMD=$(echo "$TASK_SECTION" | grep -oP "(?:Verify|verify):\s*\`\K[^\`]+" | head -1 || true)
 
 VERIFY_PASS=true
 FAIL_REASONS=""
@@ -198,34 +552,11 @@ else
     fi
 fi
 
-# ── Auto-detect project language (shared by Step 2 and Step 4) ──
-DETECTED_LANG=""
-if [[ -f "pyproject.toml" || -f "requirements.txt" || -f "setup.py" || -f "setup.cfg" || -f "Pipfile" || -f "pytest.ini" ]]; then
-    DETECTED_LANG="python"
-elif [[ -f "package.json" ]]; then
-    DETECTED_LANG="javascript"
-elif [[ -f "go.mod" ]]; then
-    DETECTED_LANG="go"
-elif [[ -f "Cargo.toml" ]]; then
-    DETECTED_LANG="rust"
-elif [[ -f "Makefile" ]] && ls bin/*.sh tests/*.sh >/dev/null 2>&1; then
-    DETECTED_LANG="bash"
-fi
-
-# ── Load language profile (shared by Step 2 and Step 4) ──
-LANG_PROFILE_LOADED=false
-REGRESSION_CMD=""
-if [[ -n "$DETECTED_LANG" ]]; then
-    LANG_PROFILE="${SPECTRA_HOME}/lang-profiles/${DETECTED_LANG}.profile"
-    if [[ -f "$LANG_PROFILE" ]]; then
-        # shellcheck source=/dev/null
-        source "$LANG_PROFILE"
-        LANG_PROFILE_LOADED=true
-        echo "  Language detected: ${DETECTED_LANG} (profile loaded)"
-    else
-        echo "  WARNING: No language profile for '${DETECTED_LANG}'. Using fallback detection."
-        echo "  SIGN-010: Language Blindspot — create ${SPECTRA_HOME}/lang-profiles/${DETECTED_LANG}.profile"
-    fi
+detect_project_languages
+if [[ ${#DETECTED_LANGS[@]} -gt 0 ]]; then
+    echo "  Languages detected: $(format_detected_languages)"
+else
+    echo "  Languages detected: none"
 fi
 
 # ══════════════════════════════════════════
@@ -233,34 +564,44 @@ fi
 # ══════════════════════════════════════════
 echo "  [2/4] Full regression suite..."
 
-# Profile-based regression command takes priority.
-# If no profile loaded, use deterministic fallback based on manifest files.
-# A tests/ directory alone does NOT imply Python.
-if [[ -z "${REGRESSION_CMD:-}" ]]; then
-    if [[ -f "Cargo.toml" ]]; then
-        REGRESSION_CMD="cargo test"
-    elif [[ -f "go.mod" ]]; then
-        REGRESSION_CMD="go test ./..."
+REGRESSION_RUNS=0
+for lang in "${DETECTED_LANGS[@]}"; do
+    REGRESSION_CMD=""
+    if load_language_profile "${lang}"; then
+        echo "  → ${lang}: profile loaded"
+    else
+        echo "  WARNING: No language profile for '${lang}'. Using fallback detection."
+        echo "  SIGN-010: Language Blindspot — create ${SPECTRA_HOME}/lang-profiles/${lang}.profile"
     fi
-fi
 
-if [[ -n "$REGRESSION_CMD" ]]; then
+    if [[ -z "${REGRESSION_CMD:-}" ]]; then
+        REGRESSION_CMD=$(fallback_regression_cmd_for_language "${lang}" || true)
+    fi
+
+    if [[ -z "${REGRESSION_CMD:-}" ]]; then
+        continue
+    fi
+
+    REGRESSION_RUNS=$((REGRESSION_RUNS + 1))
+    echo "     Command: ${REGRESSION_CMD}"
     set +e
-    REGRESSION_OUTPUT=$(eval "$REGRESSION_CMD")
+    REGRESSION_OUTPUT=$(eval "${REGRESSION_CMD}" 2>&1)
     REGRESSION_EXIT=$?
     set -e
 
-    if [[ $REGRESSION_EXIT -ne 0 ]]; then
+    if [[ ${REGRESSION_EXIT} -ne 0 ]]; then
         VERIFY_PASS=false
-        FAIL_REASONS="${FAIL_REASONS}\n  - Step 2 FAIL: regression suite failed (exit ${REGRESSION_EXIT})"
+        FAIL_REASONS="${FAIL_REASONS}\n  - Step 2 FAIL (${lang}): regression suite failed (exit ${REGRESSION_EXIT})"
         [[ -z "$FAILURE_TYPE" ]] && FAILURE_TYPE="test_failure"
-        echo "  ❌ Step 2: Regression failed"
-        echo "     $(echo "$REGRESSION_OUTPUT" | tail -3)"
+        echo "  ❌ ${lang}: Regression failed"
+        echo "     $(echo "${REGRESSION_OUTPUT}" | tail -3)"
     else
-        PASS_COUNT=$(echo "$REGRESSION_OUTPUT" | grep -oP '\d+ passed' | head -1 || echo "? passed")
-        echo "  ✅ Step 2: Regression passed (${PASS_COUNT})"
+        PASS_COUNT=$(summarize_regression_output "${REGRESSION_OUTPUT}")
+        echo "  ✅ ${lang}: Regression passed (${PASS_COUNT})"
     fi
-else
+done
+
+if [[ ${REGRESSION_RUNS} -eq 0 ]]; then
     echo "  ⚠  Step 2: No test framework detected. Skipping."
 fi
 
@@ -301,104 +642,24 @@ fi
 if [[ "$USE_WIRING_PROOF" == true ]]; then
     echo "  [4/4] Wiring proof checks..."
     WIRING_ISSUES=0
+    WIRING_RUNS=0
 
-    # Language detection and profile loading already done before Step 2.
-    if [[ "$LANG_PROFILE_LOADED" != true ]]; then
-        if [[ -z "${DETECTED_LANG:-}" ]]; then
-            echo "  WARNING: No language detected (no manifest files found). Skipping wiring proof."
-        else
-            echo "  WARNING: No language profile for '${DETECTED_LANG}'. Wiring proof may be incomplete."
-        fi
+    if [[ ${#DETECTED_LANGS[@]} -eq 0 ]]; then
+        echo "  WARNING: No language detected (no manifest files found). Skipping wiring proof."
     fi
 
-    if [[ "$LANG_PROFILE_LOADED" == true ]]; then
-        # ── 4a: Dead import detection in test files ──
-        FIND_TEST_ARGS=()
-        for i in "${!TEST_PATTERNS[@]}"; do
-            if [[ $i -gt 0 ]]; then
-                FIND_TEST_ARGS+=("-o")
-            fi
-            FIND_TEST_ARGS+=("-name" "${TEST_PATTERNS[$i]}")
-        done
-        TEST_FILES=$(find . "${FIND_TEST_ARGS[@]}" 2>/dev/null | grep -v __pycache__ || true)
-        if [[ -n "$TEST_FILES" ]]; then
-            for TEST_FILE in $TEST_FILES; do
-                # Find project imports (skip stdlib/test utilities)
-                IMPORTS=$(grep -oP 'from\s+\S+\s+import\s+\K\w+' "$TEST_FILE" 2>/dev/null || true)
-                for IMPORT in $IMPORTS; do
-                    # Skip common utilities using profile's SKIP_IMPORTS
-                    if [[ "$IMPORT" =~ ^(${SKIP_IMPORTS})$ ]]; then
-                        continue
-                    fi
-                    # Check usage count (must appear more than just the import line)
-                    USAGE_COUNT=$(grep -c "${IMPORT}" "$TEST_FILE" 2>/dev/null || echo "0")
-                    if [[ "$USAGE_COUNT" -le 1 ]]; then
-                        echo "  ⚠  SIGN-001: Dead import '${IMPORT}' in ${TEST_FILE}"
-                        WIRING_ISSUES=$((WIRING_ISSUES + 1))
-                    fi
-                done
-
-                # ── 4b: Integration test pipeline check ──
-                if echo "$TEST_FILE" | grep -qi "integration"; then
-                    echo "  → Integration test: ${TEST_FILE}"
-                    # Check that imported pipeline modules are actually invoked
-                    PROJECT_IMPORTS=$(grep -oP 'from\s+\w+\s+import\s+\K\w+' "$TEST_FILE" 2>/dev/null || true)
-                    for PI in $PROJECT_IMPORTS; do
-                        if [[ "$PI" =~ ^(patch|MagicMock|Mock|pytest|unittest)$ ]]; then continue; fi
-                        # Look for invocation (parentheses after the name)
-                        INVOKED=$(grep -cP "${PI}\s*\(" "$TEST_FILE" 2>/dev/null || echo "0")
-                        if [[ "$INVOKED" -eq 0 ]]; then
-                            echo "  ⚠  SIGN-001: '${PI}' imported but never invoked in ${TEST_FILE}"
-                            WIRING_ISSUES=$((WIRING_ISSUES + 1))
-                        fi
-                    done
-                fi
-            done
+    for lang in "${DETECTED_LANGS[@]}"; do
+        if ! load_language_profile "${lang}"; then
+            echo "  WARNING: No language profile for '${lang}'. Wiring proof may be incomplete."
+            continue
         fi
+        WIRING_RUNS=$((WIRING_RUNS + 1))
+        run_language_wiring_checks "${lang}"
+    done
 
-        # ── 4c: CLI boundary check (SIGN-002) ──
-        CLI_ENTRY_FILES=$(find . -name "__main__.${FILE_EXTENSION}" -o -name "cli.${FILE_EXTENSION}" 2>/dev/null | grep -v __pycache__ || true)
-        if [[ -n "$CLI_ENTRY_FILES" ]]; then
-            for EP in $CLI_ENTRY_FILES; do
-                # Extract CLI commands/subcommands
-                CLI_CMDS=$(grep -oP "add_parser\(['\"](\K[^'\"]+)" "$EP" 2>/dev/null || true)
-                if [[ -z "$CLI_CMDS" ]]; then
-                    CLI_CMDS=$(grep -oP "command=['\"](\K[^'\"]+)" "$EP" 2>/dev/null || true)
-                fi
-                # Check for subprocess tests
-                SUBPROCESS_TESTS=$(grep -rl "subprocess" tests/ 2>/dev/null | head -5 || true)
-                if [[ -z "$SUBPROCESS_TESTS" ]] && [[ -n "$CLI_CMDS" ]]; then
-                    echo "  ⚠  SIGN-002: CLI entry point ${EP} has no subprocess-level tests"
-                    WIRING_ISSUES=$((WIRING_ISSUES + 1))
-                fi
-            done
-        fi
-
-        # ── 4d: Dependency verification ──
-        DEP_FILE_FOUND=""
-        for DEP_MANIFEST in "${DEP_MANIFESTS[@]}"; do
-            if [[ -f "$DEP_MANIFEST" ]]; then
-                DEP_FILE_FOUND="$DEP_MANIFEST"
-                break
-            fi
-        done
-        if [[ -n "$DEP_FILE_FOUND" ]]; then
-            # Quick check: try importing all source modules
-            SRC_IMPORTS=$(find . -name "*.${FILE_EXTENSION}" -not -path "./tests/*" -not -path "./.spectra/*" -not -name "test_*" -print0 2>/dev/null | \
-                xargs -0 grep -hoP '^import\s+\K\w+|^from\s+\K\w+' 2>/dev/null | sort -u || true)
-            for MOD in $SRC_IMPORTS; do
-                # Skip stdlib
-                if python3 -c "import ${MOD}" 2>/dev/null; then continue; fi
-                if ! grep -qi "${MOD}" "$DEP_FILE_FOUND" 2>/dev/null; then
-                    echo "  ⚠  Missing dependency: '${MOD}' imported but not in ${DEP_FILE_FOUND}"
-                    WIRING_ISSUES=$((WIRING_ISSUES + 1))
-                    [[ -z "$FAILURE_TYPE" ]] && FAILURE_TYPE="missing_dependency"
-                fi
-            done
-        fi
-    fi
-
-    if [[ $WIRING_ISSUES -gt 0 ]]; then
+    if [[ ${WIRING_RUNS} -eq 0 ]]; then
+        echo "  ⚠  Step 4: No profile-backed wiring proof executed"
+    elif [[ $WIRING_ISSUES -gt 0 ]]; then
         echo "  ⚠  ${WIRING_ISSUES} wiring issue(s) found"
         if [[ $WIRING_ISSUES -ge 3 ]]; then
             VERIFY_PASS=false

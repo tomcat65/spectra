@@ -169,6 +169,7 @@ fi
 # ══════════════════════════════════════════
 echo ""
 echo "  quick: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped"
+echo "SPECTRA_TEST_RESULT suite=quick pass=${PASS} fail=${FAIL} skip=${SKIP} total=$((PASS + FAIL + SKIP))"
 
 export TEST_QUICK_PASS=${PASS}
 export TEST_QUICK_FAIL=${FAIL}

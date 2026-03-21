@@ -16,6 +16,11 @@
 #   context_files_for_verify() — list of files verifier should read
 #   context_prompt_suffix()    — shared context instructions for any agent
 
+if ! declare -f structured_helper >/dev/null 2>&1; then
+    # shellcheck source=/dev/null
+    source "${SPECTRA_HOME}/lib/loop-structured.sh"
+fi
+
 # ── Context file existence check ──
 # Returns 0 if the file exists, 1 otherwise. Logs optional warning.
 _context_file_exists() {
@@ -89,6 +94,13 @@ context_files_for_build() {
         ctx+=" Pre-flight advisory: ${preflight_advisory}"
     fi
 
+    # Phase F: Prior failure warnings from metrics history
+    local prior_warning
+    prior_warning=$(_prior_failure_context "$task_id" 2>/dev/null || echo "")
+    if [[ -n "$prior_warning" ]]; then
+        ctx+=" ${prior_warning}"
+    fi
+
     echo "$ctx"
 }
 
@@ -106,6 +118,17 @@ context_files_for_verify() {
     ctx+=" Depth: ${verify_depth}."
 
     echo "$ctx"
+}
+
+# _prior_failure_context — Check if similar failures occurred in recent history (Phase F).
+#   Args: task_id
+#   Stdout: warning string if relevant prior failure exists, empty otherwise
+_prior_failure_context() {
+    local task_id="$1"
+
+    structured_helper metrics prior-failure \
+        --spectra-dir "${SPECTRA_DIR}" \
+        --task-id "${task_id}" 2>/dev/null || true
 }
 
 # context_prompt_suffix — Shared suffix for any agent context.

@@ -110,6 +110,18 @@ parallel_build() {
         builder_exits+=("$_bx")
         if [[ "$_bx" -eq 124 ]]; then
             echo "  TIMEOUT: Builder for Task ${batch_task_ids[$i]} killed after ${BUILDER_TIMEOUT}s"
+            # Auto-commit salvage: if builder left modified files, commit them
+            # before declaring failure. The work is done, just didn't finish in time.
+            if git rev-parse --is-inside-work-tree &>/dev/null; then
+                local _changed
+                _changed=$(git diff --name-only 2>/dev/null | wc -l)
+                _changed=$(( _changed + $(git diff --cached --name-only 2>/dev/null | wc -l) ))
+                if [[ "$_changed" -gt 0 ]]; then
+                    echo "  SALVAGE: Builder left ${_changed} modified files — auto-committing"
+                    git add -A 2>/dev/null || true
+                    git commit -m "feat(task-${batch_task_ids[$i]}): auto-salvage — builder timeout after ${BUILDER_TIMEOUT}s" 2>/dev/null || true
+                fi
+            fi
             echo "TIMEOUT" > "${SIGNALS_DIR}/TIMEOUT_${batch_task_ids[$i]}"
             failed=true
         elif [[ "$_bx" -ne 0 ]]; then

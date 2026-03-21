@@ -513,6 +513,7 @@ fi
 # ══════════════════════════════════════════
 echo ""
 echo "  phase11-runtime-profiles: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped"
+echo "SPECTRA_TEST_RESULT suite=phase11-runtime-profiles pass=${PASS} fail=${FAIL} skip=${SKIP} total=$((PASS + FAIL + SKIP))"
 
 export TEST_PHASE11_RUNTIME_PROFILES_PASS=${PASS}
 export TEST_PHASE11_RUNTIME_PROFILES_FAIL=${FAIL}

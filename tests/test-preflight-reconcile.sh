@@ -265,6 +265,7 @@ fi
 # ══════════════════════════════════════════
 echo ""
 echo "  preflight-reconcile: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped"
+echo "SPECTRA_TEST_RESULT suite=preflight-reconcile pass=${PASS} fail=${FAIL} skip=${SKIP} total=$((PASS + FAIL + SKIP))"
 
 export TEST_PREFLIGHT_RECONCILE_PASS=${PASS}
 export TEST_PREFLIGHT_RECONCILE_FAIL=${FAIL}

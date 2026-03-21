@@ -49,6 +49,16 @@ load_runtime_profile() {
         requested_profile=$(grep -oP '^profile:\s*\K\S+' "${SPECTRA_DIR}/project.yaml" 2>/dev/null || true)
     fi
 
+    # Priority 3: Auto-suggest from metrics history (Phase F)
+    if [[ -z "${requested_profile}" ]] && declare -f _suggest_profile_from_metrics >/dev/null 2>&1; then
+        local suggested
+        suggested=$(_suggest_profile_from_metrics 2>/dev/null || echo "")
+        if [[ -n "${suggested}" && "${suggested}" != "standard" ]]; then
+            requested_profile="${suggested}"
+            echo "  Auto-selected profile '${suggested}' from metrics history" >&2
+        fi
+    fi
+
     # Apply profile
     case "${requested_profile:-standard}" in
         quick)

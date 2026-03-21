@@ -163,6 +163,7 @@ fi
 # ══════════════════════════════════════════
 echo ""
 echo "  phase4-ci: ${PASS} passed, ${FAIL} failed"
+echo "SPECTRA_TEST_RESULT suite=phase4-ci pass=${PASS} fail=${FAIL} skip=0 total=$((PASS + FAIL))"
 
 if [[ ${FAIL} -gt 0 ]]; then
     exit 1

@@ -20,6 +20,9 @@ DEP_CHECK_CMD="command -v"
 # File extension for this language
 FILE_EXTENSION="sh"
 
+# Source file patterns for this language
+SOURCE_PATTERNS=("*.sh")
+
 # Test file patterns (for exclusion from production code analysis)
 TEST_PATTERNS=("test-*.sh" "test_*.sh")
 
@@ -28,3 +31,11 @@ SKIP_IMPORTS="set|echo|printf|local|readonly|declare|export"
 
 # Regression command for Step 2
 REGRESSION_CMD="bash tests/run-tests.sh"
+
+extract_dependency_modules() {
+    return 0
+}
+
+dependency_module_declared() {
+    return 0
+}

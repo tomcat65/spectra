@@ -8,7 +8,7 @@
 ---
 
 ## Task 001: Repair in-loop planning persistence
-- [ ] 001: Repair in-loop planning persistence
+- [x] 001: Repair in-loop planning persistence
 - AC:
   - `spectra-loop.sh --plan-only` no longer depends on a read-only planner magically writing `.spectra/plan.md`.
   - The planning path produces a validated `.spectra/plan.md` and fresh `.spectra/plan.json`, or fails loudly with preserved artifacts for review.
@@ -27,7 +27,7 @@
   - Integration: loop planning delegates to the real plan writer, validator gates malformed output, and plan.json freshness tracks the resulting plan.md.
 
 ## Task 002: Enforce reviewer gate on planned execution
-- [ ] 002: Enforce reviewer gate on planned execution
+- [x] 002: Enforce reviewer gate on planned execution
 - AC:
   - When planning runs, missing `plan-review.md` is treated as a blocking condition rather than a silent pass.
   - Rejected plans get one bounded revision attempt, then execution stops with a clear operator-visible reason.
@@ -46,7 +46,7 @@
   - Integration: reviewer verdict file gates the loop and rejected plans cannot advance into execution without a valid approval outcome.
 
 ## Task 003: Align preflight and RECONCILE behavior with documentation
-- [ ] 003: Align preflight and RECONCILE behavior with documentation
+- [x] 003: Align preflight and RECONCILE behavior with documentation
 - AC:
   - Loop startup either runs `spectra-preflight.sh` as documented or the docs are corrected to mark preflight manual.
   - RECONCILE behavior is identical in docs and code for interactive and non-interactive flows.
@@ -65,7 +65,7 @@
   - Integration: loop startup, assessment drift signaling, and operator docs all describe the same control-flow decisions.
 
 ## Task 004: Remove prompt, template, and version drift
-- [ ] 004: Remove prompt, template, and version drift
+- [x] 004: Remove prompt, template, and version drift
 - AC:
   - Prompt files, scaffolded templates, and runtime prompts have one explicit source of truth.
   - `spectra-init.sh`, version markers, and visible help text stop emitting conflicting v5.0, v5.1, v5.4, and v5.4.1 labels.
@@ -84,7 +84,7 @@
   - Integration: init-generated artifacts, runtime prompts, and documentation expose the same versioned framework behavior.
 
 ## Task 005: Make verifier command selection language-aware
-- [ ] 005: Make verifier command selection language-aware
+- [x] 005: Make verifier command selection language-aware
 - AC:
   - A `tests/` directory alone no longer forces Python or `pytest` regression commands.
   - Regression command selection uses language profiles or repository signals with deterministic fallback behavior.
@@ -103,7 +103,7 @@
   - Integration: verifier chooses repo-appropriate regression commands and still hands off correctly to wiring verification.
 
 ## Task 006: Expand direct operational coverage and fixture execution
-- [ ] 006: Expand direct operational coverage and fixture execution
+- [x] 006: Expand direct operational coverage and fixture execution
 - AC:
   - `spectra-assess.sh`, `spectra-status.sh`, `spectra-quick.sh`, and init end-to-end behavior each have direct regression coverage.
   - BMAD bridge and plan bridge fixtures are executed by tests rather than serving only as documentation.
@@ -122,7 +122,7 @@
   - Integration: framework smoke paths, fixture suites, and top-level test runner all exercise the intended control-plane surfaces.
 
 ## Task 007: Add progressive context loading with explicit fallback
-- [ ] 007: Add progressive context loading with explicit fallback
+- [x] 007: Add progressive context loading with explicit fallback
 - AC:
   - Builder and verifier start with task-local context and load broader context only when signals require it.
   - Full-context fallback remains available and deterministic for complex or ambiguous tasks.
@@ -141,7 +141,7 @@
   - Integration: build and verify both read through the same context policy, and fallback expands context without bypassing task-local defaults.
 
 ## Task 008: Add opt-in Sign candidate discovery after failure recovery
-- [ ] 008: Add opt-in Sign candidate discovery after failure recovery
+- [x] 008: Add opt-in Sign candidate discovery after failure recovery
 - AC:
   - After FAIL to FIX to PASS cycles, a file-backed hook or script can propose new Sign candidates without mutating guardrails automatically.
   - Proposed Sign candidates include enough context to audit why the pattern was suggested.
@@ -160,7 +160,7 @@
   - Integration: verify and lessons artifacts feed candidate generation, but guardrails only change through explicit human review.
 
 ## Task 009: Add language-aware quality gates ahead of verifier
-- [ ] 009: Add language-aware quality gates ahead of verifier
+- [x] 009: Add language-aware quality gates ahead of verifier
 - AC:
   - Builder-side quality gates can run cheap lint or format checks before expensive verifier passes.
   - Auto-fixes are limited to deterministic safe operations and do not bypass verifier authority.
@@ -179,7 +179,7 @@
   - Integration: builder self-audit, pre-commit hook, and quality gate script agree on language selection and never suppress verifier execution.
 
 ## Task 010: Add runtime profiles and orchestrator-only session persistence
-- [ ] 010: Add runtime profiles and orchestrator-only session persistence
+- [x] 010: Add runtime profiles and orchestrator-only session persistence
 - AC:
   - Runtime depth profiles are explicit, environment-driven, and reversible.
   - Any persistence is limited to orchestrator or lead state; builder and verifier remain fresh-context by design.
@@ -198,7 +198,7 @@
   - Integration: loop profile selection, status reporting, and session persistence boundaries remain aligned with fresh-context doctrine.
 
 ## Task 011: Add optional post-project cleanup command
-- [ ] 011: Add optional post-project cleanup command
+- [x] 011: Add optional post-project cleanup command
 - AC:
   - Cleanup lives outside the core execution loop and defaults to dry-run behavior.
   - The command can identify dead scaffolds, stale fixtures, and cleanup candidates without mutating operator-owned artifacts unexpectedly.

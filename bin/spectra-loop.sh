@@ -69,7 +69,7 @@ MAX_BATCH_SIZE=4
 MAX_TASKS=50
 # RATIONALE: BUILDER_TIMEOUT is read by parallel_build() in loop-build module
 # shellcheck disable=SC2034
-BUILDER_TIMEOUT=600  # seconds per builder invocation (default 10 min)
+BUILDER_TIMEOUT=900  # seconds per builder invocation (default 15 min)
 START_TIME=$(date +%s)
 ELAPSED_OFFSET=0
 SPECTRA_RUN_ID="spectra-run-$(date +%Y%m%d-%H%M%S)"

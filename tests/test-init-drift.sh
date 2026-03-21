@@ -282,6 +282,7 @@ fi
 # ══════════════════════════════════════════
 echo ""
 echo "  init-drift: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped"
+echo "SPECTRA_TEST_RESULT suite=init-drift pass=${PASS} fail=${FAIL} skip=${SKIP} total=$((PASS + FAIL + SKIP))"
 
 export TEST_INIT_DRIFT_PASS=${PASS}
 export TEST_INIT_DRIFT_FAIL=${FAIL}

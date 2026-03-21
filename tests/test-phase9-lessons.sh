@@ -1517,6 +1517,7 @@ test_dryrun_no_mutation
 
 echo ""
 echo "  phase9-lessons: ${PASS} passed, ${FAIL} failed"
+echo "SPECTRA_TEST_RESULT suite=phase9-lessons pass=${PASS} fail=${FAIL} skip=0 total=${TESTS_RUN}"
 echo ""
 
 if [[ ${FAIL} -gt 0 ]]; then

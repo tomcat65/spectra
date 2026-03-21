@@ -176,6 +176,7 @@ fi
 # ── Summary ──
 echo ""
 echo "=== Phase D Language Profile: ${PASS} passed, ${FAIL} failed, ${TESTS_RUN} total ==="
+echo "SPECTRA_TEST_RESULT suite=phase-d-langprofile pass=${PASS} fail=${FAIL} skip=0 total=${TESTS_RUN}"
 
 if [[ $FAIL -gt 0 ]]; then
     exit 1

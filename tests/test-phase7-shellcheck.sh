@@ -169,6 +169,7 @@ fi
 # ══════════════════════════════════════════
 echo ""
 echo "  phase7-shellcheck: ${PASS} passed, ${FAIL} failed"
+echo "SPECTRA_TEST_RESULT suite=phase7-shellcheck pass=${PASS} fail=${FAIL} skip=0 total=$((PASS + FAIL))"
 
 if [[ ${FAIL} -gt 0 ]]; then
     exit 1

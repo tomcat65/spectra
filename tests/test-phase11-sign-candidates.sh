@@ -263,6 +263,7 @@ fi
 # ══════════════════════════════════════════
 echo ""
 echo "  phase11-sign-candidates: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped"
+echo "SPECTRA_TEST_RESULT suite=phase11-sign-candidates pass=${PASS} fail=${FAIL} skip=${SKIP} total=$((PASS + FAIL + SKIP))"
 
 export TEST_PHASE11_SIGN_CANDIDATES_PASS=${PASS}
 export TEST_PHASE11_SIGN_CANDIDATES_FAIL=${FAIL}

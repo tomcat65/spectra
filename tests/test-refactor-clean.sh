@@ -370,6 +370,7 @@ echo "  Test: detects empty log subdirectories"
 # ══════════════════════════════════════════
 echo ""
 echo "  refactor-clean: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped"
+echo "SPECTRA_TEST_RESULT suite=refactor-clean pass=${PASS} fail=${FAIL} skip=${SKIP} total=$((PASS + FAIL + SKIP))"
 
 export TEST_REFACTOR_CLEAN_PASS=${PASS}
 export TEST_REFACTOR_CLEAN_FAIL=${FAIL}

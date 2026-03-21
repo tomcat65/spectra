@@ -8,13 +8,13 @@ language detection rather than defaulting to Python.
 
 ## Fixture Layout
 
-- `python-repo/` — pyproject.toml present → expect `python -m pytest -q`
+- `python-repo/` — pyproject.toml present → expect `python3 -m pytest -q`
 - `js-repo/` — package.json present → expect `npm test`
 - `rust-repo/` — Cargo.toml present → expect `cargo test`
 - `go-repo/` — go.mod present → expect `go test ./...`
 - `bash-repo/` — bin/*.sh + tests/*.sh + Makefile → expect `bash tests/run-tests.sh`
 - `tests-only/` — bare `tests/` directory, no manifest → expect no regression command (NOT pytest)
-- `ambiguous-repo/` — both pyproject.toml AND package.json → Python wins (first match)
+- `ambiguous-repo/` — both pyproject.toml AND package.json → full-sweep verification should run both Python and JavaScript surfaces
 
 ## Key Invariant
 

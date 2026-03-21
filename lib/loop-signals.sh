@@ -10,29 +10,27 @@
 #   write_signal(), write_progress(), write_status(), write_batch_status(),
 #   signal_stuck(), signal_complete(), write_final_report()
 
+if ! declare -f structured_helper >/dev/null 2>&1; then
+    # shellcheck source=/dev/null
+    source "${SPECTRA_HOME}/lib/loop-structured.sh"
+fi
+
 write_signal() {
     local signal_name="$1" signal_value="$2"
     echo "${signal_value}" > "${SIGNALS_DIR}/${signal_name}"
 }
 
+refresh_generated_status() {
+    structured_status_snapshot >/dev/null 2>&1 || true
+}
+
 write_progress() {
-    local total=0 done=0 stuck=0
-    if [[ -f "${SPECTRA_DIR}/plan.md" ]]; then
-        total=$(grep -cE '^\- \[[ xX!]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
-        total=${total:-0}
-        done=$(grep -cE '^\- \[[xX]\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
-        done=${done:-0}
-        stuck=$(grep -cE '^\- \[!\] [0-9]{3}:' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
-        stuck=${stuck:-0}
-        if [[ "$total" -eq 0 ]]; then
-            total=$(grep -c '^\- \[.\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
-            total=${total:-0}
-            done=$(grep -c '^\- \[[xX]\]' "${SPECTRA_DIR}/plan.md" 2>/dev/null | tr -dc '0-9' || true)
-            done=${done:-0}
-            stuck=0
-        fi
-        write_signal "PROGRESS" "${done}/${total} tasks (${stuck} stuck)"
+    local progress
+    progress=$(structured_status_progress 2>/dev/null || echo "")
+    if [[ -n "${progress}" ]]; then
+        write_signal "PROGRESS" "${progress}"
     fi
+    refresh_generated_status
 }
 
 write_status() {
@@ -48,6 +46,7 @@ write_status() {
 - Current Agent: ${agent}
 - Last Updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
+    refresh_generated_status
 }
 
 write_batch_status() {
@@ -60,6 +59,7 @@ write_batch_status() {
 - Current Agent: ${agent}
 - Last Updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
+    refresh_generated_status
 }
 
 write_final_report() {
@@ -87,6 +87,7 @@ EOF
     write_signal "PHASE" "stuck"
     write_signal "AGENT" "none"
     write_progress
+    refresh_generated_status
     echo ""
     echo "  STUCK — Execution halted"
     echo "  Reason: ${reason}"
@@ -113,6 +114,7 @@ EOF
     write_signal "PHASE" "complete"
     write_signal "AGENT" "none"
     write_progress
+    refresh_generated_status
     echo ""
     echo "  COMPLETE — All tasks passed"
 
