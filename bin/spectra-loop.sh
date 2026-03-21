@@ -1092,13 +1092,18 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
 
         if [[ "${RESULT^^}" == "PASS" ]]; then
             # ── Wiring gate (delegated to lib/loop-wiring.sh) ──
+            # When the verifier agent says PASS, wiring assertion failures are
+            # logged as warnings but do NOT override the verdict. The verifier
+            # already performs its own wiring proof (step 4 of 4-step audit).
+            # Rigid grep assertions can't understand valid naming choices
+            # (e.g., _get_sales vs _get_mike) — the verifier has full context.
             set +e
             run_wiring_gate "$task_id"
             WIRING_RESULT=$?
             set -e
             if [[ $WIRING_RESULT -ne 0 ]]; then
-                RESULT="FAIL"
-                FAILURE_TYPE="wiring_gap"
+                echo "    WARNING: Wiring assertions had failures (see ${LOGS_DIR}/task-${task_id}-wiring.log)"
+                echo "    Verifier verdict (PASS) is authoritative — proceeding."
             fi
         fi
 

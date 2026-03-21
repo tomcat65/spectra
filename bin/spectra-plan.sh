@@ -402,6 +402,12 @@ For each task, append an Assertions block with machine-checkable rules derived f
 - Patterns that should NOT exist → \`  - GREP file \"pattern\" NOT_EXISTS\`
 - Patterns use Extended Regular Expression (ERE) syntax: use \`|\` for alternation (NOT \`\\|\`). Example: \`\"pattern1|pattern2\"\`
 
+IMPORTANT: Assert **concepts**, not **implementation details**. Builders make valid design decisions on naming, structure, and approach. Assertions should verify that wiring exists, not HOW it's named:
+- Bad: \`GREP handler.py \"_get_mike\" EXISTS\` (asserts exact private method name)
+- Good: \`GREP handler.py \"MikePersona|PersonaMike\" EXISTS\` (asserts concept/class presence)
+- Good: \`GREP handler.py \"import.*persona\" EXISTS\` (asserts wiring exists)
+- Good: \`COUNT tests/ \"test_.*mike\" MIN 1\` (asserts test coverage exists)
+
 Example:
 \`\`\`
 - Assertions:
