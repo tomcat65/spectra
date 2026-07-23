@@ -281,12 +281,22 @@ fi
 # Test 13: CI anti-drift uses explicit expected module list (not glob-only)
 # ══════════════════════════════════════════
 CI_WORKFLOW="${SPECTRA_HOME}/.github/workflows/spectra-ci.yml"
+CI_EXPECTED=$(grep 'EXPECTED_MODULES=' "${CI_WORKFLOW}" 2>/dev/null | head -1 | sed 's/.*EXPECTED_MODULES="//; s/".*//' || true)
+CI_LIST_COMPLETE=true
+for mod_file in "${SPECTRA_HOME}"/lib/loop-*.sh; do
+    mod_name=$(basename "${mod_file}" .sh)
+    if ! echo "${CI_EXPECTED}" | grep -qw "${mod_name}"; then
+        CI_LIST_COMPLETE=false
+        echo "    Missing from CI expected list: ${mod_name}"
+    fi
+done
 if [[ -f "$CI_WORKFLOW" ]] \
    && grep -q 'Module anti-drift' "$CI_WORKFLOW" 2>/dev/null \
-   && grep -q 'EXPECTED_MODULES=' "$CI_WORKFLOW" 2>/dev/null; then
-    assert_pass "CI anti-drift uses explicit expected module list"
+   && grep -q 'EXPECTED_MODULES=' "$CI_WORKFLOW" 2>/dev/null \
+   && [[ "${CI_LIST_COMPLETE}" == "true" ]]; then
+    assert_pass "CI anti-drift expected list covers every loop module"
 else
-    assert_fail "CI anti-drift uses explicit expected module list"
+    assert_fail "CI anti-drift expected list covers every loop module"
 fi
 
 # ══════════════════════════════════════════
