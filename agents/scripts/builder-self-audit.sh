@@ -99,6 +99,7 @@ check_reachability() {
             checked=$((checked + 1))
             # Search for callsite in project, excluding the defining file and test files
             local callsites
+            # RATIONALE: includes is an intentionally word-split list of grep include arguments.
             # shellcheck disable=SC2086
             callsites=$(grep -rn "${sym}" "${PROJECT_ROOT}" ${includes} 2>/dev/null \
                 | grep -v "test_\|_test\.\|\.test\.\|\.spec\." \
@@ -138,6 +139,7 @@ check_spec_fidelity() {
 
     # Extract quoted literal values from task spec (strings in quotes, backticks)
     local literals
+    # RATIONALE: single-quoted regex backticks are literal task-markup delimiters.
     # shellcheck disable=SC2016
     literals=$(grep -oP '(?<=")[^"]{2,50}(?=")|(?<=`)[^`]{2,50}(?=`)' "${TASK_FILE}" 2>/dev/null || true)
 

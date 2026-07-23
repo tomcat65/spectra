@@ -32,6 +32,7 @@ Discovery → Scale Assessment → Specification → Execution → Verification 
 ## Quick Start
 
 ```bash
+spectra-doctor.sh  # report environment blockers and safety warnings
 spectra-init.sh    # scaffold .spectra/ in your project
 spectra-elicit.sh  # complete/check the goal contract before planning
 spectra-loop.sh    # start the build loop
@@ -56,6 +57,7 @@ spectra-quick.sh   # ad-hoc single task (skips planning)
 - **Goal Contract** — Required decisions and measurable outcomes in `.spectra/goals.md`
 - **Wiring Proof** — 5-check verification that code is actually connected
 - **Runtime Probe** — Bounded endpoint/command evidence for infra and deploy tasks
+- **CI Parity** — Local and GitHub lint call the same repository-owned gate
 - **Clean Context** — Each builder session starts fresh, state lives in files
 - **Scale Levels** — 0 (micro) to 4 (enterprise), right-sized planning depth
 - **Feedback Loops** — Per-task metrics, adaptive retry, auto-profile selection from execution history
@@ -65,3 +67,4 @@ spectra-quick.sh   # ad-hoc single task (skips planning)
 - `SPECTRA_METHOD.md` — Full methodology reference
 - `guardrails-global.md` — Active Signs and guardrails
 - `agents/references/` — Signs taxonomy, failure types, report templates
+- `docs/SPECTRA_IMPROVEMENT_PLAN.md` — Evidence gates for future rating promotion

@@ -278,25 +278,16 @@ else
 fi
 
 # ══════════════════════════════════════════
-# Test 13: CI anti-drift uses explicit expected module list (not glob-only)
+# Test 13: CI and local checks use the canonical module inventory implementation
 # ══════════════════════════════════════════
 CI_WORKFLOW="${SPECTRA_HOME}/.github/workflows/spectra-ci.yml"
-CI_EXPECTED=$(grep 'EXPECTED_MODULES=' "${CI_WORKFLOW}" 2>/dev/null | head -1 | sed 's/.*EXPECTED_MODULES="//; s/".*//' || true)
-CI_LIST_COMPLETE=true
-for mod_file in "${SPECTRA_HOME}"/lib/loop-*.sh; do
-    mod_name=$(basename "${mod_file}" .sh)
-    if ! echo "${CI_EXPECTED}" | grep -qw "${mod_name}"; then
-        CI_LIST_COMPLETE=false
-        echo "    Missing from CI expected list: ${mod_name}"
-    fi
-done
 if [[ -f "$CI_WORKFLOW" ]] \
    && grep -q 'Module anti-drift' "$CI_WORKFLOW" 2>/dev/null \
-   && grep -q 'EXPECTED_MODULES=' "$CI_WORKFLOW" 2>/dev/null \
-   && [[ "${CI_LIST_COMPLETE}" == "true" ]]; then
-    assert_pass "CI anti-drift expected list covers every loop module"
+   && grep -q 'spectra-ci-lint.sh --modules' "$CI_WORKFLOW" 2>/dev/null \
+   && "${SPECTRA_HOME}/scripts/spectra-ci-lint.sh" --modules >/dev/null 2>&1; then
+    assert_pass "CI anti-drift delegates to the canonical module inventory gate"
 else
-    assert_fail "CI anti-drift expected list covers every loop module"
+    assert_fail "CI anti-drift delegates to the canonical module inventory gate"
 fi
 
 # ══════════════════════════════════════════

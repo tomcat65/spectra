@@ -164,6 +164,8 @@ run_script_suite "verdict-extraction" "test-verdict-extraction.sh"
 run_script_suite "wiring-scope" "test-wiring-scope.sh"
 run_script_suite "elicit" "test-elicit.sh"
 run_script_suite "runtime-probe" "test-runtime-probe.sh"
+run_script_suite "ci-parity" "test-ci-parity.sh"
+run_script_suite "doctor" "test-doctor.sh"
 
 # ══════════════════════════════════════════
 # Summary

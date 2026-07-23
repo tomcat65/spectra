@@ -22,57 +22,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Bash syntax check
-        run: |
-          failed=0
-          for script in bin/*.sh lib/*.sh; do
-            if bash -n "$script" 2>/dev/null; then
-              echo "PASS  $(basename "$script")"
-            else
-              echo "FAIL  $(basename "$script")"
-              failed=1
-            fi
-          done
-          exit $failed
+        run: scripts/spectra-ci-lint.sh --syntax
 
       - name: Module anti-drift
-        run: |
-          failed=0
-          # Explicit expected module list (update when adding/removing modules)
-          EXPECTED_MODULES="loop-signals loop-retry loop-wiring loop-git loop-structured loop-verdict loop-checkpoint loop-context loop-build loop-verify loop-lessons loop-session loop-metrics loop-stuck-recovery"
-          # 1. Every expected module must exist AND be sourced
-          for mod in $EXPECTED_MODULES; do
-            if [[ ! -f "lib/${mod}.sh" ]]; then
-              echo "FAIL: expected module lib/${mod}.sh is missing"
-              failed=1
-            elif ! grep -q "source.*lib/${mod}.sh" bin/spectra-loop.sh; then
-              echo "FAIL: lib/${mod}.sh exists but is not sourced in spectra-loop.sh"
-              failed=1
-            fi
-          done
-          # 2. Every lib/loop-*.sh on disk must be in expected list (no rogue modules)
-          for mod_file in lib/loop-*.sh; do
-            [[ -f "$mod_file" ]] || continue
-            mod_name=$(basename "$mod_file" .sh)
-            if ! echo "$EXPECTED_MODULES" | grep -qw "$mod_name"; then
-              echo "FAIL: unexpected module ${mod_file} not in expected list"
-              failed=1
-            fi
-          done
-          # 3. No duplicate source lines
-          dups=$(grep -E '^source.*lib/loop-' bin/spectra-loop.sh | sort | uniq -d)
-          if [[ -n "$dups" ]]; then
-            echo "FAIL: duplicate source lines: $dups"
-            failed=1
-          fi
-          # 4. No wildcard sourcing
-          if grep -qE 'source.*lib/loop-\*' bin/spectra-loop.sh; then
-            echo "FAIL: wildcard sourcing detected (must use explicit list)"
-            failed=1
-          fi
-          if [[ $failed -eq 0 ]]; then
-            echo "PASS: all expected modules present, sourced, no duplicates, no wildcards"
-          fi
-          exit $failed
+        run: scripts/spectra-ci-lint.sh --modules
 
       - name: Install ShellCheck (pinned)
         run: |
@@ -82,41 +35,23 @@ jobs:
           shellcheck --version | head -2
 
       - name: ShellCheck (errors only — fast fail)
-        run: shellcheck --severity=error bin/*.sh lib/*.sh hooks/pre-commit
+        run: scripts/spectra-ci-lint.sh --shellcheck
 
       - name: ShellCheck ratchet (warnings)
-        run: bin/spectra-shellcheck-ratchet.sh --check
+        run: scripts/spectra-ci-lint.sh --ratchet
 
       - name: Suppress rationale guard
+        run: scripts/spectra-ci-lint.sh --rationale
+
+      - name: Install actionlint (pinned)
         run: |
-          failed=0
-          for f in bin/*.sh lib/*.sh hooks/pre-commit; do
-            [[ -f "$f" ]] || continue
-            [[ -L "$f" ]] && continue
-            while IFS=: read -r lineno _; do
-              line_text=$(sed -n "${lineno}p" "$f")
-              if [[ "$lineno" -le 1 ]]; then
-                echo "FAIL: $(basename "$f"):${lineno}: disable on first line cannot have preceding RATIONALE: $line_text"
-                failed=1
-                continue
-              fi
-              prev=$((lineno - 1))
-              prev_text=$(sed -n "${prev}p" "$f")
-              if ! echo "$prev_text" | grep -q '# RATIONALE:'; then
-                echo "FAIL: $(basename "$f"):${lineno}: disable without RATIONALE: $line_text"
-                failed=1
-              fi
-            done < <(grep -n '# shellcheck disable=' "$f" || true)
-          done
-          if [[ $failed -eq 0 ]]; then
-            echo "PASS: all shellcheck disables have preceding RATIONALE comment"
-          fi
-          exit $failed
+          curl -fsSLO https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz
+          curl -fsSLO https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_checksums.txt
+          grep ' actionlint_1.7.7_linux_amd64.tar.gz$' actionlint_1.7.7_checksums.txt | sha256sum -c -
+          tar -xzf actionlint_1.7.7_linux_amd64.tar.gz actionlint
 
       - name: actionlint
-        run: |
-          bash <(curl -sS https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
-          ./actionlint
+        run: ACTIONLINT_BIN=./actionlint scripts/spectra-ci-lint.sh --actionlint
 
   tests:
     name: Tests
