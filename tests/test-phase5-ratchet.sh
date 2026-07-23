@@ -36,6 +36,7 @@ if ! command -v "$SHELLCHECK_BIN" > /dev/null 2>&1 && [[ ! -x "$SHELLCHECK_BIN" 
     echo "  SKIP  shellcheck not found — skipping ratchet tests"
     echo ""
     echo "  phase5-ratchet: 0 passed, 0 failed"
+    echo "SPECTRA_TEST_RESULT suite=phase5-ratchet pass=0 fail=0 skip=0 total=0"
     exit 0
 fi
 
@@ -414,6 +415,7 @@ fi
 # ══════════════════════════════════════════
 echo ""
 echo "  phase5-ratchet: ${PASS} passed, ${FAIL} failed"
+echo "SPECTRA_TEST_RESULT suite=phase5-ratchet pass=${PASS} fail=${FAIL} skip=0 total=$((PASS + FAIL))"
 
 if [[ ${FAIL} -gt 0 ]]; then
     exit 1

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║  SPECTRA v5.1 Project Initializer                                ║
+# ║  SPECTRA v5.5 Project Initializer                                ║
 # ║  Scaffolds .spectra/ + CLAUDE.md for All-Anthropic subagents     ║
 # ╚══════════════════════════════════════════════════════════════════╝
 #
@@ -21,6 +21,11 @@ USE_SLACK=false
 NO_COMMIT=false
 COST_CEILING="50.00"
 PER_TASK_BUDGET="10.00"
+SKIP_PATH_SETUP=false
+
+if [[ "${SPECTRA_SKIP_PATH_SETUP:-}" =~ ^(1|true|yes)$ ]] || [[ -n "${CI:-}" ]]; then
+    SKIP_PATH_SETUP=true
+fi
 
 # Cross-platform sed -i helper (GNU vs BSD)
 sed_inplace() {
@@ -40,7 +45,7 @@ while [[ $# -gt 0 ]]; do
         --per-task-budget) PER_TASK_BUDGET="$2"; shift 2 ;;
         -h|--help)
             cat <<EOF
-SPECTRA v5.1 Project Initializer
+SPECTRA v5.5 Project Initializer
 
 Usage: spectra-init --name "Project Name" [OPTIONS]
 
@@ -54,7 +59,7 @@ Options:
   --per-task-budget N  Per-task budget in USD (default: 10.00)
   -h, --help           Show this help
 
-Architecture (v5.1 — All-Anthropic):
+Architecture (v5.5 — All-Anthropic):
   spectra-planner   Opus    Planning artifacts
   spectra-reviewer  Sonnet  Cross-model plan validation
   spectra-auditor   Haiku   Pre-flight Sign scanning
@@ -74,7 +79,7 @@ fi
 DATE=$(date +%Y-%m-%d)
 
 echo "╔══════════════════════════════════════════╗"
-echo "║  SPECTRA v5.1 Project Initializer         ║"
+echo "║  SPECTRA v5.5 Project Initializer         ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 echo "  Project: ${PROJECT_NAME}"
@@ -155,45 +160,49 @@ fi
 # ── Wiring Verification Setup ──
 echo "→ Setting up wiring verification..."
 if [[ -f "${SPECTRA_HOME}/templates/verify.yaml.template" ]]; then
-    cp "${SPECTRA_HOME}/templates/verify.yaml.template" ".spectra/verify.yaml"
-
-    if [[ -t 0 ]]; then
-        # Interactive mode: ask user for project-specific values
-        echo ""
-        echo "=== Wiring Verification Setup ==="
-        read -p "  Source directories (comma-separated, e.g. src/,lib/): " WV_SOURCE_DIRS
-        read -p "  Test directories (comma-separated, default: tests/): " WV_TEST_DIRS
-        WV_TEST_DIRS="${WV_TEST_DIRS:-tests/}"
-        read -p "  Entry point files (comma-separated, e.g. src/server.py): " WV_ENTRY_POINTS
-        read -p "  Language (python/typescript/javascript/go/rust): " WV_LANGUAGE
-
-        # Format as YAML lists
-        fmt_list() { echo "$1" | tr ',' '\n' | sed 's/^\s*//;s/\s*$//' | grep -v '^$' \
-            | sed 's/.*/"&"/' | paste -sd, | sed 's/^/[/;s/$/]/'; }
-
-        [[ -n "$WV_SOURCE_DIRS" ]] && sed_inplace "s|source_dirs: \[\]|source_dirs: $(fmt_list "$WV_SOURCE_DIRS")|" .spectra/verify.yaml
-        sed_inplace "s|test_dirs: \[\"tests/\"\]|test_dirs: $(fmt_list "$WV_TEST_DIRS")|" .spectra/verify.yaml
-        [[ -n "$WV_ENTRY_POINTS" ]] && sed_inplace "s|entry_points: \[\]|entry_points: $(fmt_list "$WV_ENTRY_POINTS")|" .spectra/verify.yaml
-        [[ -n "$WV_LANGUAGE" ]] && sed_inplace "s|language: \"\"|language: \"$WV_LANGUAGE\"|" .spectra/verify.yaml
-
-        # Framework auto-detection
-        if [[ "$WV_LANGUAGE" == "python" ]]; then
-            if grep -qi "fastapi" requirements.txt 2>/dev/null || grep -qi "fastapi" pyproject.toml 2>/dev/null; then
-                echo "  Detected FastAPI — adding framework checks..."
-                sed_inplace '/framework_checks: \[\]/c\  framework_checks:\n    - name: "no-flask-tuple-returns"\n      pattern: '"'"'return\\s+\\{.*\\},\\s*[0-9]{3}'"'"'\n      paths: '"$(fmt_list "$WV_SOURCE_DIRS")"'\n      severity: error\n      message: "Flask-style tuple return in FastAPI — use JSONResponse"' .spectra/verify.yaml
-            fi
-        fi
+    if [[ -f ".spectra/verify.yaml" ]]; then
+        echo "  Preserving existing .spectra/verify.yaml"
     else
-        echo "  Non-interactive: verify.yaml template copied (edit manually)"
+        cp "${SPECTRA_HOME}/templates/verify.yaml.template" ".spectra/verify.yaml"
+
+        if [[ -t 0 ]]; then
+            # Interactive mode: ask user for project-specific values
+            echo ""
+            echo "=== Wiring Verification Setup ==="
+            read -p "  Source directories (comma-separated, e.g. src/,lib/): " WV_SOURCE_DIRS
+            read -p "  Test directories (comma-separated, default: tests/): " WV_TEST_DIRS
+            WV_TEST_DIRS="${WV_TEST_DIRS:-tests/}"
+            read -p "  Entry point files (comma-separated, e.g. src/server.py): " WV_ENTRY_POINTS
+            read -p "  Language (python/typescript/javascript/go/rust): " WV_LANGUAGE
+
+            # Format as YAML lists
+            fmt_list() { echo "$1" | tr ',' '\n' | sed 's/^\s*//;s/\s*$//' | grep -v '^$' \
+                | sed 's/.*/"&"/' | paste -sd, | sed 's/^/[/;s/$/]/'; }
+
+            [[ -n "$WV_SOURCE_DIRS" ]] && sed_inplace "s|source_dirs: \[\]|source_dirs: $(fmt_list "$WV_SOURCE_DIRS")|" .spectra/verify.yaml
+            sed_inplace "s|test_dirs: \[\"tests/\"\]|test_dirs: $(fmt_list "$WV_TEST_DIRS")|" .spectra/verify.yaml
+            [[ -n "$WV_ENTRY_POINTS" ]] && sed_inplace "s|entry_points: \[\]|entry_points: $(fmt_list "$WV_ENTRY_POINTS")|" .spectra/verify.yaml
+            [[ -n "$WV_LANGUAGE" ]] && sed_inplace "s|language: \"\"|language: \"$WV_LANGUAGE\"|" .spectra/verify.yaml
+
+            # Framework auto-detection
+            if [[ "$WV_LANGUAGE" == "python" ]]; then
+                if grep -qi "fastapi" requirements.txt 2>/dev/null || grep -qi "fastapi" pyproject.toml 2>/dev/null; then
+                    echo "  Detected FastAPI — adding framework checks..."
+                    sed_inplace '/framework_checks: \[\]/c\  framework_checks:\n    - name: "no-flask-tuple-returns"\n      pattern: '"'"'return\\s+\\{.*\\},\\s*[0-9]{3}'"'"'\n      paths: '"$(fmt_list "$WV_SOURCE_DIRS")"'\n      severity: error\n      message: "Flask-style tuple return in FastAPI — use JSONResponse"' .spectra/verify.yaml
+                fi
+            fi
+        else
+            echo "  Non-interactive: verify.yaml template copied (edit manually)"
+        fi
+        echo "  Created: .spectra/verify.yaml"
     fi
-    echo "  Created: .spectra/verify.yaml"
 else
     echo "  WARN: verify.yaml.template not found. Skipping wiring verification setup."
 fi
 
-# ── Generate project.yaml (v5.0 — All-Anthropic agents) ──
+# ── Generate project.yaml (v5.5 — All-Anthropic agents) ──
 cat > .spectra/project.yaml <<YAML
-# SPECTRA v5.1 Project Configuration
+# SPECTRA v5.5 Project Configuration
 name: ${PROJECT_NAME}
 level: ${LEVEL}
 created: ${DATE}
@@ -238,7 +247,7 @@ cp "${TEMPLATE_DIR}/screenshots/.gitkeep" ".spectra/screenshots/.gitkeep" 2>/dev
 touch ".spectra/logs/.gitkeep" ".spectra/signals/.gitkeep"
 
 # ── Write VERSION marker (Phase 10) ──
-echo "v5.4" > ".spectra/VERSION"
+echo "v5.5" > ".spectra/VERSION"
 
 # ── Generate CLAUDE.md (single integration point for all subagents) ──
 echo "→ Generating CLAUDE.md..."
@@ -304,7 +313,7 @@ if [[ "$USE_SLACK" == true ]]; then
     if [[ -n "${SLACK_WEBHOOK_URL:-}" ]]; then
         curl -s -X POST "${SLACK_WEBHOOK_URL}" \
             -H "Content-Type: application/json" \
-            -d "{\"text\":\"🚀 SPECTRA v5.1 initialized: *${PROJECT_NAME}* (Level ${LEVEL})\"}" > /dev/null 2>&1 || true
+            -d "{\"text\":\"🚀 SPECTRA v5.5 initialized: *${PROJECT_NAME}* (Level ${LEVEL})\"}" > /dev/null 2>&1 || true
         echo "→ Slack notified."
     fi
 fi
@@ -314,14 +323,14 @@ if [[ "$NO_COMMIT" == false ]]; then
     if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
         echo "→ Creating initial SPECTRA commit..."
         git add .spectra/ CLAUDE.md
-        git commit -m "chore: initialize SPECTRA v5.4 framework (Level ${LEVEL})" --no-verify 2>/dev/null || echo "  Nothing to commit."
+        git commit -m "chore: initialize SPECTRA v5.5 framework (Level ${LEVEL})" --no-verify 2>/dev/null || echo "  Nothing to commit."
     else
         echo "⚠  Not a git repository. Run 'git init' first."
     fi
 fi
 
 # ── PATH setup ──
-if [[ ":${PATH}:" != *":${SPECTRA_HOME}/bin:"* ]]; then
+if [[ "${SKIP_PATH_SETUP}" != true ]] && [[ ":${PATH}:" != *":${SPECTRA_HOME}/bin:"* ]]; then
     SHELL_RC="${HOME}/.bashrc"
     if [[ -n "${ZSH_VERSION:-}" ]] || [[ "$(basename "${SHELL:-/bin/bash}")" == "zsh" ]]; then
         SHELL_RC="${HOME}/.zshrc"
@@ -337,7 +346,7 @@ fi
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
-echo "║  SPECTRA v5.1 initialized!                ║"
+echo "║  SPECTRA v5.5 initialized!                ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 echo "  Files created:"

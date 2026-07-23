@@ -74,6 +74,7 @@ done
 
 echo ""
 echo "  plan-validate: ${PASS} passed, ${FAIL} failed"
+echo "SPECTRA_TEST_RESULT suite=plan-validate pass=${PASS} fail=${FAIL} skip=0 total=$((PASS + FAIL))"
 
 # Export counts for runner aggregation
 export TEST_PLAN_PASS=${PASS}

@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║  SPECTRA v5.0 Execution Loop — Bash-Native Parallel Architecture ║
-# ║  Heritage: v2.0 sequential engine (removed in v5.0)              ║
-# ║  New: parse_plan(), next_batch(), parallel_build(), checkpoint   ║
+# ║  SPECTRA v5.5 Execution Loop — Bash-Native Parallel Architecture ║
+# ║  Heritage: v5.0 introduced bash-native arch (replaced LLM lead)  ║
+# ║  Core: parse_plan(), next_batch(), parallel_build(), checkpoint  ║
 # ║  Architecture: Bash orchestrates. LLMs are workers.              ║
 # ╚══════════════════════════════════════════════════════════════════╝
 #
@@ -36,10 +36,15 @@ source "${SPECTRA_HOME}/lib/loop-signals.sh"
 source "${SPECTRA_HOME}/lib/loop-retry.sh"
 source "${SPECTRA_HOME}/lib/loop-wiring.sh"
 source "${SPECTRA_HOME}/lib/loop-git.sh"
+source "${SPECTRA_HOME}/lib/loop-structured.sh"
 source "${SPECTRA_HOME}/lib/loop-checkpoint.sh"
+source "${SPECTRA_HOME}/lib/loop-context.sh"
 source "${SPECTRA_HOME}/lib/loop-build.sh"
+source "${SPECTRA_HOME}/lib/loop-verdict.sh"
 source "${SPECTRA_HOME}/lib/loop-verify.sh"
 source "${SPECTRA_HOME}/lib/loop-lessons.sh"
+source "${SPECTRA_HOME}/lib/loop-session.sh"
+source "${SPECTRA_HOME}/lib/loop-metrics.sh"
 source "${SPECTRA_HOME}/lib/loop-stuck-recovery.sh"
 
 # ── Guard: CLAUDECODE env var (FIX-1, Phase 9) ──
@@ -64,7 +69,7 @@ MAX_BATCH_SIZE=4
 MAX_TASKS=50
 # RATIONALE: BUILDER_TIMEOUT is read by parallel_build() in loop-build module
 # shellcheck disable=SC2034
-BUILDER_TIMEOUT=600  # seconds per builder invocation (default 10 min)
+BUILDER_TIMEOUT=900  # seconds per builder invocation (default 15 min)
 START_TIME=$(date +%s)
 ELAPSED_OFFSET=0
 SPECTRA_RUN_ID="spectra-run-$(date +%Y%m%d-%H%M%S)"
@@ -84,6 +89,9 @@ TASK_READS=()     # comma-separated read-only files
 
 PASS_HISTORY=""
 BRANCH_NAME=""
+# RATIONALE: FRESH_BRANCH is read by setup_branch() in loop-git module
+# shellcheck disable=SC2034
+FRESH_BRANCH=false
 
 # ── Parse arguments ──
 while [[ $# -gt 0 ]]; do
@@ -91,6 +99,10 @@ while [[ $# -gt 0 ]]; do
         --plan-only)     PLAN_ONLY=true; shift ;;
         --skip-planning) SKIP_PLANNING=true; shift ;;
         --resume)        RESUME=true; SKIP_PLANNING=true; shift ;;
+        --fresh)
+            # RATIONALE: FRESH_BRANCH is read by setup_branch() in loop-git module
+            # shellcheck disable=SC2034
+            FRESH_BRANCH=true; shift ;;
         --dry-run)       DRY_RUN=true; shift ;;
         --risk-first)    RISK_FIRST=true; shift ;;
         --cost-ceiling)  COST_CEILING="$2"; shift 2 ;;
@@ -101,14 +113,15 @@ while [[ $# -gt 0 ]]; do
             BUILDER_TIMEOUT="$2"; shift 2 ;;
         -h|--help)
             cat <<EOF
-SPECTRA v5.0 Execution Loop — Bash-Native Parallel Architecture
+SPECTRA v5.5 Execution Loop — Bash-Native Parallel Architecture
 
-Usage: spectra-loop-v5 [OPTIONS]
+Usage: spectra-loop [OPTIONS]
 
 Options:
   --plan-only       Run planning + review gate only, then exit
-  --skip-planning   Skip to execution (plan already approved)
+  --skip-planning   Skip to execution (plan already approved, reuses run branch if checkpoint exists)
   --resume          Resume from checkpoint (deterministic, no LLM involvement)
+  --fresh           Force new run branch (ignore checkpoint branch, start clean)
   --dry-run         Print what would be executed without spawning agents
   --risk-first      Execute high-risk tasks first (default on for Level 2+)
   --cost-ceiling N  Override cost ceiling from project.yaml (USD)
@@ -116,7 +129,7 @@ Options:
   --builder-timeout N  Seconds before killing a hung builder (default: 600)
   -h, --help        Show this help
 
-Architecture (v5.0):
+Architecture (v5.5):
   Bash is the orchestrator. LLMs are workers.
   - Planner (Opus)  — generates plan artifacts
   - Reviewer (Sonnet) — validates plan + final PR review
@@ -137,6 +150,31 @@ done
 # ── Source env ──
 if [[ -f "${SPECTRA_HOME}/.env" ]]; then
     set +u; source "${SPECTRA_HOME}/.env"; set -u
+fi
+
+# ── Virtualenv detection ──
+# Prepend project's .venv/bin to PATH so builder/verifier agents inherit it.
+# Without this, agents use system Python which lacks project dependencies.
+if [[ -d ".venv/bin" ]]; then
+    PATH="$(pwd)/.venv/bin:${PATH}"
+    export PATH
+    echo "  Virtualenv: .venv/bin prepended to PATH"
+elif [[ -d "venv/bin" ]]; then
+    PATH="$(pwd)/venv/bin:${PATH}"
+    export PATH
+    echo "  Virtualenv: venv/bin prepended to PATH"
+fi
+
+# ── Integration token preflight ──
+PREFLIGHT_SCRIPT="${SPECTRA_HOME}/bin/spectra-preflight.sh"
+if [[ -x "${PREFLIGHT_SCRIPT}" ]]; then
+    if ! "${PREFLIGHT_SCRIPT}"; then
+        echo ""
+        echo "  Preflight failed. Fix integration tokens in ${SPECTRA_HOME}/.env"
+        echo "  Re-run: spectra-preflight --force"
+        echo "  Or remove tokens you don't need from .env and try again."
+        exit 1
+    fi
 fi
 
 # ── Verify project ──
@@ -296,9 +334,8 @@ count_tasks() {
 
 parse_plan() {
     local plan="${SPECTRA_DIR}/plan.md"
-    local plan_json="${SPECTRA_DIR}/plan.json"
 
-    if [[ ! -f "$plan" ]]; then
+    if [[ ! -f "${plan}" ]]; then
         echo "Error: No plan.md found."
         return 1
     fi
@@ -316,144 +353,24 @@ parse_plan() {
     TASK_LINES=()
     TASK_DEPS=()
 
-    # Fast path: if plan.json exists, is fresh, and jq is available, use JSON
-    if [[ -f "$plan_json" ]] && command -v jq &>/dev/null; then
-        # Freshness gate: plan.json must embed a source_hash matching plan.md's current hash.
-        # Fall back to strict mtime (json > md, not >=) if source_hash is absent.
-        local json_fresh=false
-        local md_hash json_source_hash
-        md_hash=$(sha256sum "$plan" 2>/dev/null | cut -d' ' -f1 || echo "")
-        json_source_hash=$(jq -r '.source_hash // empty' "$plan_json" 2>/dev/null || echo "")
-
-        if [[ -n "$md_hash" ]] && [[ -n "$json_source_hash" ]]; then
-            # Hash-based freshness (strongest)
-            if [[ "$json_source_hash" == "$md_hash" ]]; then
-                json_fresh=true
-            fi
-        elif [[ -n "$md_hash" ]] && [[ -z "$json_source_hash" ]]; then
-            # No source_hash in JSON — fall back to strict mtime (json strictly newer)
-            local md_mtime json_mtime
-            md_mtime=$(stat -c %Y "$plan" 2>/dev/null || stat -f %m "$plan" 2>/dev/null || echo "0")
-            json_mtime=$(stat -c %Y "$plan_json" 2>/dev/null || stat -f %m "$plan_json" 2>/dev/null || echo "0")
-            if [[ "$json_mtime" -gt "$md_mtime" ]]; then
-                json_fresh=true
-            fi
-        fi
-
-        if [[ "$json_fresh" == true ]]; then
-            if parse_plan_from_json "$plan_json"; then
-                echo "  Parsed ${#TASK_IDS[@]} tasks from plan.json (jq fast path)"
-                return 0
-            else
-                echo "  Warning: plan.json parse failed, falling back to markdown"
-            fi
-        else
-            echo "  Warning: plan.json is stale (does not match plan.md), using markdown path"
-        fi
+    if structured_plan_load; then
+        case "${PLAN_PARSE_SOURCE:-unknown}" in
+            plan_json)
+                echo "  Parsed ${#TASK_IDS[@]} tasks from plan.json (typed helper fast path)"
+                ;;
+            plan_md)
+                echo "  Parsed ${#TASK_IDS[@]} tasks from plan.md (typed helper)"
+                ;;
+            *)
+                echo "  Parsed ${#TASK_IDS[@]} tasks from structured helper"
+                ;;
+        esac
+        return 0
     fi
 
-    # Fallback: parse from markdown
+    echo "  Warning: typed helper plan load failed, falling back to legacy markdown parser"
     parse_plan_from_markdown
-    echo "  Parsed ${#TASK_IDS[@]} tasks from plan.md"
-    return 0
-}
-
-parse_plan_from_json() {
-    local json_file="$1"
-    local task_count
-
-    # Validate JSON is parseable
-    if ! jq empty "$json_file" 2>/dev/null; then
-        echo "  Warning: plan.json is not valid JSON" >&2
-        return 1
-    fi
-
-    # Validate required top-level structure
-    task_count=$(jq '.tasks | length' "$json_file" 2>/dev/null) || return 1
-    if [[ -z "$task_count" ]] || [[ "$task_count" -eq 0 ]]; then
-        return 1
-    fi
-
-    # Validate schema version (must be exactly "1.0")
-    local version
-    version=$(jq -r '.version // empty' "$json_file" 2>/dev/null) || return 1
-    if [[ "$version" != "1.0" ]]; then
-        echo "  Warning: plan.json has unsupported version: '${version}' (expected '1.0')" >&2
-        return 1
-    fi
-
-    # Validate each task has required fields before populating arrays
-    for ((i=0; i<task_count; i++)); do
-        local tid ttitle tstatus trisk tline tmax
-        tid=$(jq -r ".tasks[$i].id // empty" "$json_file" 2>/dev/null) || return 1
-        ttitle=$(jq -r ".tasks[$i].title // empty" "$json_file" 2>/dev/null) || return 1
-        tstatus=$(jq -r ".tasks[$i].status // empty" "$json_file" 2>/dev/null) || return 1
-        tline=$(jq -r ".tasks[$i].line_number // empty" "$json_file" 2>/dev/null) || return 1
-
-        # Required fields must be non-empty
-        if [[ -z "$tid" ]] || [[ -z "$ttitle" ]] || [[ -z "$tstatus" ]] || [[ -z "$tline" ]]; then
-            echo "  Warning: plan.json task $i missing required field (id/title/status/line_number)" >&2
-            return 1
-        fi
-
-        # Validate line_number is a non-negative integer
-        if [[ ! "$tline" =~ ^[0-9]+$ ]]; then
-            echo "  Warning: plan.json task $i has non-integer line_number: $tline" >&2
-            return 1
-        fi
-
-        # Validate id format (3-digit)
-        if [[ ! "$tid" =~ ^[0-9]{3}$ ]]; then
-            echo "  Warning: plan.json task $i has invalid id format: $tid" >&2
-            return 1
-        fi
-
-        # Validate status enum
-        if [[ "$tstatus" != "pending" ]] && [[ "$tstatus" != "complete" ]] && [[ "$tstatus" != "stuck" ]]; then
-            echo "  Warning: plan.json task $i has invalid status: $tstatus" >&2
-            return 1
-        fi
-
-        # Validate risk enum (with fallback default)
-        trisk=$(jq -r ".tasks[$i].risk // \"medium\"" "$json_file" 2>/dev/null)
-        if [[ "$trisk" != "low" ]] && [[ "$trisk" != "medium" ]] && [[ "$trisk" != "high" ]]; then
-            echo "  Warning: plan.json task $i has invalid risk: $trisk" >&2
-            return 1
-        fi
-
-        # Validate max_iterations is a positive integer
-        tmax=$(jq -r ".tasks[$i].max_iterations // 5" "$json_file" 2>/dev/null)
-        if [[ ! "$tmax" =~ ^[0-9]+$ ]] || [[ "$tmax" -eq 0 ]]; then
-            echo "  Warning: plan.json task $i has invalid max_iterations: $tmax" >&2
-            return 1
-        fi
-
-        # Validate arrays are actually arrays (not null or string)
-        for arr_field in owns touches reads deps; do
-            local arr_type
-            arr_type=$(jq -r ".tasks[$i].${arr_field} | type" "$json_file" 2>/dev/null) || return 1
-            if [[ "$arr_type" != "array" ]]; then
-                echo "  Warning: plan.json task $i.${arr_field} is not an array (got: $arr_type)" >&2
-                return 1
-            fi
-        done
-    done
-
-    # All validation passed — populate arrays
-    for ((i=0; i<task_count; i++)); do
-        TASK_IDS+=("$(jq -r ".tasks[$i].id" "$json_file")")
-        TASK_TITLES+=("$(jq -r ".tasks[$i].title" "$json_file")")
-        TASK_STATUS+=("$(jq -r ".tasks[$i].status" "$json_file")")
-        TASK_RISKS+=("$(jq -r ".tasks[$i].risk // \"medium\"" "$json_file")")
-        TASK_OWNS+=("$(jq -r '.tasks['"$i"'].owns | join(",")' "$json_file")")
-        TASK_TOUCHES+=("$(jq -r '.tasks['"$i"'].touches | join(",")' "$json_file")")
-        TASK_READS+=("$(jq -r '.tasks['"$i"'].reads | join(",")' "$json_file")")
-        TASK_VERIFY+=("$(jq -r ".tasks[$i].verify // \"\"" "$json_file")")
-        TASK_MAX_ITER+=("$(jq -r ".tasks[$i].max_iterations // 5" "$json_file")")
-        TASK_LINES+=("$(jq -r ".tasks[$i].line_number // 0" "$json_file")")
-        TASK_DEPS+=("$(jq -r '.tasks['"$i"'].deps | join(",")' "$json_file")")
-    done
-
+    echo "  Parsed ${#TASK_IDS[@]} tasks from plan.md (legacy fallback)"
     return 0
 }
 
@@ -797,18 +714,30 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
         echo "  [DRY RUN] Would spawn: spectra-planner (Opus)"
         echo "  [DRY RUN] Would spawn: spectra-reviewer (Sonnet)"
     else
-        echo "  Spawning spectra-planner (Opus)..."
-        claude --agent spectra-planner -p --permission-mode plan \
-            "Read the project description and generate all required SPECTRA planning artifacts for this project. Write to .spectra/ directory." \
-            2>&1 | tee "${LOGS_DIR}/planning.log" || true
+        echo "  Delegating to spectra-plan.sh (handles planner invocation, validation, plan.json)..."
+        PLAN_GENERATOR="${SPECTRA_HOME}/bin/spectra-plan.sh"
+        set +e
+        "${PLAN_GENERATOR}" --skip-discovery 2>&1 | tee "${LOGS_DIR}/planning.log"
+        PLAN_GEN_EXIT=$?
+        set -e
+
+        if [[ ${PLAN_GEN_EXIT} -ne 0 ]]; then
+            signal_stuck "Plan generation failed (spectra-plan.sh exit ${PLAN_GEN_EXIT}). Check ${LOGS_DIR}/planning.log"
+        fi
+
+        if [[ ! -f "${SPECTRA_DIR}/plan.md" ]]; then
+            signal_stuck "Plan generation completed but .spectra/plan.md not found. Check ${LOGS_DIR}/planning.log"
+        fi
 
         echo "  Spawning spectra-reviewer (Sonnet) for plan validation..."
-        claude --agent spectra-reviewer -p --permission-mode plan \
+        claude --agent spectra-reviewer -p --permission-mode plan --fallback-model haiku \
+            --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
             "Review all planning artifacts in .spectra/ (constitution.md, plan.md, prd.md if present). Output your verdict following the exact format in your instructions. Include a 'Verdict:' line (APPROVED, APPROVED_WITH_WARNINGS, or REJECTED)." \
             2>&1 | tee "${LOGS_DIR}/plan-review.log" "${SIGNALS_DIR}/plan-review.md" || true
 
         if [[ -f "${SIGNALS_DIR}/plan-review.md" ]]; then
-            VERDICT=$(grep -oP 'Verdict:\s*\K\S+' "${SIGNALS_DIR}/plan-review.md" | head -1 || echo "UNKNOWN")
+            VERDICT=$(extract_verdict "${SIGNALS_DIR}/plan-review.md" "verdict" APPROVED APPROVED_WITH_WARNINGS REJECTED)
+            [[ -z "$VERDICT" ]] && VERDICT="UNKNOWN"
             echo "  Plan review verdict: ${VERDICT}"
 
             case "$VERDICT" in
@@ -827,17 +756,24 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
                     done < <(sed -n '/### Warnings/,/### /p' "${SIGNALS_DIR}/plan-review.md" | grep '^\-' 2>/dev/null || true)
                     ;;
                 REJECTED)
-                    echo "  Plan rejected. Attempting one revision..."
-                    claude --agent spectra-planner -p --permission-mode plan \
-                        "Your plan was REJECTED. Read .spectra/signals/plan-review.md for rejection reasons. Revise the planning artifacts to address all blocking issues. This is your ONE revision attempt." \
-                        2>&1 | tee "${LOGS_DIR}/planning-revision.log" || true
+                    echo "  Plan rejected. Regenerating via spectra-plan.sh (ONE revision attempt)..."
+                    set +e
+                    "${PLAN_GENERATOR}" --skip-discovery 2>&1 | tee "${LOGS_DIR}/planning-revision.log"
+                    REVISION_EXIT=$?
+                    set -e
+
+                    if [[ ${REVISION_EXIT} -ne 0 ]]; then
+                        signal_stuck "Plan revision failed (spectra-plan.sh exit ${REVISION_EXIT}). Check ${LOGS_DIR}/planning-revision.log"
+                    fi
 
                     rm -f "${SIGNALS_DIR}/plan-review.md"
-                    claude --agent spectra-reviewer -p --permission-mode plan \
+                    claude --agent spectra-reviewer -p --permission-mode plan --fallback-model haiku \
+                        --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
                         "Re-review the revised planning artifacts in .spectra/. This is the second review. Output your verdict with a 'Verdict:' line." \
                         2>&1 | tee "${LOGS_DIR}/plan-re-review.log" "${SIGNALS_DIR}/plan-review.md" || true
 
-                    RE_VERDICT=$(grep -oP 'Verdict:\s*\K\S+' "${SIGNALS_DIR}/plan-review.md" 2>/dev/null | head -1 || echo "UNKNOWN")
+                    RE_VERDICT=$(extract_verdict "${SIGNALS_DIR}/plan-review.md" "verdict" APPROVED APPROVED_WITH_WARNINGS REJECTED)
+                    [[ -z "$RE_VERDICT" ]] && RE_VERDICT="UNKNOWN"
                     if [[ "$RE_VERDICT" == "REJECTED" ]] || [[ "$RE_VERDICT" == "UNKNOWN" ]]; then
                         signal_stuck "Plan rejected twice. Human must revise planning artifacts."
                     fi
@@ -848,7 +784,7 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
                     ;;
             esac
         else
-            echo "  No plan-review.md generated. Proceeding without formal review."
+            signal_stuck "No plan-review.md generated. Reviewer may have failed silently. Check ${LOGS_DIR}/plan-review.log"
         fi
     fi
 
@@ -897,9 +833,16 @@ if [[ -f "${SIGNALS_DIR}/RECONCILE" ]]; then
             }
         fi
     else
-        # Non-interactive — FAIL: RECONCILE requires interactive session
+        # Non-interactive — FAIL: RECONCILE requires operator decision
+        echo "" >&2
+        echo "FAIL: RECONCILE signal detected in non-interactive mode." >&2
+        echo "  Assessment drift: plan parameters diverge from assessment.yaml." >&2
+        echo "" >&2
+        echo "  Next steps:" >&2
+        echo "    1. Run 'spectra-loop' interactively to review and decide, or" >&2
+        echo "    2. Run 'spectra-assess' to regenerate assessment.yaml, then re-plan, or" >&2
+        echo "    3. Remove ${SIGNALS_DIR}/RECONCILE if drift is acceptable." >&2
         rm -f "${SIGNALS_DIR}/RECONCILE"
-        echo "FAIL: RECONCILE signal requires interactive session." >&2
         exit 1
     fi
     rm -f "${SIGNALS_DIR}/RECONCILE"
@@ -942,7 +885,7 @@ fi
 # ── Display banner ──
 read TOTAL DONE REMAINING STUCK_COUNT <<< "$(count_tasks)"
 echo ""
-echo "  SPECTRA v5.0 Execution Loop"
+echo "  SPECTRA v5.5 Execution Loop"
 echo "  ────────────────────────────────────"
 echo "  Tasks:        ${DONE}/${TOTAL} complete (${REMAINING} remaining, ${STUCK_COUNT} stuck)"
 echo "  Cost Ceiling: \$${COST_CEILING}"
@@ -1020,7 +963,7 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
             task_id="${TASK_IDS[$idx]}"
             write_batch_status "${batch_desc}" "auditor"
 
-            claude --agent spectra-auditor -p --permission-mode plan \
+            claude --agent spectra-auditor -p --permission-mode plan --fallback-model sonnet \
                 "$(preflight_prompt "$task_id")" \
                 2>&1 | tee "${LOGS_DIR}/task-${task_id}-preflight.log" "${LOGS_DIR}/task-${task_id}-preflight.md" &
             audit_pids+=($!)
@@ -1075,7 +1018,7 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
             TASK_STATUS[$idx]="stuck"
             task_line="${TASK_LINES[$idx]}"
             if [[ "$task_line" -gt 0 ]]; then
-                sed_inplace "${task_line}s/\- \[ \]/- [!]/" "${SPECTRA_DIR}/plan.md"
+                structured_plan_set_status "${TASK_IDS[$idx]}" "stuck"
             fi
             rm -f "${SIGNALS_DIR}/INFRA_FAIL_${task_id}"
             INFRA_FAILED=true
@@ -1121,34 +1064,46 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
         verify_depth="full"
 
         echo "    Verifying Task ${task_id} (${verify_depth})..."
+        VERIFY_START=$(date +%s)
         set +e
-        claude --agent spectra-verifier -p --permission-mode plan \
+        claude --agent spectra-verifier -p --permission-mode bypassPermissions \
+            --fallback-model sonnet \
+            --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
             "$(verify_prompt "$idx" "$verify_depth")" \
             2>&1 | tee "${LOGS_DIR}/task-${task_id}-verify.log" "${LOGS_DIR}/task-${task_id}-verify.md"
         VERIFY_EXIT=${PIPESTATUS[0]}
         set -e
+        VERIFY_ELAPSED=$(( $(date +%s) - VERIFY_START ))
 
         # ── Step D: Parse verification result ──
-        RESULT="UNKNOWN"
-        FAILURE_TYPE=""
-        if [[ -f "${LOGS_DIR}/task-${task_id}-verify.md" ]]; then
-            RESULT=$(grep -oiP 'Result:\s*\K\S+' "${LOGS_DIR}/task-${task_id}-verify.md" | head -1 || echo "UNKNOWN")
-            FAILURE_TYPE=$(grep -oiP 'Failure Type:\s*\K\S+' "${LOGS_DIR}/task-${task_id}-verify.md" | head -1 || echo "")
-        fi
+        # extract_verdict tries JSON trailer first, falls back to regex on markdown-stripped text.
+        RESULT=$(extract_verdict "${LOGS_DIR}/task-${task_id}-verify.md" "result" PASS FAIL)
+        FAILURE_TYPE=$(extract_verdict "${LOGS_DIR}/task-${task_id}-verify.md" "failure_type" \
+            test_failure missing_dependency wiring_gap architecture_mismatch ambiguous_spec external_blocker)
 
-        if [[ $VERIFY_EXIT -eq 0 ]] && [[ "$RESULT" == "UNKNOWN" ]]; then
-            RESULT="PASS"
+        # Exit code fallback: if agent output had no clear verdict
+        if [[ -z "$RESULT" ]]; then
+            if [[ $VERIFY_EXIT -eq 0 ]]; then
+                RESULT="PASS"
+            else
+                RESULT="FAIL"
+            fi
         fi
 
         if [[ "${RESULT^^}" == "PASS" ]]; then
             # ── Wiring gate (delegated to lib/loop-wiring.sh) ──
+            # When the verifier agent says PASS, wiring assertion failures are
+            # logged as warnings but do NOT override the verdict. The verifier
+            # already performs its own wiring proof (step 4 of 4-step audit).
+            # Rigid grep assertions can't understand valid naming choices
+            # (e.g., _get_sales vs _get_mike) — the verifier has full context.
             set +e
             run_wiring_gate "$task_id"
             WIRING_RESULT=$?
             set -e
             if [[ $WIRING_RESULT -ne 0 ]]; then
-                RESULT="FAIL"
-                FAILURE_TYPE="wiring_gap"
+                echo "    WARNING: Wiring assertions had failures (see ${LOGS_DIR}/task-${task_id}-wiring.log)"
+                echo "    Verifier verdict (PASS) is authoritative — proceeding."
             fi
         fi
 
@@ -1160,7 +1115,7 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
             # Update plan.md checkbox
             task_line="${TASK_LINES[$idx]}"
             if [[ "$task_line" -gt 0 ]]; then
-                sed_inplace "${task_line}s/\- \[ \]/- [x]/" "${SPECTRA_DIR}/plan.md"
+                structured_plan_set_status "${TASK_IDS[$idx]}" "complete"
             fi
 
             # Update pass history
@@ -1174,6 +1129,10 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
             commit_task "${task_id}" "${task_title}"
 
             generate_task_summary "${task_id}" "${task_title}" "PASS" "${iteration}"
+
+            # Record metric (Phase F)
+            record_task_metric "${task_id}" "PASS" "${iteration}" "" \
+                "${BATCH_ELAPSED:-0}" "${VERIFY_ELAPSED:-0}" 2>/dev/null || true
         else
             # ── FAIL ──
             # Use oracle to classify if verifier didn't provide type
@@ -1206,7 +1165,7 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
                         # Recovery failed — now mark as stuck
                         task_line="${TASK_LINES[$idx]}"
                         if [[ "$task_line" -gt 0 ]]; then
-                            sed_inplace "${task_line}s/\- \[ \]/- [!]/" "${SPECTRA_DIR}/plan.md"
+                            structured_plan_set_status "${TASK_IDS[$idx]}" "stuck"
                         fi
                         TASK_STATUS[$idx]="stuck"
                         write_checkpoint
@@ -1223,24 +1182,41 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
                 fi
             fi
 
+            # Phase F: Adaptive retry — fast escalate if same failure repeats
+            if should_fast_escalate "${task_id}" "${FAILURE_TYPE}" "${TASK_FAILURE_HISTORY[$idx]:-}" 2>/dev/null; then
+                task_line="${TASK_LINES[$idx]}"
+                if [[ "$task_line" -gt 0 ]]; then
+                    structured_plan_set_status "${TASK_IDS[$idx]}" "stuck"
+                fi
+                TASK_STATUS[$idx]="stuck"
+                record_task_metric "${task_id}" "STUCK" "${iteration}" "${FAILURE_TYPE}" \
+                    "${BATCH_ELAPSED:-0}" "${VERIFY_ELAPSED:-0}" 2>/dev/null || true
+                write_checkpoint
+                signal_stuck "Adaptive escalation: Task ${task_id} repeated ${FAILURE_TYPE} failure ${iteration} times."
+            fi
+
             # Check if failure type allows retry
             allowed_retries=0
             allowed_retries=$(max_retries_for "${FAILURE_TYPE}")
             if [[ "$allowed_retries" -eq 0 ]]; then
                 task_line="${TASK_LINES[$idx]}"
                 if [[ "$task_line" -gt 0 ]]; then
-                    sed_inplace "${task_line}s/\- \[ \]/- [!]/" "${SPECTRA_DIR}/plan.md"
+                    structured_plan_set_status "${TASK_IDS[$idx]}" "stuck"
                 fi
                 TASK_STATUS[$idx]="stuck"
+                record_task_metric "${task_id}" "STUCK" "${iteration}" "${FAILURE_TYPE}" \
+                    "${BATCH_ELAPSED:-0}" "${VERIFY_ELAPSED:-0}" 2>/dev/null || true
                 write_checkpoint
                 signal_stuck "Non-retryable failure on Task ${task_id}: ${FAILURE_TYPE}"
             elif [[ "$iteration" -ge "$allowed_retries" ]]; then
                 # Type-specific retry budget exhausted
                 task_line="${TASK_LINES[$idx]}"
                 if [[ "$task_line" -gt 0 ]]; then
-                    sed_inplace "${task_line}s/\- \[ \]/- [!]/" "${SPECTRA_DIR}/plan.md"
+                    structured_plan_set_status "${TASK_IDS[$idx]}" "stuck"
                 fi
                 TASK_STATUS[$idx]="stuck"
+                record_task_metric "${task_id}" "STUCK" "${iteration}" "${FAILURE_TYPE}" \
+                    "${BATCH_ELAPSED:-0}" "${VERIFY_ELAPSED:-0}" 2>/dev/null || true
                 write_checkpoint
                 signal_stuck "Task ${task_id} exhausted ${FAILURE_TYPE} retry budget (${allowed_retries} attempts)."
             fi
@@ -1249,9 +1225,11 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
             if [[ "$iteration" -ge "${TASK_MAX_ITER[$idx]}" ]]; then
                 task_line="${TASK_LINES[$idx]}"
                 if [[ "$task_line" -gt 0 ]]; then
-                    sed_inplace "${task_line}s/\- \[ \]/- [!]/" "${SPECTRA_DIR}/plan.md"
+                    structured_plan_set_status "${TASK_IDS[$idx]}" "stuck"
                 fi
                 TASK_STATUS[$idx]="stuck"
+                record_task_metric "${task_id}" "STUCK" "${iteration}" "${FAILURE_TYPE:-exhausted}" \
+                    "${BATCH_ELAPSED:-0}" "${VERIFY_ELAPSED:-0}" 2>/dev/null || true
                 write_checkpoint
                 signal_stuck "Task ${task_id} exhausted all ${max_iter} iterations without passing."
             fi
@@ -1306,13 +1284,14 @@ FAILEOF
     if [[ -f "${SIGNALS_DIR}/NEGOTIATE" ]]; then
         echo "  Negotiate signal detected — routing to reviewer..."
         last_task_id="${TASK_IDS[${BATCH[-1]}]}"
-        claude --agent spectra-reviewer -p --permission-mode plan \
+        claude --agent spectra-reviewer -p --permission-mode plan --fallback-model haiku \
+            --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
             "A builder has raised a spec negotiation for Task ${last_task_id}. Read .spectra/signals/NEGOTIATE for the proposed adaptation. Evaluate against constitution.md and non-goals.md. Output your verdict with a 'Verdict:' line." \
             2>&1 | tee "${LOGS_DIR}/negotiate-review.log" "${SIGNALS_DIR}/NEGOTIATE_REVIEW" | tail -5 || true
 
         if [[ -f "${SIGNALS_DIR}/NEGOTIATE_REVIEW" ]]; then
-            neg_verdict=""
-            neg_verdict=$(grep -oP 'Verdict:\s*\K\S+' "${SIGNALS_DIR}/NEGOTIATE_REVIEW" | head -1 || echo "UNKNOWN")
+            neg_verdict=$(extract_verdict "${SIGNALS_DIR}/NEGOTIATE_REVIEW" "verdict" APPROVED ESCALATE)
+            [[ -z "$neg_verdict" ]] && neg_verdict="UNKNOWN"
             echo "  Negotiate verdict: ${neg_verdict}"
 
             case "$neg_verdict" in
@@ -1337,6 +1316,14 @@ FAILEOF
         fi
 
         rm -f "${SIGNALS_DIR}/NEGOTIATE" "${SIGNALS_DIR}/NEGOTIATE_REVIEW"
+
+        # Always recompute plan checksum after negotiate — the plan may have
+        # been modified by constraint append or by structured_plan_set_status.
+        # Without this, the next iteration's verify_plan_checksum triggers a
+        # false PLAN_LOCK_FAIL on the loop's own sanctioned modification.
+        # RATIONALE: PLAN_CHECKSUM is used by verify_plan_checksum() in sourced lib/loop-checkpoint.sh
+        # shellcheck disable=SC2034
+        PLAN_CHECKSUM=$(compute_plan_structure_checksum)
     fi
 
 done
@@ -1354,7 +1341,8 @@ if [[ $REMAINING -eq 0 ]] && [[ $TOTAL -gt 0 ]]; then
 
     if [[ "$DRY_RUN" == false ]]; then
         echo "  Spawning spectra-reviewer (Sonnet) for final PR review..."
-        claude --agent spectra-reviewer -p --permission-mode plan \
+        claude --agent spectra-reviewer -p --permission-mode plan --fallback-model haiku \
+            --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
             "Perform a final PR review. Read .spectra/logs/ for all task reports. Review the git diff. Check the JSONL lessons in ~/.spectra/lessons/projects/ for patterns worth promoting. Output your review." \
             2>&1 | tee "${LOGS_DIR}/pr-review-session.log" "${LOGS_DIR}/pr-review.md" || true
     fi
@@ -1380,6 +1368,12 @@ if [[ $REMAINING -eq 0 ]] && [[ $TOTAL -gt 0 ]]; then
                 fi
             done < <(grep -oP '"fingerprint":"\K[^"]+' "${PROJECT_JSONL_P9}" 2>/dev/null | sort -u || true)
         fi
+    fi
+
+    # Phase F: Generate run retrospective from metrics
+    if [[ "$DRY_RUN" == false ]]; then
+        echo "  Generating run retrospective..."
+        generate_retrospective "${SPECTRA_RUN_ID}" > "${LOGS_DIR}/retrospective.md" 2>/dev/null || true
     fi
 
     if [[ "$DRY_RUN" == false ]]; then

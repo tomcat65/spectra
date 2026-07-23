@@ -219,8 +219,155 @@ else
 fi
 
 # ══════════════════════════════════════════
+# Test 7: --fresh flag recognized by spectra-loop.sh
+# ══════════════════════════════════════════
+echo "  Test: --fresh flag recognized by spectra-loop.sh"
+
+if grep -q '\-\-fresh' "${LOOP_SCRIPT}" 2>/dev/null; then
+    echo "  PASS  --fresh flag present in spectra-loop.sh"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  --fresh flag missing from spectra-loop.sh"
+    FAIL=$((FAIL + 1))
+fi
+
+# ══════════════════════════════════════════
+# Test 8: setup_branch reuses checkpoint branch when it exists
+# ══════════════════════════════════════════
+echo "  Test: setup_branch reuses checkpoint branch"
+
+BRANCH_PROJ="${tmp_dir}/branch-test"
+mkdir -p "${BRANCH_PROJ}/.spectra/signals"
+cd "${BRANCH_PROJ}"
+git init -q 2>/dev/null
+git commit --allow-empty -m "init" -q 2>/dev/null
+# Create a run branch with a commit
+git checkout -b "spectra/run-20260319-200000" -q 2>/dev/null
+echo "task work" > task-output.txt
+git add -A && git commit -m "feat(task-001): test" -q 2>/dev/null
+git checkout main -q 2>/dev/null || git checkout master -q 2>/dev/null
+
+# Write a checkpoint referencing the old branch
+cat > "${BRANCH_PROJ}/.spectra/signals/CHECKPOINT" <<'CP'
+{
+  "version": "5.0",
+  "completed": ["001"],
+  "stuck": [],
+  "branch": "spectra/run-20260319-200000",
+  "updated": "2026-03-19T20:30:00Z"
+}
+CP
+
+set +e
+BRANCH_OUT=$(bash -c '
+set -euo pipefail
+cd "'"${BRANCH_PROJ}"'"
+SPECTRA_HOME="'"${SPECTRA_DIR}"'"
+SPECTRA_DIR=".spectra"
+BRANCH_NAME=""
+DRY_RUN=false
+RESUME=false
+FRESH_BRANCH=false
+CHECKPOINT_FILE=".spectra/signals/CHECKPOINT"
+source "${SPECTRA_HOME}/lib/loop-git.sh"
+setup_branch
+echo "RESULT_BRANCH=${BRANCH_NAME}"
+echo "RESULT_HEAD=$(git rev-parse HEAD)"
+' 2>&1)
+set -e
+
+cd "${SCRIPT_DIR}/.."
+
+if echo "${BRANCH_OUT}" | grep -q "RESULT_BRANCH=spectra/run-20260319-200000"; then
+    echo "  PASS  setup_branch reused checkpoint branch"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  setup_branch did not reuse checkpoint branch"
+    echo "        output: ${BRANCH_OUT}"
+    FAIL=$((FAIL + 1))
+fi
+
+# ══════════════════════════════════════════
+# Test 9: setup_branch creates fresh branch with --fresh flag
+# ══════════════════════════════════════════
+echo "  Test: setup_branch creates fresh branch with --fresh"
+
+cd "${BRANCH_PROJ}"
+git checkout main -q 2>/dev/null || git checkout master -q 2>/dev/null
+
+set +e
+FRESH_OUT=$(bash -c '
+set -euo pipefail
+cd "'"${BRANCH_PROJ}"'"
+SPECTRA_HOME="'"${SPECTRA_DIR}"'"
+SPECTRA_DIR=".spectra"
+BRANCH_NAME=""
+DRY_RUN=false
+RESUME=false
+FRESH_BRANCH=true
+CHECKPOINT_FILE=".spectra/signals/CHECKPOINT"
+source "${SPECTRA_HOME}/lib/loop-git.sh"
+setup_branch
+echo "RESULT_BRANCH=${BRANCH_NAME}"
+' 2>&1)
+set -e
+
+cd "${SCRIPT_DIR}/.."
+
+if echo "${FRESH_OUT}" | grep -q "RESULT_BRANCH=spectra/run-" && \
+   ! echo "${FRESH_OUT}" | grep -q "RESULT_BRANCH=spectra/run-20260319-200000"; then
+    echo "  PASS  --fresh created new branch, ignored checkpoint"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  --fresh did not create a new branch"
+    echo "        output: ${FRESH_OUT}"
+    FAIL=$((FAIL + 1))
+fi
+
+# ══════════════════════════════════════════
+# Test 10: setup_branch creates new branch when no checkpoint exists
+# ══════════════════════════════════════════
+echo "  Test: setup_branch creates new branch when no checkpoint"
+
+NO_CP_PROJ="${tmp_dir}/no-cp-test"
+mkdir -p "${NO_CP_PROJ}/.spectra/signals"
+cd "${NO_CP_PROJ}"
+git init -q 2>/dev/null
+git commit --allow-empty -m "init" -q 2>/dev/null
+
+set +e
+NO_CP_OUT=$(bash -c '
+set -euo pipefail
+cd "'"${NO_CP_PROJ}"'"
+SPECTRA_HOME="'"${SPECTRA_DIR}"'"
+SPECTRA_DIR=".spectra"
+BRANCH_NAME=""
+DRY_RUN=false
+RESUME=false
+FRESH_BRANCH=false
+CHECKPOINT_FILE=".spectra/signals/CHECKPOINT"
+source "${SPECTRA_HOME}/lib/loop-git.sh"
+setup_branch
+echo "RESULT_BRANCH=${BRANCH_NAME}"
+' 2>&1)
+set -e
+
+cd "${SCRIPT_DIR}/.."
+
+if echo "${NO_CP_OUT}" | grep -q "RESULT_BRANCH=spectra/run-" && \
+   echo "${NO_CP_OUT}" | grep -q "Branch:"; then
+    echo "  PASS  new branch created when no checkpoint"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  branch creation failed without checkpoint"
+    echo "        output: ${NO_CP_OUT}"
+    FAIL=$((FAIL + 1))
+fi
+
+# ══════════════════════════════════════════
 echo ""
 echo "  loop-unit: ${PASS} passed, ${FAIL} failed"
+echo "SPECTRA_TEST_RESULT suite=loop-unit pass=${PASS} fail=${FAIL} skip=0 total=$((PASS + FAIL))"
 
 export TEST_LOOP_PASS=${PASS}
 export TEST_LOOP_FAIL=${FAIL}

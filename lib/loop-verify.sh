@@ -14,7 +14,17 @@ verify_prompt() {
     local verify_depth="${2:-full}"
     local task_id="${TASK_IDS[$idx]}"
 
-    local prompt="Verify Task ${task_id}. Read CLAUDE.md and .spectra/plan.md section '## Task ${task_id}' for context. Output your verification report with 'Result: PASS' or 'Result: FAIL' and 'Failure Type:' if applicable. Depth: ${verify_depth}."
+    local prompt="Verify Task ${task_id}."
+
+    # Centralized context loading (lib/loop-context.sh)
+    if declare -f context_files_for_verify >/dev/null 2>&1; then
+        prompt+=" $(context_files_for_verify "$task_id" "$verify_depth")"
+    else
+        # Fallback: inline context if loop-context.sh not sourced
+        prompt+=" Read CLAUDE.md and .spectra/plan.md section '## Task ${task_id}' for context. Depth: ${verify_depth}."
+    fi
+
+    prompt+=" Output your verification report with 'Result: PASS' or 'Result: FAIL' and 'Failure Type:' if applicable."
 
     # Enforce prompt budget (<500 bytes)
     if [[ ${#prompt} -gt 480 ]]; then
@@ -33,6 +43,7 @@ oracle_classify() {
 
     local classification
     classification=$(claude --agent spectra-oracle -p --permission-mode plan \
+        --fallback-model sonnet \
         "Read .spectra/logs/task-${task_id}-verify.md. Classify the failure as EXACTLY one of: test_failure, missing_dependency, wiring_gap, architecture_mismatch, ambiguous_spec, external_blocker. Respond with ONLY the classification word, nothing else." \
         2>&1 | tail -1 | tr -d '[:space:]' || echo "")
 
@@ -45,7 +56,8 @@ oracle_classify() {
             # If oracle returned garbage, fall back to verifier's reported type
             local verifier_type=""
             if [[ -f "${LOGS_DIR}/task-${task_id}-verify.md" ]]; then
-                verifier_type=$(grep -oiP 'Failure Type:\s*\K\S+' "${LOGS_DIR}/task-${task_id}-verify.md" | head -1 || echo "")
+                verifier_type=$(extract_verdict "${LOGS_DIR}/task-${task_id}-verify.md" "failure_type" \
+                    test_failure missing_dependency wiring_gap architecture_mismatch ambiguous_spec external_blocker)
             fi
             echo "${verifier_type:-test_failure}"
             ;;

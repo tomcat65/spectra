@@ -19,16 +19,21 @@ build_prompt() {
     local preflight_advisory="${3:-}"
 
     local prompt="Implement Task ${task_id}: ${title}."
-    prompt+=" Read CLAUDE.md for project context."
-    prompt+=" Read .spectra/plan.md section '## Task ${task_id}' for full acceptance criteria and file ownership."
-    prompt+=" Read .spectra/guardrails.md for active Signs."
 
-    if [[ "$iteration" -gt 1 ]]; then
-        prompt+=" This is retry ${iteration}. Read .spectra/logs/task-${task_id}-verify.md for the failure report. Fix the specific issues."
-    fi
-
-    if [[ -n "$preflight_advisory" ]]; then
-        prompt+=" Pre-flight advisory: ${preflight_advisory}"
+    # Centralized context loading (lib/loop-context.sh)
+    if declare -f context_files_for_build >/dev/null 2>&1; then
+        prompt+=" $(context_files_for_build "$task_id" "$iteration" "$preflight_advisory")"
+    else
+        # Fallback: inline context if loop-context.sh not sourced
+        prompt+=" Read CLAUDE.md for project context."
+        prompt+=" Read .spectra/plan.md section '## Task ${task_id}' for full acceptance criteria and file ownership."
+        prompt+=" Read .spectra/guardrails.md for active Signs."
+        if [[ "$iteration" -gt 1 ]]; then
+            prompt+=" This is retry ${iteration}. Read .spectra/logs/task-${task_id}-verify.md for the failure report. Fix the specific issues."
+        fi
+        if [[ -n "$preflight_advisory" ]]; then
+            prompt+=" Pre-flight advisory: ${preflight_advisory}"
+        fi
     fi
 
     # Enforce prompt budget (<500 bytes)
@@ -86,7 +91,8 @@ parallel_build() {
         fi
 
         timeout "${BUILDER_TIMEOUT}" \
-            claude --agent spectra-builder -p --permission-mode acceptEdits \
+            claude --agent spectra-builder -p --permission-mode bypassPermissions \
+            --fallback-model sonnet \
             "${prompt_text}" > "${LOGS_DIR}/task-${task_id}-build.log" 2>&1 &
         pids+=($!)
     done
@@ -104,6 +110,24 @@ parallel_build() {
         builder_exits+=("$_bx")
         if [[ "$_bx" -eq 124 ]]; then
             echo "  TIMEOUT: Builder for Task ${batch_task_ids[$i]} killed after ${BUILDER_TIMEOUT}s"
+            # Auto-commit salvage: if builder left modified/staged files, commit them
+            # before declaring failure. The work is done, just didn't finish in time.
+            # Only runs on spectra/run-* branches (not during tests or on main).
+            # Only stages tracked modified files (git add -u, not -A).
+            if git rev-parse --is-inside-work-tree &>/dev/null; then
+                local _current_branch
+                _current_branch=$(git branch --show-current 2>/dev/null || echo "")
+                if [[ "$_current_branch" == spectra/run-* ]]; then
+                    local _changed
+                    _changed=$(git diff --name-only 2>/dev/null | wc -l)
+                    _changed=$(( _changed + $(git diff --cached --name-only 2>/dev/null | wc -l) ))
+                    if [[ "$_changed" -gt 0 ]]; then
+                        echo "  SALVAGE: Builder left ${_changed} modified files — auto-committing"
+                        git add -u 2>/dev/null || true
+                        git commit -m "feat(task-${batch_task_ids[$i]}): auto-salvage — builder timeout after ${BUILDER_TIMEOUT}s" 2>/dev/null || true
+                    fi
+                fi
+            fi
             echo "TIMEOUT" > "${SIGNALS_DIR}/TIMEOUT_${batch_task_ids[$i]}"
             failed=true
         elif [[ "$_bx" -ne 0 ]]; then

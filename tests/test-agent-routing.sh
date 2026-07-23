@@ -237,5 +237,6 @@ done
 # ══════════════════════════════════════════
 echo ""
 echo "  agent-routing: ${PASS} passed, ${FAIL} failed"
+echo "SPECTRA_TEST_RESULT suite=agent-routing pass=${PASS} fail=${FAIL} skip=0 total=$((PASS + FAIL))"
 
 [[ "${FAIL}" -eq 0 ]] || exit 1

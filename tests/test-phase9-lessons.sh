@@ -1358,7 +1358,7 @@ test_upgrade_brownfield_lessons_active_generated() {
 test_upgrade_detects_version_skips() {
     setup_test_env
     mkdir -p "${TEST_SPECTRA_DIR}"
-    echo "v5.4" > "${TEST_SPECTRA_DIR}/VERSION"
+    echo "v5.5" > "${TEST_SPECTRA_DIR}/VERSION"
     echo "should not be backed up" > "${TEST_SPECTRA_DIR}/guardrails.md"
     spectra_upgrade_project "${TEST_SPECTRA_DIR}" "test-project"
     # Should NOT create backup (skipped entirely)
@@ -1517,6 +1517,7 @@ test_dryrun_no_mutation
 
 echo ""
 echo "  phase9-lessons: ${PASS} passed, ${FAIL} failed"
+echo "SPECTRA_TEST_RESULT suite=phase9-lessons pass=${PASS} fail=${FAIL} skip=0 total=${TESTS_RUN}"
 echo ""
 
 if [[ ${FAIL} -gt 0 ]]; then

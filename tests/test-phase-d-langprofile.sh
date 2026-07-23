@@ -149,13 +149,12 @@ fi
 rm -rf "$TMPDIR_EMPTY"
 
 # ── Test 11: Missing profile emits WARNING ──
-# Simulate: spectra-verify.sh with a javascript project (no js profile)
+# Simulate: spectra-verify.sh with a language that has no profile (e.g. ruby)
 TMPDIR_WARN=$(mktemp -d)
-touch "${TMPDIR_WARN}/package.json"
-WARN_DETECTED="javascript"
+WARN_DETECTED="ruby"
 WARN_PROFILE="${SPECTRA_HOME}/lang-profiles/${WARN_DETECTED}.profile"
 if [[ ! -f "$WARN_PROFILE" ]]; then
-    # Simulate the warning output
+    # Simulate the warning output that spectra-verify.sh would produce
     WARNING_MSG="WARNING: No language profile for '${WARN_DETECTED}'. Wiring proof may be incomplete."
     if [[ "$WARNING_MSG" == *"WARNING"* ]]; then
         pass "T11: Missing profile emits WARNING"
@@ -163,7 +162,7 @@ if [[ ! -f "$WARN_PROFILE" ]]; then
         fail "T11: Missing profile emits WARNING" "no WARNING in output"
     fi
 else
-    fail "T11: Missing profile emits WARNING" "javascript.profile unexpectedly exists"
+    fail "T11: Missing profile emits WARNING" "ruby.profile unexpectedly exists"
 fi
 rm -rf "$TMPDIR_WARN"
 
@@ -177,6 +176,7 @@ fi
 # ── Summary ──
 echo ""
 echo "=== Phase D Language Profile: ${PASS} passed, ${FAIL} failed, ${TESTS_RUN} total ==="
+echo "SPECTRA_TEST_RESULT suite=phase-d-langprofile pass=${PASS} fail=${FAIL} skip=0 total=${TESTS_RUN}"
 
 if [[ $FAIL -gt 0 ]]; then
     exit 1

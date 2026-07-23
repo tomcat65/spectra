@@ -178,51 +178,45 @@ else
 fi
 
 # ══════════════════════════════════════════
-# Test 13: Wiring failure sets failure_type=wiring_gap (routes to retry)
+# Test 13: Wiring failures are warnings when verifier says PASS (not blockers)
+# The verifier's PASS verdict is authoritative — wiring assertion failures
+# are logged as warnings but do not override the verifier.
 # ══════════════════════════════════════════
-if grep -q 'FAILURE_TYPE="wiring_gap"' "$LOOP" 2>/dev/null; then
-    assert_pass "wiring failure sets failure_type=wiring_gap for retry"
+if grep -q 'Verifier verdict (PASS) is authoritative' "$LOOP" 2>/dev/null; then
+    assert_pass "wiring failures are warnings when verifier says PASS"
 else
-    assert_fail "wiring failure sets failure_type=wiring_gap for retry"
+    assert_fail "wiring failures are warnings when verifier says PASS"
 fi
 
 # ══════════════════════════════════════════
-# Test 14: Runtime — wiring failure prevents task completion in mock loop
+# Test 14: Runtime — verifier PASS is not overridden by wiring failure
 # ══════════════════════════════════════════
-# Simulate the wiring gate logic extracted from the loop.
-# If wiring fails, RESULT must flip to FAIL and task must NOT be marked complete.
+# Simulate the new wiring gate logic: wiring failures are warnings,
+# verifier PASS proceeds to task completion.
 TMPDIR_T14=$(mktemp -d)
 cat > "$TMPDIR_T14/wiring-gate-sim.sh" <<'SIMEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 # Simulated wiring gate logic (extracted from spectra-loop.sh)
+# Verifier said PASS — wiring failures are warnings only
 RESULT="PASS"
-WIRING_OK=true
 TASK_STATUS="pending"
 
 # Simulate wiring failure (exit 1)
 WIRING_EXIT=1
-SPECTRA_SKIP_WIRING="${SPECTRA_SKIP_WIRING:-0}"
 
-if [[ "$SPECTRA_SKIP_WIRING" == "1" ]]; then
-    : # bypass
-elif [[ $WIRING_EXIT -ne 0 ]]; then
-    WIRING_OK=false
-fi
-
-if [[ "$WIRING_OK" == false ]]; then
-    RESULT="FAIL"
-    FAILURE_TYPE="wiring_gap"
+if [[ $WIRING_EXIT -ne 0 ]]; then
+    echo "WARNING: Wiring assertions had failures"
+    echo "Verifier verdict (PASS) is authoritative — proceeding."
+    # RESULT stays PASS — wiring does not override
 fi
 
 if [[ "${RESULT}" == "PASS" ]]; then
     TASK_STATUS="complete"
 fi
 
-# Output for test assertion
 echo "RESULT=${RESULT}"
 echo "TASK_STATUS=${TASK_STATUS}"
-echo "FAILURE_TYPE=${FAILURE_TYPE:-}"
 SIMEOF
 chmod +x "$TMPDIR_T14/wiring-gate-sim.sh"
 
@@ -231,12 +225,11 @@ rm -rf "$TMPDIR_T14"
 
 SIM_RESULT=$(echo "$SIM_OUT" | grep '^RESULT=' | cut -d= -f2)
 SIM_STATUS=$(echo "$SIM_OUT" | grep '^TASK_STATUS=' | cut -d= -f2)
-SIM_FTYPE=$(echo "$SIM_OUT" | grep '^FAILURE_TYPE=' | cut -d= -f2)
 
-if [[ "$SIM_RESULT" == "FAIL" ]] && [[ "$SIM_STATUS" == "pending" ]] && [[ "$SIM_FTYPE" == "wiring_gap" ]]; then
-    assert_pass "runtime: wiring failure blocks completion (FAIL/pending/wiring_gap)"
+if [[ "$SIM_RESULT" == "PASS" ]] && [[ "$SIM_STATUS" == "complete" ]]; then
+    assert_pass "runtime: verifier PASS proceeds despite wiring failure (warning only)"
 else
-    assert_fail "runtime: wiring failure blocks completion — got RESULT=$SIM_RESULT STATUS=$SIM_STATUS TYPE=$SIM_FTYPE"
+    assert_fail "runtime: verifier PASS overridden — got RESULT=$SIM_RESULT STATUS=$SIM_STATUS"
 fi
 
 # ══════════════════════════════════════════
@@ -257,6 +250,7 @@ fi
 # ══════════════════════════════════════════
 echo ""
 echo "  phase3-enforcement: ${PASS} passed, ${FAIL} failed"
+echo "SPECTRA_TEST_RESULT suite=phase3-enforcement pass=${PASS} fail=${FAIL} skip=0 total=$((PASS + FAIL))"
 
 if [[ ${FAIL} -gt 0 ]]; then
     exit 1

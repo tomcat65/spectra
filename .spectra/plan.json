@@ -1,0 +1,353 @@
+{
+  "version": "1.0",
+  "source_hash": "ebd72235db194368efd40c7f3d4d79e064b0cf9bd0763652b57278c8aff31590",
+  "project": "SPECTRA Framework Origin",
+  "level": 3,
+  "generated": "2026-03-09",
+  "source": "dogfood review + ECC integration plan",
+  "tasks": [
+    {
+      "id": "001",
+      "title": "Repair in-loop planning persistence",
+      "status": "complete",
+      "risk": "high",
+      "verify": "bash tests/test-loop-planning.sh && bash tests/test-plan-extract.sh",
+      "max_iterations": 10,
+      "owns": [
+        "tests/test-loop-planning.sh",
+        "fixtures/loop-planning/README.md"
+      ],
+      "touches": [
+        "bin/spectra-loop.sh",
+        "bin/spectra-plan.sh",
+        "agents/spectra-planner.md"
+      ],
+      "reads": [
+        "bin/spectra-plan-validate.sh",
+        "bin/plan-extract.sh",
+        "templates/plan-schema.json",
+        "docs/spectra-codebase-review-2026-03-09.md"
+      ],
+      "deps": [],
+      "line_number": 11,
+      "scope": "code",
+      "files": "bin/spectra-loop.sh, bin/spectra-plan.sh, agents/spectra-planner.md, tests/test-loop-planning.sh, fixtures/loop-planning/README.md",
+      "ac": [
+        "`spectra-loop.sh --plan-only` no longer depends on a read-only planner magically writing `.spectra/plan.md`.",
+        "The planning path produces a validated `.spectra/plan.md` and fresh `.spectra/plan.json`, or fails loudly with preserved artifacts for review.",
+        "Planner prompt and runtime ownership of file writes are consistent with actual agent capabilities."
+      ]
+    },
+    {
+      "id": "002",
+      "title": "Enforce reviewer gate on planned execution",
+      "status": "complete",
+      "risk": "high",
+      "verify": "bash tests/test-plan-review-gate.sh",
+      "max_iterations": 8,
+      "owns": [
+        "tests/test-plan-review-gate.sh"
+      ],
+      "touches": [
+        "bin/spectra-loop.sh",
+        "agents/spectra-reviewer.md",
+        "README.md"
+      ],
+      "reads": [
+        "lib/loop-signals.sh",
+        "docs/spectra-codebase-review-2026-03-09.md",
+        ".spectra/constitution.md"
+      ],
+      "deps": [
+        "001"
+      ],
+      "line_number": 30,
+      "scope": "code",
+      "files": "bin/spectra-loop.sh, agents/spectra-reviewer.md, README.md, tests/test-plan-review-gate.sh",
+      "ac": [
+        "When planning runs, missing `plan-review.md` is treated as a blocking condition rather than a silent pass.",
+        "Rejected plans get one bounded revision attempt, then execution stops with a clear operator-visible reason.",
+        "Reviewer instructions, verdict parsing, and runtime behavior all agree on the artifact path and accepted verdict values."
+      ]
+    },
+    {
+      "id": "003",
+      "title": "Align preflight and RECONCILE behavior with documentation",
+      "status": "complete",
+      "risk": "high",
+      "verify": "bash tests/test-preflight-reconcile.sh",
+      "max_iterations": 8,
+      "owns": [
+        "tests/test-preflight-reconcile.sh"
+      ],
+      "touches": [
+        "bin/spectra-loop.sh",
+        "bin/spectra-preflight.sh",
+        "README.md"
+      ],
+      "reads": [
+        "bin/spectra-plan.sh",
+        "bin/spectra-assess.sh",
+        "docs/spectra-codebase-review-2026-03-09.md"
+      ],
+      "deps": [],
+      "line_number": 49,
+      "scope": "code",
+      "files": "bin/spectra-loop.sh, bin/spectra-preflight.sh, README.md, tests/test-preflight-reconcile.sh",
+      "ac": [
+        "Loop startup either runs `spectra-preflight.sh` as documented or the docs are corrected to mark preflight manual.",
+        "RECONCILE behavior is identical in docs and code for interactive and non-interactive flows.",
+        "The final operator-facing output gives exact next steps when preflight or RECONCILE blocks progress."
+      ]
+    },
+    {
+      "id": "004",
+      "title": "Remove prompt, template, and version drift",
+      "status": "complete",
+      "risk": "medium",
+      "verify": "bash tests/test-init-drift.sh",
+      "max_iterations": 6,
+      "owns": [
+        "tests/test-init-drift.sh"
+      ],
+      "touches": [
+        "bin/spectra-init.sh",
+        "README.md",
+        "templates/.spectra/PROMPT_build.md",
+        "templates/.spectra/PROMPT_verify.md",
+        "templates/.spectra/PROMPT_split.md",
+        "templates/.spectra/tasks.md.tmpl"
+      ],
+      "reads": [
+        "templates/.spectra/plan.md.tmpl",
+        "SPECTRA_COMPLETE.md",
+        "SPECTRA_METHOD.md"
+      ],
+      "deps": [],
+      "line_number": 68,
+      "scope": "code",
+      "files": "bin/spectra-init.sh, README.md, templates/.spectra/PROMPT_build.md, templates/.spectra/PROMPT_verify.md, templates/.spectra/PROMPT_split.md, templates/.spectra/tasks.md.tmpl, tests/test-init-drift.sh",
+      "ac": [
+        "Prompt files, scaffolded templates, and runtime prompts have one explicit source of truth.",
+        "`spectra-init.sh`, version markers, and visible help text stop emitting conflicting v5.0, v5.1, v5.4, and v5.4.1 labels.",
+        "Any legacy scaffolds that remain are explicitly labeled legacy instead of looking current."
+      ]
+    },
+    {
+      "id": "005",
+      "title": "Make verifier command selection language-aware",
+      "status": "complete",
+      "risk": "medium",
+      "verify": "bash tests/test-verify-command-detection.sh && bash tests/test-phase-d-langprofile.sh",
+      "max_iterations": 6,
+      "owns": [
+        "tests/test-verify-command-detection.sh",
+        "fixtures/verify-command/README.md"
+      ],
+      "touches": [
+        "bin/spectra-verify.sh",
+        "lang-profiles/python.profile"
+      ],
+      "reads": [
+        "bin/spectra-verify-wiring.sh",
+        "tests/test-phase-d-langprofile.sh",
+        "docs/spectra-codebase-review-2026-03-09.md"
+      ],
+      "deps": [],
+      "line_number": 87,
+      "scope": "code",
+      "files": "bin/spectra-verify.sh, lang-profiles/python.profile, tests/test-verify-command-detection.sh, fixtures/verify-command/README.md",
+      "ac": [
+        "A `tests/` directory alone no longer forces Python or `pytest` regression commands.",
+        "Regression command selection uses language profiles or repository signals with deterministic fallback behavior.",
+        "JS or TS and other non-Python fixture coverage exists to prove the selection logic is no longer Python-biased."
+      ]
+    },
+    {
+      "id": "006",
+      "title": "Expand direct operational coverage and fixture execution",
+      "status": "complete",
+      "risk": "medium",
+      "verify": "bash tests/run-tests.sh",
+      "max_iterations": 6,
+      "owns": [
+        "tests/test-status.sh",
+        "tests/test-quick.sh",
+        "tests/test-init-e2e.sh"
+      ],
+      "touches": [
+        "tests/test-assess.sh",
+        "tests/run-tests.sh",
+        "README.md"
+      ],
+      "reads": [
+        "fixtures/assessment/manifest.json",
+        "fixtures/bmad-bridge/manifest.json",
+        "fixtures/plan-bridge/manifest.json"
+      ],
+      "deps": [],
+      "line_number": 106,
+      "scope": "code",
+      "files": "tests/test-assess.sh, tests/test-status.sh, tests/test-quick.sh, tests/test-init-e2e.sh, tests/run-tests.sh, README.md",
+      "ac": [
+        "`spectra-assess.sh`, `spectra-status.sh`, `spectra-quick.sh`, and init end-to-end behavior each have direct regression coverage.",
+        "BMAD bridge and plan bridge fixtures are executed by tests rather than serving only as documentation.",
+        "The repo can demonstrate coverage for the framework control plane without relying on hand inspection."
+      ]
+    },
+    {
+      "id": "007",
+      "title": "Add progressive context loading with explicit fallback",
+      "status": "complete",
+      "risk": "medium",
+      "verify": "bash tests/test-phase11-context-loading.sh",
+      "max_iterations": 8,
+      "owns": [
+        "lib/loop-context.sh",
+        "tests/test-phase11-context-loading.sh"
+      ],
+      "touches": [
+        "lib/loop-build.sh",
+        "lib/loop-verify.sh",
+        "agents/spectra-builder.md",
+        "agents/spectra-verifier.md"
+      ],
+      "reads": [
+        "agents/references/wiring-checklist.md",
+        "agents/references/failure-types.md",
+        ".spectra/plan.md"
+      ],
+      "deps": [],
+      "line_number": 125,
+      "scope": "code",
+      "files": "lib/loop-context.sh, lib/loop-build.sh, lib/loop-verify.sh, agents/spectra-builder.md, agents/spectra-verifier.md, tests/test-phase11-context-loading.sh",
+      "ac": [
+        "Builder and verifier start with task-local context and load broader context only when signals require it.",
+        "Full-context fallback remains available and deterministic for complex or ambiguous tasks.",
+        "Context loading logic is centralized instead of duplicated across build and verify flows."
+      ]
+    },
+    {
+      "id": "008",
+      "title": "Add opt-in Sign candidate discovery after failure recovery",
+      "status": "complete",
+      "risk": "medium",
+      "verify": "bash tests/test-phase11-sign-candidates.sh",
+      "max_iterations": 6,
+      "owns": [
+        "hooks/post-verify-learn.sh",
+        "tests/test-phase11-sign-candidates.sh"
+      ],
+      "touches": [
+        "lib/loop-lessons.sh",
+        "README.md"
+      ],
+      "reads": [
+        "agents/references/signs-taxonomy.md",
+        "agents/references/failure-types.md",
+        "lessons/projects/project/lessons.jsonl"
+      ],
+      "deps": [],
+      "line_number": 144,
+      "scope": "code",
+      "files": "hooks/post-verify-learn.sh, lib/loop-lessons.sh, README.md, tests/test-phase11-sign-candidates.sh",
+      "ac": [
+        "After FAIL to FIX to PASS cycles, a file-backed hook or script can propose new Sign candidates without mutating guardrails automatically.",
+        "Proposed Sign candidates include enough context to audit why the pattern was suggested.",
+        "The feature is disabled by default and safe to ignore in existing project flows."
+      ]
+    },
+    {
+      "id": "009",
+      "title": "Add language-aware quality gates ahead of verifier",
+      "status": "complete",
+      "risk": "medium",
+      "verify": "bash tests/test-phase11-quality-gate.sh",
+      "max_iterations": 6,
+      "owns": [
+        "scripts/spectra-quality-gate.sh",
+        "tests/test-phase11-quality-gate.sh"
+      ],
+      "touches": [
+        "hooks/pre-commit",
+        "agents/scripts/builder-self-audit.sh",
+        "README.md"
+      ],
+      "reads": [
+        "lang-profiles/python.profile",
+        "bin/spectra-verify-wiring.sh",
+        "docs/spectra-codebase-review-2026-03-09.md"
+      ],
+      "deps": [],
+      "line_number": 163,
+      "scope": "code",
+      "files": "scripts/spectra-quality-gate.sh, hooks/pre-commit, agents/scripts/builder-self-audit.sh, README.md, tests/test-phase11-quality-gate.sh",
+      "ac": [
+        "Builder-side quality gates can run cheap lint or format checks before expensive verifier passes.",
+        "Auto-fixes are limited to deterministic safe operations and do not bypass verifier authority.",
+        "Quality gate behavior is aware of repo language signals rather than assuming a Python-only workflow."
+      ]
+    },
+    {
+      "id": "010",
+      "title": "Add runtime profiles and orchestrator-only session persistence",
+      "status": "complete",
+      "risk": "medium",
+      "verify": "bash tests/test-phase11-runtime-profiles.sh",
+      "max_iterations": 8,
+      "owns": [
+        "lib/loop-session.sh",
+        "tests/test-phase11-runtime-profiles.sh"
+      ],
+      "touches": [
+        "bin/spectra-loop.sh",
+        "lib/loop-build.sh",
+        "lib/loop-verify.sh",
+        "README.md"
+      ],
+      "reads": [
+        "bin/spectra-status.sh",
+        ".spectra/project.yaml",
+        "docs/spectra-codebase-review-2026-03-09.md"
+      ],
+      "deps": [],
+      "line_number": 182,
+      "scope": "code",
+      "files": "lib/loop-session.sh, bin/spectra-loop.sh, lib/loop-build.sh, lib/loop-verify.sh, README.md, tests/test-phase11-runtime-profiles.sh",
+      "ac": [
+        "Runtime depth profiles are explicit, environment-driven, and reversible.",
+        "Any persistence is limited to orchestrator or lead state; builder and verifier remain fresh-context by design.",
+        "Resume behavior does not leak stale execution context across tasks."
+      ]
+    },
+    {
+      "id": "011",
+      "title": "Add optional post-project cleanup command",
+      "status": "complete",
+      "risk": "low",
+      "verify": "bash tests/test-refactor-clean.sh",
+      "max_iterations": 5,
+      "owns": [
+        "bin/spectra-refactor-clean.sh",
+        "tests/test-refactor-clean.sh"
+      ],
+      "touches": [
+        "README.md"
+      ],
+      "reads": [
+        "SPECTRA_COMPLETE.md",
+        "docs/ci-break-glass.md",
+        "docs/spectra-codebase-review-2026-03-09.md"
+      ],
+      "deps": [],
+      "line_number": 201,
+      "scope": "code",
+      "files": "bin/spectra-refactor-clean.sh, README.md, tests/test-refactor-clean.sh",
+      "ac": [
+        "Cleanup lives outside the core execution loop and defaults to dry-run behavior.",
+        "The command can identify dead scaffolds, stale fixtures, and cleanup candidates without mutating operator-owned artifacts unexpectedly.",
+        "Documentation makes it clear this is an end-of-project hygiene tool, not a required execution phase."
+      ]
+    }
+  ]
+}

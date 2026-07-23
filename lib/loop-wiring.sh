@@ -19,7 +19,7 @@ run_wiring_gate() {
     git add -A 2>/dev/null || true
 
     local wiring_exit=0
-    "${SPECTRA_HOME}/bin/spectra-verify-wiring.sh" . \
+    "${SPECTRA_HOME}/bin/spectra-verify-wiring.sh" . --task "${task_id}" \
         > "${LOGS_DIR}/task-${task_id}-wiring.log" 2>&1 || wiring_exit=$?
 
     if [[ "${SPECTRA_SKIP_WIRING:-0}" == "1" ]]; then

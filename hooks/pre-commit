@@ -1,29 +1,28 @@
 #!/usr/bin/env bash
-# SPECTRA pre-commit hook — wiring proof gate
-# Auto-installed by spectra-loop.sh. Safe to re-install (idempotent).
+# SPECTRA pre-commit hook — wiring proof gate (task-scoped)
+# Evaluates assertions for completed [x] and stuck [!] tasks only.
+# Current task assertions are checked by spectra-loop.sh post-build via --task NNN.
+#
+# Installed as symlink: .git/hooks/pre-commit -> ~/.spectra/hooks/pre-commit
+# BASH_SOURCE resolves to the symlink path (.git/hooks/), not the target,
+# so we resolve via readlink or fall back to ~/.spectra.
 set -euo pipefail
 
-SPECTRA_HOME="${SPECTRA_HOME:-${HOME}/.spectra}"
-
-# Graceful degradation: no verify.yaml means no wiring rules to check
-if [[ ! -f ".spectra/verify.yaml" ]]; then
-    exit 0
+# Resolve SPECTRA_HOME: follow symlink to real location, or fall back to ~/.spectra
+if [[ -z "${SPECTRA_HOME:-}" ]]; then
+    SOURCE="${BASH_SOURCE[0]}"
+    if command -v readlink >/dev/null 2>&1 && [[ -L "$SOURCE" ]]; then
+        SOURCE="$(readlink -f "$SOURCE")"
+    fi
+    SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+    SPECTRA_HOME="$(dirname "${SCRIPT_DIR}")"
 fi
 
-# Emergency bypass
-if [[ "${SPECTRA_SKIP_WIRING:-0}" == "1" ]]; then
-    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] WIRING BYPASS: pre-commit hook — SPECTRA_SKIP_WIRING=1" >&2
-    exit 0
-fi
-
-# Run wiring proof (fail-closed: missing verifier blocks commit)
-if [[ ! -x "${SPECTRA_HOME}/bin/spectra-verify-wiring.sh" ]]; then
-    echo "[SPECTRA] Pre-commit hook: spectra-verify-wiring.sh not found or not executable — commit blocked" >&2
-    echo "[SPECTRA] Install SPECTRA or set SPECTRA_SKIP_WIRING=1 to bypass" >&2
+VERIFIER="${SPECTRA_HOME}/bin/spectra-verify-wiring.sh"
+if [[ ! -x "${VERIFIER}" ]]; then
+    echo "SPECTRA pre-commit: verifier not found at ${VERIFIER}" >&2
     exit 1
 fi
 
-"${SPECTRA_HOME}/bin/spectra-verify-wiring.sh" . || {
-    echo "[SPECTRA] Pre-commit hook: wiring proof FAILED — commit blocked" >&2
-    exit 1
-}
+# No --task flag = completed-tasks-only mode (regression guard)
+exec "${VERIFIER}" .

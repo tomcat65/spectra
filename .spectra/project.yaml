@@ -1,0 +1,28 @@
+# SPECTRA Framework Origin Dogfood Configuration
+name: SPECTRA Framework Origin
+level: 3
+created: 2026-03-09
+status: planning
+spectra_version: "review-in-progress"
+
+agents:
+  planner: spectra-planner
+  reviewer: spectra-reviewer
+  auditor: codex-sp
+  builder: claude-code-sp
+  verifier: spectra-verifier
+
+cost:
+  ceiling: 75.00
+  per_task_budget: 15.00
+  parallelism_budget: 0
+
+integrations:
+  linear: false
+  slack: false
+
+verification:
+  wiring_proof: true
+  evidence_chain: true
+  regression_required: true
+  four_step_audit: true

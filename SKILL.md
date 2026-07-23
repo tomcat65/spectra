@@ -1,7 +1,7 @@
 ---
 name: spectra
 description: >
-  AI-driven software engineering methodology (SPECTRA v5.4). Orchestrates
+  AI-driven software engineering methodology (SPECTRA v5.5). Orchestrates
   multi-agent development: discovery, planning, building, verification,
   and institutional memory across the full project lifecycle.
   Use when: user says "start a new project", "build X feature", "initialize
@@ -15,7 +15,7 @@ compatibility: >
   Requires SPECTRA installation and .spectra/ directory in project.
   Install: git clone https://github.com/tomcat65/spectra && ./install.sh
 metadata:
-  version: "5.4"
+  version: "5.5"
   author: tomcat65
   framework: SPECTRA
   github: https://github.com/tomcat65/spectra
@@ -51,10 +51,11 @@ spectra-quick.sh   # ad-hoc single task (skips planning)
 
 ## Key Concepts
 
-- **Signs** — Known bug patterns (9 active). See `guardrails-global.md`
+- **Signs** — Known bug patterns (10 active). See `guardrails-global.md`
 - **Wiring Proof** — 5-check verification that code is actually connected
 - **Clean Context** — Each builder session starts fresh, state lives in files
 - **Scale Levels** — 0 (micro) to 4 (enterprise), right-sized planning depth
+- **Feedback Loops** — Per-task metrics, adaptive retry, auto-profile selection from execution history
 
 ## Reference
 

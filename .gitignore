@@ -28,3 +28,7 @@ logs/
 
 # Node (if any tooling added later)
 node_modules/
+
+# Python generated artifacts
+__pycache__/
+*.py[cod]

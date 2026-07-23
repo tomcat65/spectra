@@ -841,7 +841,7 @@ inject_active_lessons() {
 # Idempotent: skips if VERSION marker already matches current version.
 # NEVER touches: plan.md, signals/, logs/, CLAUDE.md, checkpoints/
 
-SPECTRA_CURRENT_VERSION="v5.4"
+SPECTRA_CURRENT_VERSION="v5.5"
 
 spectra_upgrade_project() {
     local project_spectra_dir="${1}"   # {project}/.spectra/
