@@ -42,7 +42,13 @@ git clone https://github.com/tomcat65/spectra.git ~/.spectra
 
 - [Claude Code CLI](https://claude.com/claude-code) (Opus 4.6+)
 - Git
-- `jq` (optional, for checkpoint JSON parsing; falls back to grep)
+- Bash 4+, GNU grep with PCRE, GNU coreutils (`timeout`), and `flock`
+- Recommended for full local CI parity: `jq`, Python 3, curl, ShellCheck 0.10.0,
+  actionlint 1.7.7, and GitHub CLI
+
+Run `spectra-doctor.sh` to distinguish hard blockers from recommended and
+safety warnings. Add `--json` for automation or `--strict` for exact local CI
+readiness.
 
 ### Directory Structure
 
@@ -55,6 +61,7 @@ git clone https://github.com/tomcat65/spectra.git ~/.spectra
   guardrails-global.md              # Cross-project Signs
   bin/                              # Executable scripts
     spectra-init.sh                 #   Project scaffolding
+    spectra-doctor.sh               #   Environment/safety preflight (--json, --strict)
     spectra-assess.sh               #   BMAD adapter (project assessment)
     spectra-elicit.sh               #   Goal/decision contract scaffold + gate
     spectra-plan.sh                 #   Plan generation (uses spectra-planner agent)
@@ -81,13 +88,16 @@ git clone https://github.com/tomcat65/spectra.git ~/.spectra
     loop-context.sh                 #   Centralized context loading policy (build + verify)
     loop-session.sh                 #   Runtime profiles + orchestrator session persistence
     loop-metrics.sh                 #   Per-task execution metrics + retrospective (Phase F)
+  config/
+    loop-modules.txt                #   Canonical loop module inventory
   hooks/                            # Git lifecycle hooks
     pre-commit                      #   Wiring verification gate (auto-installed by loop)
     post-verify-learn.sh            #   Opt-in Sign candidate discovery after FAIL→PASS recovery
   scripts/                          # Standalone utility scripts
+    spectra-ci-lint.sh              #   Canonical local/GitHub lint implementation
     spectra-quality-gate.sh         #   Language-aware lint/format pre-checks (5 languages)
     spectra-structured.py           #   Typed parser/status/metrics helper (Python)
-  tests/                            # Test suites (656 tests across 36 suite buckets)
+  tests/                            # Test suites (683 tests across 38 suite buckets)
     run-tests.sh                    #   Test runner (aggregates all suites)
     test-plan-validate.sh           #   Plan schema validation (11 tests)
     test-assess.sh                  #   Assessment + BMAD/plan bridge fixtures (26 tests)
@@ -124,6 +134,8 @@ git clone https://github.com/tomcat65/spectra.git ~/.spectra
     test-wiring-scope.sh            #   Task-scoped wiring assertions and hook contract (12 tests)
     test-elicit.sh                  #   Goal contract scaffolding + enforcement (18 tests)
     test-runtime-probe.sh           #   Runtime probe behavior + verifier integration (22 tests)
+    test-ci-parity.sh               #   Shared lint implementation + negative paths (13 tests)
+    test-doctor.sh                  #   Environment/safety report contracts (13 tests)
   .github/workflows/
     spectra-ci.yml                  #   CI pipeline (Lint, Tests, Wiring jobs)
   templates/                        # Project scaffolding templates
@@ -149,6 +161,8 @@ git clone https://github.com/tomcat65/spectra.git ~/.spectra
     python.profile                  #   Python: import patterns, entry points, dep manifests
     javascript.profile              #   JavaScript/TypeScript: test patterns, skip imports
     bash.profile                    #   Bash: shell script test patterns
+  docs/
+    SPECTRA_IMPROVEMENT_PLAN.md     #   Evidence-gated roadmap from 7/10 onward
   install.sh                        # Installer (adds bin/ to PATH via .bashrc)
   SKILL.md                          # Claude Code skill definition (spectra-method, spectra-plan, etc.)
 
@@ -828,13 +842,17 @@ SPECTRA includes a GitHub Actions CI pipeline (`.github/workflows/spectra-ci.yml
 
 | Job | What It Checks |
 |-----|---------------|
-| **Lint** | `bash -n` syntax, module anti-drift (14 modules), ShellCheck errors, ShellCheck ratchet (per-file warning budget), suppress-rationale guard (every `# shellcheck disable=` needs a `# RATIONALE:` comment), actionlint |
-| **Tests** | Full test suite via `tests/run-tests.sh` (656 tests across 36 suite buckets) |
+| **Lint** | Canonical `scripts/spectra-ci-lint.sh`: syntax, manifest-backed module anti-drift (14 modules), ShellCheck errors/ratchet, suppression rationales, actionlint |
+| **Tests** | Full test suite via `tests/run-tests.sh` (683 tests across 38 suite buckets) |
 | **Wiring** | Anti-bypass guard (`SPECTRA_SKIP_WIRING` blocked in CI), wiring verification against pass/fail fixtures |
 
 The **ShellCheck ratchet** enforces a per-file, per-rule warning baseline (`shellcheck-baseline.json`). New warnings must be fixed before merge — the baseline can only decrease, never increase. Run `bin/spectra-shellcheck-ratchet.sh --update-baseline` locally to regenerate after fixing warnings.
 
-The **module anti-drift** check ensures every expected `lib/loop-*.sh` module exists, is sourced by `spectra-loop.sh`, has no duplicates, and no wildcard sourcing.
+GitHub and local lint call the same repository-owned script; workflow YAML only
+installs pinned tools. The **module anti-drift** check uses
+`config/loop-modules.txt` as its single inventory and ensures every module
+exists, is sourced exactly once, has no unlisted peers, and uses no wildcard
+sourcing.
 
 ## Core Principles
 
@@ -928,7 +946,7 @@ SPECTRA agents can coordinate with external agents (codex-cli, claude-desktop, C
 | v5.3 | Feb 17, 2026 | Phase 9: Continuous learning system — JSONL + flock append-only storage, normalized fingerprint dedup, adaptive TTL (severity-based with recurrence extension), promotion lifecycle (TEMP→CONFIRMED→PROMOTED→SIGN), snapshot compaction, prompt injection guard (`sanitize_for_propagation()`), schema versioning/migration, cross-project correlation. 8 sourced modules (added `loop-lessons.sh`). 182 tests across 11 suites |
 | v5.4 | Feb 24, 2026 | Phase 10: Bidirectional lessons architecture — `inject_active_lessons()` merges project-local + global CONFIRMED+ lessons into live `lessons-active.md` feed (rank-sorted, capped at 25), `spectra_upgrade_project()` non-destructive brownfield migration with VERSION marker, builder reads lessons at session start, verifier checks for lesson violations. Dry-run guards prevent state mutation. 195 tests across 11 suites |
 | v5.4.1 | Mar 5, 2026 | Phases A-D: Builder self-audit script (`agents/scripts/builder-self-audit.sh` — 4-step executable audit), agent routing tests (63 tests validating YAML frontmatter), Party Mode STUCK recovery (`lib/loop-stuck-recovery.sh` — classify/recover/escalate with compound failure integration), language profiles (`lang-profiles/python.profile`), SIGN-010 (Language Blindspot), `install.sh` installer, `SKILL.md` skill definition. 9 loop modules. 290 tests across 15 suites |
-| v5.5 | Mar 9, 2026 | Dogfood sprint (11 tasks self-executed): in-loop planning persistence, reviewer gate enforcement, preflight/RECONCILE alignment, version drift removal, language-aware verifier command selection (JS/bash/python profiles), operational coverage expansion (status/quick/init-e2e/assess fixtures), progressive context loading (`loop-context.sh`), opt-in Sign candidate discovery (`hooks/post-verify-learn.sh`), language-aware quality gates (`scripts/spectra-quality-gate.sh` — 5 languages), runtime profiles + session persistence (`loop-session.sh` — quick/standard/thorough), post-project cleanup (`spectra-refactor-clean.sh`). Phase F closed-loop self-improvement: per-task execution metrics (`loop-metrics.sh`), generated `status.json` snapshots, typed plan/status/metrics parsing via `scripts/spectra-structured.py`, adaptive retry intelligence, model fallback (`--fallback-model`), post-run retrospective, auto-profile selection from metrics history, multi-language regression sweeps across detected manifests, and profile-owned dependency verification with JS semantic wiring checks. Maintenance hardening adds a required goal/decision contract before planning and a bounded, scope-aware runtime/deploy verification signal. Test runner hardening streams live suite output, requires a structured `SPECTRA_TEST_RESULT` contract per suite, and supports `SPECTRA_SKIP_PATH_SETUP=true` / `CI` init scaffolding without shell rc mutation. 14 loop modules, 30 shellcheck-clean scripts. 656 tests across 36 suite buckets. |
+| v5.5 | Mar 9, 2026 | Dogfood sprint (11 tasks self-executed): in-loop planning persistence, reviewer gate enforcement, preflight/RECONCILE alignment, version drift removal, language-aware verifier command selection (JS/bash/python profiles), operational coverage expansion (status/quick/init-e2e/assess fixtures), progressive context loading (`loop-context.sh`), opt-in Sign candidate discovery (`hooks/post-verify-learn.sh`), language-aware quality gates (`scripts/spectra-quality-gate.sh` — 5 languages), runtime profiles + session persistence (`loop-session.sh` — quick/standard/thorough), post-project cleanup (`spectra-refactor-clean.sh`). Phase F closed-loop self-improvement: per-task execution metrics (`loop-metrics.sh`), generated `status.json` snapshots, typed plan/status/metrics parsing via `scripts/spectra-structured.py`, adaptive retry intelligence, model fallback (`--fallback-model`), post-run retrospective, auto-profile selection from metrics history, multi-language regression sweeps across detected manifests, and profile-owned dependency verification with JS semantic wiring checks. Maintenance hardening adds a required goal/decision contract, bounded scope-aware runtime evidence, a canonical local/GitHub lint implementation, manifest-backed module parity, and an environment/safety doctor. Test runner hardening streams live suite output, requires a structured `SPECTRA_TEST_RESULT` contract per suite, and supports `SPECTRA_SKIP_PATH_SETUP=true` / `CI` init scaffolding without shell rc mutation. 14 loop modules, 34 shellcheck-clean files. 683 tests across 38 suite buckets. |
 
 ## Continuous Learning (v5.3+)
 

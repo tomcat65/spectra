@@ -1,12 +1,16 @@
 {
   "shellcheck_version": "0.10.0",
-  "generated_at": "2026-07-23T00:54:50Z",
+  "generated_at": "2026-07-23T01:17:40Z",
   "files": {
     "bin/plan-extract.sh": {
       "total": 0,
       "rules": {}
     },
     "bin/spectra-assess.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "bin/spectra-doctor.sh": {
       "total": 0,
       "rules": {}
     },
@@ -115,6 +119,18 @@
       "rules": {}
     },
     "lib/loop-wiring.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "scripts/spectra-ci-lint.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "scripts/spectra-quality-gate.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "agents/scripts/builder-self-audit.sh": {
       "total": 0,
       "rules": {}
     },

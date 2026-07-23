@@ -394,7 +394,7 @@ fi
 # Test 12: CI workflow contains ratchet step
 # ══════════════════════════════════════════
 WORKFLOW="${SPECTRA_HOME}/.github/workflows/spectra-ci.yml"
-if grep -q 'spectra-shellcheck-ratchet.sh --check' "$WORKFLOW" 2>/dev/null; then
+if grep -q 'spectra-ci-lint.sh --ratchet' "$WORKFLOW" 2>/dev/null; then
     assert_pass "CI workflow contains ratchet step"
 else
     assert_fail "CI workflow contains ratchet step"

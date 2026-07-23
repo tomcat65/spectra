@@ -1,0 +1,18 @@
+# Canonical ordered inventory for lib/loop-*.sh.
+# Update this file when adding or removing a loop module. The canonical CI lint
+# runner verifies that every entry exists and is sourced exactly once, and that
+# no unlisted loop module exists on disk or in spectra-loop.sh.
+loop-signals
+loop-retry
+loop-wiring
+loop-git
+loop-structured
+loop-verdict
+loop-checkpoint
+loop-context
+loop-build
+loop-verify
+loop-lessons
+loop-session
+loop-metrics
+loop-stuck-recovery
