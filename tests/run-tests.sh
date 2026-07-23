@@ -166,6 +166,7 @@ run_script_suite "elicit" "test-elicit.sh"
 run_script_suite "runtime-probe" "test-runtime-probe.sh"
 run_script_suite "ci-parity" "test-ci-parity.sh"
 run_script_suite "doctor" "test-doctor.sh"
+run_script_suite "subscription-routing" "test-subscription-routing.sh"
 
 # ══════════════════════════════════════════
 # Summary

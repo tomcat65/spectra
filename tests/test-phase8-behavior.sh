@@ -198,6 +198,10 @@ export PATH="'"${TMPDIR_T6}"'/bin:$PATH"
 mkdir -p "'"${TMPDIR_T6}"'/bin"
 cat > "'"${TMPDIR_T6}"'/bin/claude" <<STUB
 #!/usr/bin/env bash
+if [[ " \$* " == *" auth status "* ]]; then
+    echo "{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"subscriptionType\":\"max\"}"
+    exit 0
+fi
 sleep 60
 STUB
 chmod +x "'"${TMPDIR_T6}"'/bin/claude"
@@ -251,6 +255,10 @@ export PATH="'"${TMPDIR_T7}"'/bin:$PATH"
 mkdir -p "'"${TMPDIR_T7}"'/bin"
 cat > "'"${TMPDIR_T7}"'/bin/claude" <<STUB
 #!/usr/bin/env bash
+if [[ " \$* " == *" auth status "* ]]; then
+    echo "{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"subscriptionType\":\"max\"}"
+    exit 0
+fi
 echo "error: unknown option --bad-flag"
 exit 1
 STUB
@@ -329,6 +337,10 @@ export PATH="'"${TMPDIR_T9}"'/bin:$PATH"
 mkdir -p "'"${TMPDIR_T9}"'/bin"
 cat > "'"${TMPDIR_T9}"'/bin/claude" <<STUB
 #!/usr/bin/env bash
+if [[ " \$* " == *" auth status "* ]]; then
+    echo "{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"subscriptionType\":\"max\"}"
+    exit 0
+fi
 echo "I do not understand the question"
 STUB
 chmod +x "'"${TMPDIR_T9}"'/bin/claude"
@@ -368,6 +380,10 @@ export PATH="'"${TMPDIR_T10}"'/bin:$PATH"
 mkdir -p "'"${TMPDIR_T10}"'/bin"
 cat > "'"${TMPDIR_T10}"'/bin/claude" <<STUB
 #!/usr/bin/env bash
+if [[ " \$* " == *" auth status "* ]]; then
+    echo "{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"subscriptionType\":\"max\"}"
+    exit 0
+fi
 echo "garbage_output_here"
 STUB
 chmod +x "'"${TMPDIR_T10}"'/bin/claude"

@@ -22,6 +22,10 @@ trap 'rm -rf "${tmp_root}"' EXIT
 fixture_bin="${tmp_root}/bin"; mkdir -p "${fixture_bin}"
 cat > "${fixture_bin}/claude" <<'CLAUDE'
 #!/usr/bin/env bash
+if [[ " $* " == *" auth status "* ]]; then
+    printf '%s\n' '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max"}'
+    exit 0
+fi
 echo "claude fixture"
 CLAUDE
 chmod +x "${fixture_bin}/claude"
@@ -52,10 +56,24 @@ fi
 
 echo "  Test: required tools are distinguished from recommended tools"
 if echo "${report}" | jq -e '.checks[] | select(.id == "git" and .level == "required")' >/dev/null \
-   && echo "${report}" | jq -e '.checks[] | select(.id == "actionlint" and .level == "recommended")' >/dev/null; then
+   && echo "${report}" | jq -e '.checks[] | select(.id == "actionlint" and .level == "recommended")' >/dev/null \
+   && echo "${report}" | jq -e '.checks[] | select(.id == "claude-subscription" and .status == "pass")' >/dev/null; then
     pass "capability levels present"
 else
     fail "capability levels missing"
+fi
+
+echo "  Test: ambient model API keys are warned and never exposed"
+set +e
+api_env_report=$(ANTHROPIC_API_KEY=secret-sentinel ACTIONLINT_BIN=/definitely/missing "${DOCTOR}" --json)
+rc=$?
+set -e
+if [[ ${rc} -eq 0 ]] \
+   && echo "${api_env_report}" | jq -e '.checks[] | select(.id == "model-api-environment" and .status == "warn")' >/dev/null \
+   && ! echo "${api_env_report}" | grep -q 'secret-sentinel'; then
+    pass "ambient API override is reported without its value"
+else
+    fail "ambient API override handling rc=${rc}"
 fi
 
 echo "  Test: strict mode fails on a deterministic recommended gap"
@@ -89,6 +107,17 @@ if echo "${safe_report}" | jq -e '.checks[] | select(.id == "project-env-permiss
     pass "safe permissions pass"
 else
     fail "safe permissions not recognized"
+fi
+
+echo "  Test: model API declarations in project .env are warned without exposing values"
+printf '%s\n' 'GEMINI_API_KEY=gemini-secret-sentinel' > "${project_env}/.env"
+chmod 600 "${project_env}/.env"
+model_key_report=$(ACTIONLINT_BIN=/definitely/missing "${DOCTOR}" "${project_env}" --json)
+if echo "${model_key_report}" | jq -e '.checks[] | select(.id == "project-model-api-keys" and .status == "warn")' >/dev/null \
+   && ! echo "${model_key_report}" | grep -q 'gemini-secret-sentinel'; then
+    pass "project model API declaration is reported without its value"
+else
+    fail "project model API declaration warning missing"
 fi
 
 echo "  Test: configured runtime shell command is surfaced as a safety warning"

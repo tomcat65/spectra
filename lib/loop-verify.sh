@@ -42,7 +42,7 @@ oracle_classify() {
     fi
 
     local classification
-    classification=$(claude --agent spectra-oracle -p --permission-mode plan \
+    classification=$("${SPECTRA_HOME}/bin/spectra-agent-run.sh" spectra-oracle -p --permission-mode plan \
         --fallback-model sonnet \
         "Read .spectra/logs/task-${task_id}-verify.md. Classify the failure as EXACTLY one of: test_failure, missing_dependency, wiring_gap, architecture_mismatch, ambiguous_spec, external_blocker. Respond with ONLY the classification word, nothing else." \
         2>&1 | tail -1 | tr -d '[:space:]' || echo "")

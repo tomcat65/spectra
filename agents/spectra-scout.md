@@ -19,7 +19,7 @@ memory: user
 maxTurns: 15
 compatibility: >
   Claude Code with Read, Bash tools.
-  Invoked by spectra-loop.sh in WSL Ubuntu.
+  Invoked only through spectra-agent-run.sh on a Claude subscription.
   Expects .spectra/ directory with plan.md and context files.
 metadata:
   framework: SPECTRA
@@ -27,6 +27,9 @@ metadata:
   role: scout
   orchestrator: spectra-loop.sh
   memory: user
+  driver: claude_cli
+  billing: subscription
+  plan: claude-subscription
 ---
 
 # SPECTRA Scout — Agent Instructions

@@ -91,7 +91,7 @@ parallel_build() {
         fi
 
         timeout "${BUILDER_TIMEOUT}" \
-            claude --agent spectra-builder -p --permission-mode bypassPermissions \
+            "${SPECTRA_HOME}/bin/spectra-agent-run.sh" spectra-builder -p --permission-mode bypassPermissions \
             --fallback-model sonnet \
             "${prompt_text}" > "${LOGS_DIR}/task-${task_id}-build.log" 2>&1 &
         pids+=($!)

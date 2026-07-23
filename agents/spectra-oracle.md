@@ -15,7 +15,7 @@ permissionMode: plan
 maxTurns: 3
 compatibility: >
   Claude Code with Read (classify only) tools.
-  Invoked by spectra-loop.sh in WSL Ubuntu.
+  Invoked only through spectra-agent-run.sh on a Claude subscription.
   Expects .spectra/ directory with plan.md and context files.
 metadata:
   framework: SPECTRA
@@ -23,6 +23,9 @@ metadata:
   role: oracle
   orchestrator: spectra-loop.sh
   memory: project
+  driver: claude_cli
+  billing: subscription
+  plan: claude-subscription
 ---
 
 # SPECTRA Oracle — Failure Classifier
