@@ -43,6 +43,10 @@ _core_context() {
     instructions+="Read CLAUDE.md for project context."
     instructions+=" Read ${SPECTRA_DIR}/plan.md section '## Task ${task_id}' for acceptance criteria and file ownership."
 
+    if _context_file_exists "${SPECTRA_DIR}/goals.md"; then
+        instructions+=" Read ${SPECTRA_DIR}/goals.md for the agreed goal, success criteria, and decisions."
+    fi
+
     if _context_file_exists "${SPECTRA_DIR}/guardrails.md"; then
         instructions+=" Read ${SPECTRA_DIR}/guardrails.md for active Signs."
     fi

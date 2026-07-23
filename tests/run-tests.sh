@@ -162,6 +162,8 @@ run_script_suite "structured-helper" "test-structured-helper.sh"
 run_script_suite "verify-project-trials" "test-verify-project-trials.sh"
 run_script_suite "verdict-extraction" "test-verdict-extraction.sh"
 run_script_suite "wiring-scope" "test-wiring-scope.sh"
+run_script_suite "elicit" "test-elicit.sh"
+run_script_suite "runtime-probe" "test-runtime-probe.sh"
 
 # ══════════════════════════════════════════
 # Summary

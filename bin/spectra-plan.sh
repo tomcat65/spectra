@@ -78,12 +78,24 @@ fi
 # ══════════════════════════════════════════
 
 SPECTRA_DIR=".spectra"
+if [[ -f "${SPECTRA_DIR}/goals.md" ]]; then
+    ELICIT_GATE="${SPECTRA_HOME}/bin/spectra-elicit.sh"
+    if [[ ! -x "${ELICIT_GATE}" ]]; then
+        echo "Error: goals.md exists but the required gate is unavailable at ${ELICIT_GATE}."
+        exit 1
+    fi
+    if ! "${ELICIT_GATE}" . --check; then
+        echo "Error: ${SPECTRA_DIR}/goals.md is incomplete. Resolve it before discovery or planning."
+        exit 1
+    fi
+fi
+
 if [[ "${DISCOVER}" == "true" ]] || { [[ "${SKIP_DISCOVERY}" != "true" ]] && [[ ! -f "${SPECTRA_DIR}/discovery.md" ]]; }; then
     echo "  Running discovery phase (spectra-scout)..."
     DISCOVERY_TMP="${SPECTRA_DIR}/discovery.md.tmp"
     if timeout 120 claude --agent spectra-scout --output-format text \
         --append-system-prompt "You MUST output ONLY raw markdown to stdout. No preamble, no commentary, no permission requests." \
-        -p "Investigate the codebase at $(pwd). Read key files, identify technical unknowns, risks, and implementation preferences. Output a discovery report." \
+        -p "$(if [[ -f "${SPECTRA_DIR}/goals.md" ]]; then echo "First read ${SPECTRA_DIR}/goals.md for the agreed goal, success criteria, and constraints, then focus discovery on de-risking them. "; fi)Investigate the codebase at $(pwd). Read key files, identify technical unknowns, risks, and implementation preferences. Output a discovery report." \
         > "${DISCOVERY_TMP}" 2>/dev/null && [[ -s "${DISCOVERY_TMP}" ]]; then
         mv "${DISCOVERY_TMP}" "${SPECTRA_DIR}/discovery.md"
     else
@@ -354,6 +366,8 @@ READ_FILES="${STORY_FILES}"
 - .spectra/assessment.yaml"
 [[ -f .spectra/discovery.md ]] && READ_FILES="${READ_FILES}
 - .spectra/discovery.md"
+[[ -f .spectra/goals.md ]] && READ_FILES="${READ_FILES}
+- .spectra/goals.md"
 
 PLAN_PROMPT="OUTPUT COMPLETE RAW MARKDOWN TO STDOUT starting with '# SPECTRA Execution Plan'.
 No summary, no commentary, no permission requests. Your stdout IS the file — the calling script captures it via redirect.
@@ -364,6 +378,7 @@ ${READ_FILES}
 Generate a Level ${PROJECT_LEVEL} canonical plan.md from these $(if [[ "${FROM_BMAD}" == true ]]; then echo "BMAD artifacts"; else echo "stories"; fi).
 ${BMAD_INSTRUCTIONS}
 $(if [[ -f .spectra/discovery.md ]]; then echo "Discovery report available at .spectra/discovery.md — read it for codebase context."; fi)
+$(if [[ -f .spectra/goals.md ]]; then echo "Goals & decisions at .spectra/goals.md — anchor the plan's tasks and acceptance criteria to its goal, success criteria, and resolved decisions; honor its out-of-scope list."; fi)
 ## Project Level: ${PROJECT_LEVEL}
 
 ## Output Format

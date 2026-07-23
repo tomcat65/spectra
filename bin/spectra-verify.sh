@@ -49,6 +49,13 @@ Options:
   2. Full regression suite — all tests must pass
   3. Evidence chain — git commit matches task convention
   4. Wiring proof — dead imports, pipeline coverage, dependencies
+
+Runtime signal:
+  5. Runtime/deploy probe — set SPECTRA_RUNTIME_PROBE=1 to probe a live
+     health endpoint or smoke command. A configured probe also runs
+     automatically for tasks whose Scope is infra or deploy. It is advisory
+     unless verify.yaml runtime.blocking: true or the blocking env override.
+     See bin/spectra-runtime-probe.sh and verify.yaml runtime: block.
 EOF
             exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
@@ -671,6 +678,101 @@ if [[ "$USE_WIRING_PROOF" == true ]]; then
     fi
 else
     echo "  [4/4] Wiring proof skipped (--no-wiring-proof)"
+fi
+
+# ══════════════════════════════════════════
+# Step 5: Runtime/Deploy Probe (explicit or scope-aware, advisory by default)
+# ══════════════════════════════════════════
+# Loads optional runtime config from .spectra/verify.yaml `runtime:` block.
+# Explicit SPECTRA_PROBE_* env vars take precedence over verify.yaml values.
+# Sets PROBE_BLOCKING (default false): advisory failures warn but do not gate.
+load_runtime_probe_config() {
+    local blocking_env_set="false"
+    PROBE_BLOCKING="false"
+    if [[ -n "${SPECTRA_RUNTIME_PROBE_BLOCKING+x}" ]]; then
+        blocking_env_set="true"
+        case "${SPECTRA_RUNTIME_PROBE_BLOCKING}" in
+            1|true|yes|TRUE|YES) PROBE_BLOCKING="true" ;;
+            *) PROBE_BLOCKING="false" ;;
+        esac
+    fi
+    local vf="${SPECTRA_DIR}/verify.yaml"
+    [[ -f "${vf}" ]] || return 0
+    local block
+    block=$(awk '/^runtime:/{f=1;next} /^[^[:space:]#]/{f=0} f{print}' "${vf}")
+    [[ -n "${block}" ]] || return 0
+
+    local v
+    v=$(echo "${block}" | grep -oP '^\s*url:\s*"?\K[^"#]*' | head -1 | sed 's/[[:space:]]*$//' || true)
+    [[ -n "${v}" && -z "${SPECTRA_PROBE_URL:-}" ]] && export SPECTRA_PROBE_URL="${v}"
+    v=$(echo "${block}" | grep -oP '^\s*expect_status:\s*\K[0-9]+' | head -1 || true)
+    [[ -n "${v}" && -z "${SPECTRA_PROBE_EXPECT_STATUS:-}" ]] && export SPECTRA_PROBE_EXPECT_STATUS="${v}"
+    v=$(echo "${block}" | grep -oP '^\s*expect_body:\s*"?\K[^"#]*' | head -1 | sed 's/[[:space:]]*$//' || true)
+    [[ -n "${v}" && -z "${SPECTRA_PROBE_EXPECT_BODY:-}" ]] && export SPECTRA_PROBE_EXPECT_BODY="${v}"
+    v=$(echo "${block}" | grep -oP '^\s*command:\s*"?\K[^"#]*' | head -1 | sed 's/[[:space:]]*$//' || true)
+    [[ -n "${v}" && -z "${SPECTRA_PROBE_COMMAND:-}" ]] && export SPECTRA_PROBE_COMMAND="${v}"
+    v=$(echo "${block}" | grep -oP '^\s*retries:\s*\K[0-9]+' | head -1 || true)
+    [[ -n "${v}" && -z "${SPECTRA_PROBE_RETRIES:-}" ]] && export SPECTRA_PROBE_RETRIES="${v}"
+    v=$(echo "${block}" | grep -oP '^\s*interval:\s*\K[0-9]+' | head -1 || true)
+    [[ -n "${v}" && -z "${SPECTRA_PROBE_INTERVAL:-}" ]] && export SPECTRA_PROBE_INTERVAL="${v}"
+    v=$(echo "${block}" | grep -oP '^\s*timeout:\s*\K[0-9]+' | head -1 || true)
+    [[ -n "${v}" && -z "${SPECTRA_PROBE_TIMEOUT:-}" ]] && export SPECTRA_PROBE_TIMEOUT="${v}"
+    if [[ "${blocking_env_set}" != "true" ]]; then
+        v=$(echo "${block}" | grep -oP '^\s*blocking:\s*\K\S+' | head -1 || true)
+        case "${v}" in 1|true|yes|TRUE|YES) PROBE_BLOCKING="true" ;; esac
+    fi
+    return 0
+}
+
+runtime_probe_enabled() {
+    # An explicit env setting always wins, including a false/zero disable.
+    if [[ -n "${SPECTRA_RUNTIME_PROBE+x}" ]]; then
+        case "${SPECTRA_RUNTIME_PROBE}" in
+            1|true|yes|TRUE|YES) return 0 ;;
+            *) return 1 ;;
+        esac
+    fi
+
+    # Otherwise, infra/deploy tasks automatically consume a configured probe.
+    if ! echo "${TASK_SECTION}" | grep -qiE '^[[:space:]]*-[[:space:]]*Scope:[[:space:]]*(infra|deploy)([[:space:]]|$)'; then
+        return 1
+    fi
+    [[ -n "${SPECTRA_PROBE_URL:-}" || -n "${SPECTRA_PROBE_COMMAND:-}" ]]
+}
+
+PROBE_SCRIPT="${SPECTRA_HOME}/bin/spectra-runtime-probe.sh"
+PROBE_BLOCKING="false"
+load_runtime_probe_config
+if runtime_probe_enabled; then
+    echo "  [5] Runtime/deploy probe..."
+    if [[ -x "${PROBE_SCRIPT}" ]]; then
+        set +e
+        "${PROBE_SCRIPT}"
+        PROBE_EXIT=$?
+        set -e
+        if [[ ${PROBE_EXIT} -eq 0 ]]; then
+            echo "  ✅ Step 5: Runtime probe passed"
+        elif [[ "${PROBE_BLOCKING}" == "true" ]]; then
+            VERIFY_PASS=false
+            if [[ ${PROBE_EXIT} -eq 2 ]]; then
+                FAIL_REASONS="${FAIL_REASONS}\n  - Step 5 FAIL: runtime probe could not reach target (blocking)"
+                [[ -z "$FAILURE_TYPE" ]] && FAILURE_TYPE="external_blocker"
+            else
+                FAIL_REASONS="${FAIL_REASONS}\n  - Step 5 FAIL: runtime probe assertion failed (blocking)"
+                [[ -z "$FAILURE_TYPE" ]] && FAILURE_TYPE="test_failure"
+            fi
+        else
+            echo "  ⚠  Step 5: Runtime probe failed (exit ${PROBE_EXIT}) — advisory, not gating verdict"
+        fi
+    else
+        if [[ "${PROBE_BLOCKING}" == "true" ]]; then
+            VERIFY_PASS=false
+            FAIL_REASONS="${FAIL_REASONS}\n  - Step 5 FAIL: runtime probe script missing at ${PROBE_SCRIPT} (blocking)"
+            [[ -z "$FAILURE_TYPE" ]] && FAILURE_TYPE="external_blocker"
+        else
+            echo "  WARNING: runtime probe enabled but script not found at ${PROBE_SCRIPT}"
+        fi
+    fi
 fi
 
 # ══════════════════════════════════════════
