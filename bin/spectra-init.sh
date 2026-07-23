@@ -125,6 +125,15 @@ hydrate "${TEMPLATE_DIR}/constitution.md.tmpl" ".spectra/constitution.md"
 hydrate "${TEMPLATE_DIR}/plan.md.tmpl" ".spectra/plan.md"
 hydrate "${TEMPLATE_DIR}/tasks.md.tmpl" ".spectra/tasks.md"
 
+# Goals/decisions elicitation front-end (scaffold before scout/planner).
+# Preserve an existing file — goals.md is hand-authored, never clobbered.
+if [[ -f ".spectra/goals.md" ]]; then
+    echo "  Preserving existing .spectra/goals.md"
+elif [[ -f "${TEMPLATE_DIR}/goals.md.tmpl" ]]; then
+    hydrate "${TEMPLATE_DIR}/goals.md.tmpl" ".spectra/goals.md"
+    echo "  Created: .spectra/goals.md (fill it, then run 'spectra-elicit.sh --check')"
+fi
+
 # Level-gated artifacts
 [[ "$LEVEL" -ge 1 ]] && hydrate "${TEMPLATE_DIR}/prd.md.tmpl" ".spectra/prd.md"
 [[ "$LEVEL" -ge 3 ]] && hydrate "${TEMPLATE_DIR}/architecture.md.tmpl" ".spectra/architecture.md"
@@ -351,6 +360,7 @@ echo "╚═══════════════════════�
 echo ""
 echo "  Files created:"
 echo "    .spectra/project.yaml    — Project config (All-Anthropic agents)"
+echo "    .spectra/goals.md        — Goal/decision elicitation (fill BEFORE planning)"
 echo "    .spectra/constitution.md — Project constraints"
 echo "    .spectra/plan.md         — Execution plan (fill in tasks)"
 echo "    .spectra/guardrails.md   — Sign patterns"
@@ -359,6 +369,7 @@ echo "    .spectra/signals/        — Runtime signal directory"
 echo "    CLAUDE.md                — Subagent context (auto-refreshed)"
 echo ""
 echo "  Next steps:"
+echo "    0. Fill .spectra/goals.md, then: spectra-elicit.sh --check"
 echo "    1. Edit .spectra/constitution.md with project constraints"
 [[ "$LEVEL" -ge 1 ]] && echo "    2. Fill in .spectra/prd.md with requirements"
 [[ "$LEVEL" -ge 2 ]] && echo "    3. Create stories in .spectra/stories/"

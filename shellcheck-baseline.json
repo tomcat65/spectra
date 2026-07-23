@@ -1,12 +1,16 @@
 {
   "shellcheck_version": "0.10.0",
-  "generated_at": "2026-03-20T16:53:09Z",
+  "generated_at": "2026-07-23T00:54:50Z",
   "files": {
     "bin/plan-extract.sh": {
       "total": 0,
       "rules": {}
     },
     "bin/spectra-assess.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "bin/spectra-elicit.sh": {
       "total": 0,
       "rules": {}
     },
@@ -35,6 +39,10 @@
       "rules": {}
     },
     "bin/spectra-refactor-clean.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "bin/spectra-runtime-probe.sh": {
       "total": 0,
       "rules": {}
     },

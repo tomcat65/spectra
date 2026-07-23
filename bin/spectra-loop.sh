@@ -1286,7 +1286,7 @@ FAILEOF
         last_task_id="${TASK_IDS[${BATCH[-1]}]}"
         claude --agent spectra-reviewer -p --permission-mode plan --fallback-model haiku \
             --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
-            "A builder has raised a spec negotiation for Task ${last_task_id}. Read .spectra/signals/NEGOTIATE for the proposed adaptation. Evaluate against constitution.md and non-goals.md. Output your verdict with a 'Verdict:' line." \
+            "A builder has raised a spec negotiation for Task ${last_task_id}. Read .spectra/signals/NEGOTIATE for the proposed adaptation. Evaluate against goals.md, constitution.md, and non-goals.md. Output your verdict with a 'Verdict:' line." \
             2>&1 | tee "${LOGS_DIR}/negotiate-review.log" "${SIGNALS_DIR}/NEGOTIATE_REVIEW" | tail -5 || true
 
         if [[ -f "${SIGNALS_DIR}/NEGOTIATE_REVIEW" ]]; then

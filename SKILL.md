@@ -33,6 +33,7 @@ Discovery → Scale Assessment → Specification → Execution → Verification 
 
 ```bash
 spectra-init.sh    # scaffold .spectra/ in your project
+spectra-elicit.sh  # complete/check the goal contract before planning
 spectra-loop.sh    # start the build loop
 spectra-quick.sh   # ad-hoc single task (skips planning)
 ```
@@ -43,7 +44,7 @@ spectra-quick.sh   # ad-hoc single task (skips planning)
 |-------|-------|------|
 | spectra-planner | opus | Planning artifacts (constitution, PRD, plan.md) |
 | spectra-builder | opus | Implements one task per session from plan.md |
-| spectra-verifier | opus | Independent 4-step verification with wiring proof |
+| spectra-verifier | opus | Independent 4-step verification plus optional runtime signal |
 | spectra-auditor | haiku | Fast pre-flight Sign violation scanner |
 | spectra-reviewer | sonnet | Adversarial cross-model plan validation |
 | spectra-scout | haiku | Brownfield discovery and risk manifest |
@@ -52,7 +53,9 @@ spectra-quick.sh   # ad-hoc single task (skips planning)
 ## Key Concepts
 
 - **Signs** — Known bug patterns (10 active). See `guardrails-global.md`
+- **Goal Contract** — Required decisions and measurable outcomes in `.spectra/goals.md`
 - **Wiring Proof** — 5-check verification that code is actually connected
+- **Runtime Probe** — Bounded endpoint/command evidence for infra and deploy tasks
 - **Clean Context** — Each builder session starts fresh, state lives in files
 - **Scale Levels** — 0 (micro) to 4 (enterprise), right-sized planning depth
 - **Feedback Loops** — Per-task metrics, adaptive retry, auto-profile selection from execution history

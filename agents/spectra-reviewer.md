@@ -132,7 +132,7 @@ When invoked with a negotiate signal (`.spectra/signals/NEGOTIATE`), evaluate th
 
 1. Read the negotiate signal file for the constraint, affected clause, proposed adaptation, and impact
 2. Read `constitution.md` — does the adaptation violate any project constraints?
-3. Read `non-goals.md` (if present) — does the adaptation push the project toward a declared non-goal?
+3. Read `goals.md` and `non-goals.md` (when present) — does the adaptation preserve the agreed goal and avoid declared non-goals?
 4. Read `plan.md` — does the adaptation affect downstream tasks?
 
 **Output your verdict to `.spectra/signals/NEGOTIATE_REVIEW`:**

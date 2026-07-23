@@ -53,3 +53,22 @@ rules:
 
   # Signs file — learned constraints auto-parsed into rules
   signs_file: ""           # e.g. "src/guardrails.md"
+
+# Runtime/deploy probe (Step 5 of the verifier).
+# Runs when SPECTRA_RUNTIME_PROBE=1, or automatically for an infra/deploy task
+# when a URL or command is configured. Set SPECTRA_RUNTIME_PROBE=0 to disable.
+# Proves a *running* deployment is healthy — complements the static 4-step
+# audit. Explicit SPECTRA_PROBE_* env vars override the values below.
+# Advisory by default: a failed probe warns but does not fail the verdict
+# unless blocking: true (or SPECTRA_RUNTIME_PROBE_BLOCKING=1).
+runtime:
+  # HTTP health check (leave url empty to use a smoke command instead):
+  url: ""                  # e.g. "http://127.0.0.1:8080/healthz"
+  expect_status: 200       # expected HTTP status (0 = any, connection only)
+  expect_body: ""          # optional substring that must appear in the body
+  # Smoke command alternative (used when url is empty):
+  command: ""              # e.g. "curl -fsS localhost:8080/health | grep ok"
+  retries: 5               # attempts before giving up (absorbs cold starts)
+  interval: 2              # seconds between attempts
+  timeout: 30              # seconds allowed per smoke-command attempt
+  blocking: false          # true = a failed probe fails verification
