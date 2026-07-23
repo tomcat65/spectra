@@ -223,9 +223,12 @@ echo "  Test: pre-commit hook runs completed-only mode (no --task flag)"
 
 HOOK="${SPECTRA_DIR}/hooks/pre-commit"
 if [[ -f "${HOOK}" ]]; then
-    # Check that the exec line calls spectra-verify-wiring.sh but does NOT pass --task
-    EXEC_LINE=$(grep -E '^\s*(exec\s+)?".*spectra-verify-wiring' "${HOOK}" || true)
-    if [[ -n "${EXEC_LINE}" ]] && ! echo "${EXEC_LINE}" | grep -q "\-\-task"; then
+    # The hook resolves the verifier through a variable so symlink-safe
+    # SPECTRA_HOME detection remains testable without requiring a literal path
+    # on the exec line.
+    VERIFIER_LINE=$(grep -E '^[[:space:]]*VERIFIER=.*spectra-verify-wiring\.sh' "${HOOK}" || true)
+    EXEC_LINE=$(grep -E '^[[:space:]]*exec[[:space:]]+"\$\{VERIFIER\}"' "${HOOK}" || true)
+    if [[ -n "${VERIFIER_LINE}" && -n "${EXEC_LINE}" ]] && ! echo "${EXEC_LINE}" | grep -q -- "--task"; then
         echo "  PASS  pre-commit hook invokes wiring check without --task (completed-only)"
         PASS=$((PASS + 1))
     else

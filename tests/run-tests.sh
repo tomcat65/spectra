@@ -160,6 +160,8 @@ run_script_suite "phaseF-metrics" "test-phaseF-metrics.sh"
 run_script_suite "phaseF-feedback-loops" "test-phaseF-feedback-loops.sh"
 run_script_suite "structured-helper" "test-structured-helper.sh"
 run_script_suite "verify-project-trials" "test-verify-project-trials.sh"
+run_script_suite "verdict-extraction" "test-verdict-extraction.sh"
+run_script_suite "wiring-scope" "test-wiring-scope.sh"
 
 # ══════════════════════════════════════════
 # Summary
