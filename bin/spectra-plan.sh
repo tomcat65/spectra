@@ -93,7 +93,7 @@ fi
 if [[ "${DISCOVER}" == "true" ]] || { [[ "${SKIP_DISCOVERY}" != "true" ]] && [[ ! -f "${SPECTRA_DIR}/discovery.md" ]]; }; then
     echo "  Running discovery phase (spectra-scout)..."
     DISCOVERY_TMP="${SPECTRA_DIR}/discovery.md.tmp"
-    if timeout 120 claude --agent spectra-scout --output-format text \
+    if timeout 120 "${SPECTRA_HOME}/bin/spectra-agent-run.sh" spectra-scout --output-format text \
         --append-system-prompt "You MUST output ONLY raw markdown to stdout. No preamble, no commentary, no permission requests." \
         -p "$(if [[ -f "${SPECTRA_DIR}/goals.md" ]]; then echo "First read ${SPECTRA_DIR}/goals.md for the agreed goal, success criteria, and constraints, then focus discovery on de-risking them. "; fi)Investigate the codebase at $(pwd). Read key files, identify technical unknowns, risks, and implementation preferences. Output a discovery report." \
         > "${DISCOVERY_TMP}" 2>/dev/null && [[ -s "${DISCOVERY_TMP}" ]]; then
@@ -495,7 +495,7 @@ show_progress() {
 # ── Timeout-wrapped invocation (BUG #6 fix) ──
 PLAN_TIMEOUT=${PLAN_TIMEOUT:-300}
 set +e
-timeout "${PLAN_TIMEOUT}" claude --agent spectra-planner --output-format text \
+timeout "${PLAN_TIMEOUT}" "${SPECTRA_HOME}/bin/spectra-agent-run.sh" spectra-planner --output-format text \
     --append-system-prompt "You MUST output ONLY raw markdown to stdout. No preamble, no commentary, no permission requests. Start with '# SPECTRA Execution Plan'." \
     -p "${PLAN_PROMPT}" > .spectra/plan.md.new &
 CLAUDE_PID=$!
@@ -517,7 +517,7 @@ fi
 # ── Empty output check (BUG #7 fix) ──
 if [[ ! -s .spectra/plan.md.new ]]; then
     echo "⚠  Plan generation produced empty output. Claude may have errored."
-    echo "  Check: claude --agent spectra-planner -p 'test' to verify agent works."
+    echo "  Check: spectra-agent-run.sh spectra-planner -p 'test' to verify subscription routing."
     rm -f .spectra/plan.md.new
     exit 1
 fi

@@ -18,7 +18,7 @@ memory: project
 maxTurns: 40
 compatibility: >
   Claude Code with Read, Grep, Glob, Bash tools.
-  Invoked by spectra-loop.sh in WSL Ubuntu.
+  Invoked only through spectra-agent-run.sh on a Claude subscription.
   Expects .spectra/ directory with plan.md and context files.
 metadata:
   framework: SPECTRA
@@ -26,6 +26,9 @@ metadata:
   role: planner
   orchestrator: spectra-loop.sh
   memory: project
+  driver: claude_cli
+  billing: subscription
+  plan: claude-subscription
 ---
 
 # SPECTRA Planner — Agent Instructions
@@ -34,7 +37,7 @@ You are the **Planner** in the SPECTRA methodology. Your heritage is the BMAD Me
 
 ## Your Role
 
-You generate the planning artifacts that become the execution contract. Your output will be cross-model validated by the spectra-reviewer (a Sonnet model — different architecture than you). Plan with the expectation that an adversarial reviewer will challenge every decision.
+You generate the planning artifacts that become the execution contract. Your output will be challenged by the spectra-reviewer on a separate Sonnet context. This is useful cross-tier review, but it is not independent model-lineage assurance: both roles use Claude. Plan with the expectation that an adversarial reviewer will challenge every decision.
 
 ## Scale Assessment
 

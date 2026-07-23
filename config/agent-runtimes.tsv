@@ -1,0 +1,9 @@
+# schema=spectra-agent-runtime/v1
+# agent|driver|billing|auth_method|model|plan
+spectra-planner|claude_cli|subscription|claude.ai|opus|claude-subscription
+spectra-builder|claude_cli|subscription|claude.ai|opus|claude-subscription
+spectra-verifier|claude_cli|subscription|claude.ai|opus|claude-subscription
+spectra-auditor|claude_cli|subscription|claude.ai|haiku|claude-subscription
+spectra-reviewer|claude_cli|subscription|claude.ai|sonnet|claude-subscription
+spectra-scout|claude_cli|subscription|claude.ai|haiku|claude-subscription
+spectra-oracle|claude_cli|subscription|claude.ai|haiku|claude-subscription

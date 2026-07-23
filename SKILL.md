@@ -32,7 +32,7 @@ Discovery → Scale Assessment → Specification → Execution → Verification 
 ## Quick Start
 
 ```bash
-spectra-doctor.sh  # report environment blockers and safety warnings
+spectra-doctor.sh  # verify environment, safety, and subscription-only auth
 spectra-init.sh    # scaffold .spectra/ in your project
 spectra-elicit.sh  # complete/check the goal contract before planning
 spectra-loop.sh    # start the build loop
@@ -41,15 +41,15 @@ spectra-quick.sh   # ad-hoc single task (skips planning)
 
 ## Agents
 
-| Agent | Model | Role |
-|-------|-------|------|
-| spectra-planner | opus | Planning artifacts (constitution, PRD, plan.md) |
-| spectra-builder | opus | Implements one task per session from plan.md |
-| spectra-verifier | opus | Independent 4-step verification plus optional runtime signal |
-| spectra-auditor | haiku | Fast pre-flight Sign violation scanner |
-| spectra-reviewer | sonnet | Adversarial cross-model plan validation |
-| spectra-scout | haiku | Brownfield discovery and risk manifest |
-| spectra-oracle | haiku | Failure classification (3 turns max) |
+| Agent | Model | Billing | Role |
+|-------|-------|---------|------|
+| spectra-planner | opus | Claude subscription | Planning artifacts (constitution, PRD, plan.md) |
+| spectra-builder | opus | Claude subscription | Implements one task per session from plan.md |
+| spectra-verifier | opus | Claude subscription | Independent 4-step verification plus optional runtime signal |
+| spectra-auditor | haiku | Claude subscription | Fast pre-flight Sign violation scanner |
+| spectra-reviewer | sonnet | Claude subscription | Separate-context, cross-tier plan validation |
+| spectra-scout | haiku | Claude subscription | Brownfield discovery and risk manifest |
+| spectra-oracle | haiku | Claude subscription | Failure classification (3 turns max) |
 
 ## Key Concepts
 
@@ -58,6 +58,7 @@ spectra-quick.sh   # ad-hoc single task (skips planning)
 - **Wiring Proof** — 5-check verification that code is actually connected
 - **Runtime Probe** — Bounded endpoint/command evidence for infra and deploy tasks
 - **CI Parity** — Local and GitHub lint call the same repository-owned gate
+- **Subscription Boundary** — Every agent call strips API credentials and requires `claude.ai` subscription auth
 - **Clean Context** — Each builder session starts fresh, state lives in files
 - **Scale Levels** — 0 (micro) to 4 (enterprise), right-sized planning depth
 - **Feedback Loops** — Per-task metrics, adaptive retry, auto-profile selection from execution history
@@ -68,3 +69,4 @@ spectra-quick.sh   # ad-hoc single task (skips planning)
 - `guardrails-global.md` — Active Signs and guardrails
 - `agents/references/` — Signs taxonomy, failure types, report templates
 - `docs/SPECTRA_IMPROVEMENT_PLAN.md` — Evidence gates for future rating promotion
+- `docs/SUBSCRIPTION_ROUTING.md` — Prepaid agent drivers, auth enforcement, and limitations

@@ -1,8 +1,12 @@
 {
   "shellcheck_version": "0.10.0",
-  "generated_at": "2026-07-23T01:17:40Z",
+  "generated_at": "2026-07-23T01:46:03Z",
   "files": {
     "bin/plan-extract.sh": {
+      "total": 0,
+      "rules": {}
+    },
+    "bin/spectra-agent-run.sh": {
       "total": 0,
       "rules": {}
     },

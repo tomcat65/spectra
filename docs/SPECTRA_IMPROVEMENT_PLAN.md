@@ -24,6 +24,8 @@ SPECTRA may claim **8/10** only after all of these are true:
 6. A controlled corpus of at least ten representative projects records human
    interventions, false-STUCK rate, first-pass rate, elapsed time, and cost
    against a simpler agent-plus-CI baseline.
+7. Every model invocation has an explicit subscription driver, rejects API-key
+   auth, and documents when provider quota cannot be measured or enforced.
 
 SPECTRA may claim **9/10** only when the benchmark shows a material improvement
 without weaker correctness, security, or release evidence. A 10/10 claim is not
@@ -38,6 +40,15 @@ credible for an evolving autonomous engineering system.
   exposes JSON for automation.
 - Add deterministic failure-injection tests for parity and doctor behavior.
 - Gate: focused tests, ShellCheck ratchet, and the complete aggregate suite pass.
+
+### P0.1 — Subscription Billing Boundary
+
+- Route every shipped agent through one subscription-only launcher.
+- Strip model API/auth override variables before both auth checks and execution.
+- Require `claude.ai` auth plus an active subscription type and fail closed.
+- Keep optional operational APIs distinct from model inference billing.
+- Gate: negative tests prove API-key auth, missing plan data, undeclared agents,
+  per-token drivers, and environment-key leakage are rejected.
 
 ### P1 — Typed State Core
 

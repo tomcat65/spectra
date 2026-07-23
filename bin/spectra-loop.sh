@@ -124,13 +124,14 @@ Options:
   --fresh           Force new run branch (ignore checkpoint branch, start clean)
   --dry-run         Print what would be executed without spawning agents
   --risk-first      Execute high-risk tasks first (default on for Level 2+)
-  --cost-ceiling N  Override cost ceiling from project.yaml (USD)
+  --cost-ceiling N  Override legacy informational USD metadata (not enforced)
   --max-batch N     Max parallel builders per batch (default: 4, Level 0-2 forces 1)
   --builder-timeout N  Seconds before killing a hung builder (default: 600)
   -h, --help        Show this help
 
 Architecture (v5.5):
   Bash is the orchestrator. LLMs are workers.
+  Agent billing is prepaid Claude subscription quota through spectra-agent-run.sh.
   - Planner (Opus)  — generates plan artifacts
   - Reviewer (Sonnet) — validates plan + final PR review
   - Auditor (Haiku) — pre-flight Sign scanning
@@ -730,7 +731,7 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
         fi
 
         echo "  Spawning spectra-reviewer (Sonnet) for plan validation..."
-        claude --agent spectra-reviewer -p --permission-mode plan --fallback-model haiku \
+        "${SPECTRA_HOME}/bin/spectra-agent-run.sh" spectra-reviewer -p --permission-mode plan --fallback-model haiku \
             --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
             "Review all planning artifacts in .spectra/ (constitution.md, plan.md, prd.md if present). Output your verdict following the exact format in your instructions. Include a 'Verdict:' line (APPROVED, APPROVED_WITH_WARNINGS, or REJECTED)." \
             2>&1 | tee "${LOGS_DIR}/plan-review.log" "${SIGNALS_DIR}/plan-review.md" || true
@@ -767,7 +768,7 @@ if [[ "$SKIP_PLANNING" == false ]] && [[ ! -f "${SIGNALS_DIR}/plan-review.md" ]]
                     fi
 
                     rm -f "${SIGNALS_DIR}/plan-review.md"
-                    claude --agent spectra-reviewer -p --permission-mode plan --fallback-model haiku \
+                    "${SPECTRA_HOME}/bin/spectra-agent-run.sh" spectra-reviewer -p --permission-mode plan --fallback-model haiku \
                         --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
                         "Re-review the revised planning artifacts in .spectra/. This is the second review. Output your verdict with a 'Verdict:' line." \
                         2>&1 | tee "${LOGS_DIR}/plan-re-review.log" "${SIGNALS_DIR}/plan-review.md" || true
@@ -888,7 +889,8 @@ echo ""
 echo "  SPECTRA v5.5 Execution Loop"
 echo "  ────────────────────────────────────"
 echo "  Tasks:        ${DONE}/${TOTAL} complete (${REMAINING} remaining, ${STUCK_COUNT} stuck)"
-echo "  Cost Ceiling: \$${COST_CEILING}"
+echo "  Agent Billing: Claude subscription (prepaid quota)"
+echo "  Legacy Budget: \$${COST_CEILING} (informational; not enforced)"
 echo "  Branch:       ${BRANCH_NAME}"
 echo "  Level:        ${PROJECT_LEVEL}"
 echo "  Max Batch:    ${MAX_BATCH_SIZE}"
@@ -963,7 +965,7 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
             task_id="${TASK_IDS[$idx]}"
             write_batch_status "${batch_desc}" "auditor"
 
-            claude --agent spectra-auditor -p --permission-mode plan --fallback-model sonnet \
+            "${SPECTRA_HOME}/bin/spectra-agent-run.sh" spectra-auditor -p --permission-mode plan --fallback-model sonnet \
                 "$(preflight_prompt "$task_id")" \
                 2>&1 | tee "${LOGS_DIR}/task-${task_id}-preflight.log" "${LOGS_DIR}/task-${task_id}-preflight.md" &
             audit_pids+=($!)
@@ -1066,7 +1068,7 @@ while [[ $LOOP_COUNT -lt $MAX_TASKS ]]; do
         echo "    Verifying Task ${task_id} (${verify_depth})..."
         VERIFY_START=$(date +%s)
         set +e
-        claude --agent spectra-verifier -p --permission-mode bypassPermissions \
+        "${SPECTRA_HOME}/bin/spectra-agent-run.sh" spectra-verifier -p --permission-mode bypassPermissions \
             --fallback-model sonnet \
             --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
             "$(verify_prompt "$idx" "$verify_depth")" \
@@ -1284,7 +1286,7 @@ FAILEOF
     if [[ -f "${SIGNALS_DIR}/NEGOTIATE" ]]; then
         echo "  Negotiate signal detected — routing to reviewer..."
         last_task_id="${TASK_IDS[${BATCH[-1]}]}"
-        claude --agent spectra-reviewer -p --permission-mode plan --fallback-model haiku \
+        "${SPECTRA_HOME}/bin/spectra-agent-run.sh" spectra-reviewer -p --permission-mode plan --fallback-model haiku \
             --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
             "A builder has raised a spec negotiation for Task ${last_task_id}. Read .spectra/signals/NEGOTIATE for the proposed adaptation. Evaluate against goals.md, constitution.md, and non-goals.md. Output your verdict with a 'Verdict:' line." \
             2>&1 | tee "${LOGS_DIR}/negotiate-review.log" "${SIGNALS_DIR}/NEGOTIATE_REVIEW" | tail -5 || true
@@ -1341,7 +1343,7 @@ if [[ $REMAINING -eq 0 ]] && [[ $TOTAL -gt 0 ]]; then
 
     if [[ "$DRY_RUN" == false ]]; then
         echo "  Spawning spectra-reviewer (Sonnet) for final PR review..."
-        claude --agent spectra-reviewer -p --permission-mode plan --fallback-model haiku \
+        "${SPECTRA_HOME}/bin/spectra-agent-run.sh" spectra-reviewer -p --permission-mode plan --fallback-model haiku \
             --append-system-prompt "${VERDICT_SYSTEM_PROMPT}" \
             "Perform a final PR review. Read .spectra/logs/ for all task reports. Review the git diff. Check the JSONL lessons in ~/.spectra/lessons/projects/ for patterns worth promoting. Output your review." \
             2>&1 | tee "${LOGS_DIR}/pr-review-session.log" "${LOGS_DIR}/pr-review.md" || true

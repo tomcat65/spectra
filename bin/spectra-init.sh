@@ -55,16 +55,19 @@ Options:
   --linear             Enable Linear issue tracking
   --slack              Enable Slack notifications
   --no-commit          Skip initial git commit
-  --cost-ceiling N     Cost ceiling in USD (default: 50.00)
-  --per-task-budget N  Per-task budget in USD (default: 10.00)
+  --cost-ceiling N     Legacy informational USD field; not an enforced agent cost guard
+  --per-task-budget N  Legacy informational USD field; not an enforced agent cost guard
   -h, --help           Show this help
 
 Architecture (v5.5 — All-Anthropic):
   spectra-planner   Opus    Planning artifacts
-  spectra-reviewer  Sonnet  Cross-model plan validation
+  spectra-reviewer  Sonnet  Same-lineage cross-tier plan validation
   spectra-auditor   Haiku   Pre-flight Sign scanning
   spectra-builder   Opus    Task implementation
   spectra-verifier  Opus    Independent 4-step audit (read-only)
+
+Billing: every role uses the prepaid Claude subscription through
+spectra-agent-run.sh; API-key auth is rejected.
 EOF
             exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
@@ -209,7 +212,7 @@ else
     echo "  WARN: verify.yaml.template not found. Skipping wiring verification setup."
 fi
 
-# ── Generate project.yaml (v5.5 — All-Anthropic agents) ──
+# ── Generate project.yaml (v5.5 — subscription-routed Claude agents) ──
 cat > .spectra/project.yaml <<YAML
 # SPECTRA v5.5 Project Configuration
 name: ${PROJECT_NAME}
@@ -218,15 +221,24 @@ created: ${DATE}
 status: initialized
 spectra_version: "5.1"
 
-# All-Anthropic Agent Roster (Claude Code Tier 2 Subagents)
+# Agent Runtime (enforced by config/agent-runtimes.tsv)
+agent_runtime:
+  driver: claude_cli
+  billing: subscription
+  auth_method: claude.ai
+  plan: claude-subscription
+  model_api_keys_allowed: false
+
+# Claude Agent Roster
 agents:
   planner: spectra-planner     # Opus — generates planning artifacts
-  reviewer: spectra-reviewer   # Sonnet — cross-model plan validation
+  reviewer: spectra-reviewer   # Sonnet — separate-context cross-tier validation
   auditor: spectra-auditor     # Haiku — pre-flight Sign scanning
   builder: spectra-builder     # Opus — task implementation
   verifier: spectra-verifier   # Opus — independent 4-step audit (read-only)
 
-# Cost Governance (Autonomy Contract §6)
+# Legacy informational budget metadata. The loop does not meter or enforce USD
+# spend for subscription-backed CLI calls.
 cost:
   ceiling: ${COST_CEILING}
   per_task_budget: ${PER_TASK_BUDGET}

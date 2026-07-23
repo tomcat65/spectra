@@ -25,7 +25,7 @@ memory: project
 maxTurns: 50
 compatibility: >
   Claude Code with Bash, Edit, Write, Read tools.
-  Invoked by spectra-loop.sh in WSL Ubuntu.
+  Invoked only through spectra-agent-run.sh on a Claude subscription.
   Expects .spectra/ directory with plan.md and context files.
 metadata:
   framework: SPECTRA
@@ -33,6 +33,9 @@ metadata:
   role: builder
   orchestrator: spectra-loop.sh
   memory: project
+  driver: claude_cli
+  billing: subscription
+  plan: claude-subscription
 hooks:
   PostToolUse:
     - matcher: "Edit|Write"

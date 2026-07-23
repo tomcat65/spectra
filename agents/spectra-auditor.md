@@ -2,7 +2,7 @@
 name: spectra-auditor
 description: >
   SPECTRA Auditor agent. Fast pre-flight guardrails scanner using Haiku for
-  minimal cost. Scans codebase for Sign violations before builder starts.
+  lower prepaid-quota use. Scans codebase for Sign violations before builder starts.
   User-scope memory accumulates violation patterns across all projects.
   Use when: pre-flight Sign violation scan needed before task execution.
   Use when: quick codebase health check requested.
@@ -22,7 +22,7 @@ memory: user
 maxTurns: 10
 compatibility: >
   Claude Code with Read, Grep, Glob tools.
-  Invoked by spectra-loop.sh in WSL Ubuntu.
+  Invoked only through spectra-agent-run.sh on a Claude subscription.
   Expects .spectra/ directory with plan.md and context files.
 metadata:
   framework: SPECTRA
@@ -30,6 +30,9 @@ metadata:
   role: auditor
   orchestrator: spectra-loop.sh
   memory: user
+  driver: claude_cli
+  billing: subscription
+  plan: claude-subscription
 ---
 
 # SPECTRA Auditor — Agent Instructions

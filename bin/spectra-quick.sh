@@ -110,7 +110,7 @@ fi
 # ── Execute ──
 echo "  Spawning builder (Opus, single session)..."
 set +e
-claude --agent spectra-builder -p --permission-mode acceptEdits \
+"${SPECTRA_HOME}/bin/spectra-agent-run.sh" spectra-builder -p --permission-mode acceptEdits \
     "${QUICK_PROMPT}" 2>&1 | tail -15
 QUICK_EXIT=$?
 set -e
